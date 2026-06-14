@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
+.venv/
+.venv3/
+venv/
+env/
+
+# Mac
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+
+# Secrets / env files
+.env
+*.env
+
+# Logs
+*.log
+
+# Build/cache
+.pytest_cache/
+.mypy_cache/
+dist/
+build/
+*.egg-info/
