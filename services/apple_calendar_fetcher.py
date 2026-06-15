@@ -112,7 +112,8 @@ def fetch_icloud_calendar_events(apple_id_email, app_specific_password, days_ahe
     if days_ahead > 60:
         days_ahead = 60
 
-    start = datetime.now(LOCAL_TIMEZONE)
+    now = datetime.now(LOCAL_TIMEZONE)
+    start = datetime.combine(now.date(), time.min, tzinfo=LOCAL_TIMEZONE)
     end = start + timedelta(days=days_ahead)
 
     client = caldav.DAVClient(

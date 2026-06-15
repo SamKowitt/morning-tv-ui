@@ -1,7 +1,137 @@
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from datetime import datetime, timedelta
 
+from PySide6.QtCore import Qt, QTime, QTimer
+from PySide6.QtWidgets import (
+    QDialog,
+    QDialogButtonBox,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QTimeEdit,
+    QVBoxLayout,
+    QWidget,
+)
+
+from services.pushover_notifier import send_pushover_notification
 from ui.auto_fit_label import AutoFitLabel
+
+
+class ReminderTimeDialog(QDialog):
+    def __init__(self, reminder_text, parent=None):
+        super().__init__(parent)
+
+        self.reminder_text = reminder_text
+
+        self.setObjectName("ReminderTimeDialog")
+        self.setWindowTitle("Set Reminder Time")
+        self.setModal(True)
+        self.setFixedSize(390, 210)
+
+        layout = QVBoxLayout()
+        layout.setContentsMargins(22, 18, 22, 18)
+        layout.setSpacing(12)
+        self.setLayout(layout)
+
+        title = QLabel("SET REMINDER")
+        title.setObjectName("ReminderDialogTitle")
+        title.setAlignment(Qt.AlignCenter)
+
+        event_label = QLabel(reminder_text)
+        event_label.setObjectName("ReminderDialogEvent")
+        event_label.setAlignment(Qt.AlignCenter)
+        event_label.setWordWrap(True)
+
+        prompt = QLabel("Select a time to receive this reminder:")
+        prompt.setObjectName("ReminderDialogPrompt")
+        prompt.setAlignment(Qt.AlignLeft)
+
+        self.time_input = QTimeEdit()
+        self.time_input.setObjectName("ReminderTimeInput")
+        self.time_input.setDisplayFormat("h:mm AP")
+        self.time_input.setTime(QTime(17, 0))
+        self.time_input.setAlignment(Qt.AlignCenter)
+        self.time_input.setMinimumHeight(42)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Cancel | QDialogButtonBox.Save)
+        buttons.setObjectName("ReminderDialogButtons")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+
+        layout.addWidget(title)
+        layout.addWidget(event_label)
+        layout.addWidget(prompt)
+        layout.addWidget(self.time_input)
+        layout.addWidget(buttons)
+
+        self.setStyleSheet("""
+            QDialog#ReminderTimeDialog {
+                background: #f5ead7;
+                border: 2px solid rgba(83, 59, 33, 0.35);
+                border-radius: 18px;
+            }
+
+            QLabel#ReminderDialogTitle {
+                color: #2d2114;
+                background: transparent;
+                font-size: 20px;
+                font-weight: 1000;
+                letter-spacing: 1px;
+            }
+
+            QLabel#ReminderDialogEvent {
+                color: rgba(45, 33, 20, 0.88);
+                background: transparent;
+                font-size: 13px;
+                font-weight: 900;
+            }
+
+            QLabel#ReminderDialogPrompt {
+                color: rgba(45, 33, 20, 0.78);
+                background: transparent;
+                font-size: 12px;
+                font-weight: 800;
+            }
+
+            QTimeEdit#ReminderTimeInput {
+                color: #2d2114;
+                background: rgba(255, 255, 255, 0.78);
+                border: 1px solid rgba(83, 59, 33, 0.32);
+                border-radius: 12px;
+                padding: 6px 12px;
+                font-size: 20px;
+                font-weight: 1000;
+                selection-background-color: rgba(196, 139, 61, 0.35);
+            }
+
+            QTimeEdit#ReminderTimeInput::up-button,
+            QTimeEdit#ReminderTimeInput::down-button {
+                width: 22px;
+                border: none;
+                background: transparent;
+            }
+
+            QDialogButtonBox#ReminderDialogButtons QPushButton {
+                color: #2d2114;
+                background: rgba(255, 255, 255, 0.72);
+                border: 1px solid rgba(83, 59, 33, 0.28);
+                border-radius: 10px;
+                padding: 7px 16px;
+                font-size: 12px;
+                font-weight: 900;
+                min-width: 78px;
+            }
+
+            QDialogButtonBox#ReminderDialogButtons QPushButton:hover {
+                background: rgba(255, 255, 255, 0.92);
+            }
+        """)
+
+    def selected_qtime(self):
+        return self.time_input.time()
+
+    def selected_time_text(self):
+        return self.time_input.time().toString("h:mm AP")
 
 
 class ReminderItem(QWidget):
@@ -10,6 +140,8 @@ class ReminderItem(QWidget):
 
         self.today = today
         self.reminder_text = text
+        self.active_timers = []
+
         self.setObjectName("TodayReminderRow" if today else "UpcomingReminderRow")
         self.setAttribute(Qt.WA_StyledBackground, True)
 
@@ -45,13 +177,64 @@ class ReminderItem(QWidget):
             send_button.setObjectName("ReminderSendButton")
             send_button.setCursor(Qt.PointingHandCursor)
             send_button.setFixedWidth(92)
-            send_button.clicked.connect(self.send_reminder)
+            send_button.clicked.connect(self.open_reminder_time_popup)
 
             layout.addStretch(1)
             layout.addWidget(send_button, 0, Qt.AlignRight | Qt.AlignVCenter)
 
-    def send_reminder(self):
-        print(f"Send Reminder clicked for: {self.reminder_text}")
+    def open_reminder_time_popup(self):
+        dialog = ReminderTimeDialog(self.reminder_text, self)
+
+        if dialog.exec() == QDialog.Accepted:
+            selected_qtime = dialog.selected_qtime()
+            selected_time_text = dialog.selected_time_text()
+
+            self.schedule_pushover_reminder(selected_qtime, selected_time_text)
+
+    def schedule_pushover_reminder(self, selected_qtime, selected_time_text):
+        now = datetime.now()
+
+        scheduled_time = now.replace(
+            hour=selected_qtime.hour(),
+            minute=selected_qtime.minute(),
+            second=0,
+            microsecond=0,
+        )
+
+        if scheduled_time <= now:
+            scheduled_time = scheduled_time + timedelta(days=1)
+
+        delay_ms = int((scheduled_time - now).total_seconds() * 1000)
+
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+
+        def send_due_reminder():
+            try:
+                send_pushover_notification(
+                    title=self.reminder_text,
+                    message="Reminder",
+                )
+                print(f"Sent Pushover reminder: {self.reminder_text}")
+            except Exception as error:
+                print(f"Failed to send Pushover reminder: {error}")
+            finally:
+                if timer in self.active_timers:
+                    self.active_timers.remove(timer)
+                timer.deleteLater()
+
+        timer.timeout.connect(send_due_reminder)
+        timer.start(delay_ms)
+
+        self.active_timers.append(timer)
+
+        QMessageBox.information(
+            self,
+            "Reminder Scheduled",
+            f"Reminder scheduled for {selected_time_text}.",
+        )
+
+        print(f"Scheduled reminder for '{self.reminder_text}' at {scheduled_time}")
 
 
 class RemindersPanel(QWidget):
@@ -123,14 +306,24 @@ class RemindersPanel(QWidget):
 
         if today_events:
             for event in today_events[:3]:
-                text = f"{event.when_text}  •  {event.title}"
-                today_widgets.append((ReminderItem("📅", text, today=True), 2))
+                text = f"{event.title} - {event.when_text}"
+                today_widgets.append(
+                    (
+                        ReminderItem(
+                            "📅",
+                            text,
+                            today=True,
+                            show_reminder_button=True,
+                        ),
+                        2,
+                    )
+                )
         else:
             today_widgets.append((ReminderItem("📅", "No Apple Calendar events today", today=True), 2))
 
         if upcoming_events:
             for event in upcoming_events[:5]:
-                text = f"{event.when_text}  •  {event.title}"
+                text = f"{event.title} - {event.when_text}"
                 upcoming_widgets.append((ReminderItem("🗓️", text), 1))
         else:
             upcoming_widgets.append((ReminderItem("🗓️", "No upcoming Apple Calendar events"), 1))
