@@ -16,7 +16,6 @@ class GamesPaperDivider(QFrame):
 class BlankGameSlot(QWidget):
     def __init__(self):
         super().__init__()
-
         self.setObjectName("PaperGameBlankSlot")
         self.setAttribute(Qt.WA_StyledBackground, True)
 
@@ -62,7 +61,6 @@ class GameListing(QWidget):
             word_wrap=True,
         )
         matchup_label.setObjectName("PaperGameMatchup")
-
         info.addWidget(matchup_label, 2)
 
         if detail:
@@ -115,9 +113,6 @@ class LeagueColumn(QWidget):
         real_games = games[:3]
         compact = len(real_games) >= 3
 
-        # 1 game -> show 1 game + 1 blank slot
-        # 2 games -> show 2 games
-        # 3 games -> show 3 compact games
         slots = real_games[:]
 
         while len(slots) < 2:
@@ -139,6 +134,45 @@ class LeagueColumn(QWidget):
                 )
 
 
+class EmptyGamesMessage(QWidget):
+    def __init__(self, message):
+        super().__init__()
+
+        self.setObjectName("PaperLeagueColumn")
+        self.setAttribute(Qt.WA_StyledBackground, True)
+
+        layout = QVBoxLayout()
+        layout.setContentsMargins(12, 8, 12, 8)
+        layout.setSpacing(4)
+        self.setLayout(layout)
+
+        title = AutoFitLabel(
+            "NO CURRENT GAMES",
+            min_size=10,
+            max_size=20,
+            bold=True,
+            alignment=Qt.AlignCenter,
+            word_wrap=False,
+        )
+        title.setObjectName("PaperLeagueTitle")
+
+        body = AutoFitLabel(
+            message,
+            min_size=8,
+            max_size=14,
+            bold=True,
+            alignment=Qt.AlignCenter,
+            word_wrap=True,
+        )
+        body.setObjectName("PaperGameDetail")
+
+        layout.addStretch(1)
+        layout.addWidget(title)
+        layout.addWidget(GamesPaperDivider())
+        layout.addWidget(body)
+        layout.addStretch(1)
+
+
 class SportsGamesPanel(QWidget):
     def __init__(self):
         super().__init__()
@@ -155,7 +189,7 @@ class SportsGamesPanel(QWidget):
         header.setSpacing(8)
 
         masthead = AutoFitLabel(
-            "SPORTS",
+            "Game Times:",
             min_size=14,
             max_size=27,
             bold=True,
@@ -164,7 +198,7 @@ class SportsGamesPanel(QWidget):
         )
         masthead.setObjectName("PaperMasthead")
 
-        edition = AutoFitLabel(
+        self.edition = AutoFitLabel(
             "Today's Games",
             min_size=6,
             max_size=10,
@@ -172,55 +206,19 @@ class SportsGamesPanel(QWidget):
             alignment=Qt.AlignRight | Qt.AlignVCenter,
             word_wrap=False,
         )
-        edition.setObjectName("PaperEditionLine")
+        self.edition.setObjectName("PaperEditionLine")
 
         header.addWidget(masthead, 35)
-        header.addWidget(edition, 65)
+        header.addWidget(self.edition, 65)
 
         main.addLayout(header, 14)
         main.addWidget(GamesPaperDivider())
 
-        columns = QHBoxLayout()
-        columns.setSpacing(6)
-        columns.setContentsMargins(0, 0, 0, 0)
+        self.columns = QHBoxLayout()
+        self.columns.setSpacing(6)
+        self.columns.setContentsMargins(0, 0, 0, 0)
 
-        columns.addWidget(
-            LeagueColumn(
-                "⚾",
-                "MLB",
-                [
-                    ("Yankees @ Mets", "7:15 PM", "Schlittler vs. Seaver")
-                ],
-            ),
-            1,
-        )
-
-        columns.addWidget(
-            LeagueColumn(
-                "🏈",
-                "NFL",
-                [
-                    ("Panthers @ Commanders", "1:05 PM", ""),
-                    ("Chiefs @ Giants", "3:15 PM", ""),
-                    ("Browns @ Ravens", "8:20 PM", ""),
-                ],
-            ),
-            1,
-        )
-
-        columns.addWidget(
-            LeagueColumn(
-                "🏀",
-                "NBA",
-                [
-                    ("Hornets @ Warriors", "6:30 PM", ""),
-                    ("Bulls @ Spurs", "7:30 PM", ""),
-                ],
-            ),
-            1,
-        )
-
-        main.addLayout(columns, 74)
+        main.addLayout(self.columns, 74)
 
         footer = QHBoxLayout()
         footer.setContentsMargins(0, 0, 0, 0)
@@ -238,3 +236,118 @@ class SportsGamesPanel(QWidget):
 
         main.addWidget(GamesPaperDivider())
         main.addLayout(footer, 6)
+
+        self.set_loading()
+
+    def clear_columns(self):
+        while self.columns.count():
+            item = self.columns.takeAt(0)
+            widget = item.widget()
+
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+
+    def set_loading(self):
+        self.edition.setText("Loading live schedules")
+        self.clear_columns()
+
+        self.columns.addWidget(
+            EmptyGamesMessage("Checking MLB, NFL, and NBA schedules..."),
+            1,
+        )
+
+    def set_error(self, message="Unable to load live games."):
+        self.edition.setText("Schedule unavailable")
+        self.clear_columns()
+
+        self.columns.addWidget(
+            EmptyGamesMessage(message),
+            1,
+        )
+
+    def normalize_game(self, game):
+        if isinstance(game, dict):
+            return (
+                game.get("matchup", ""),
+                game.get("time", ""),
+                game.get("detail", ""),
+            )
+
+        if isinstance(game, (tuple, list)):
+            matchup = game[0] if len(game) > 0 else ""
+            time = game[1] if len(game) > 1 else ""
+            detail = game[2] if len(game) > 2 else ""
+            return matchup, time, detail
+
+        return (
+            getattr(game, "matchup", ""),
+            getattr(game, "time", ""),
+            getattr(game, "detail", ""),
+        )
+
+    def normalize_league(self, league_data):
+        if isinstance(league_data, dict):
+            emoji = league_data.get("emoji", "")
+            league = league_data.get("league", "")
+            games = league_data.get("games", [])
+        else:
+            emoji = getattr(league_data, "emoji", "")
+            league = getattr(league_data, "league", "")
+            games = getattr(league_data, "games", [])
+
+        normalized_games = []
+
+        for game in games:
+            matchup, time, detail = self.normalize_game(game)
+
+            if matchup and time:
+                normalized_games.append((matchup, time, detail))
+
+        return emoji, league, normalized_games
+
+    def update_leagues(self, leagues):
+        print("SportsGamesPanel received leagues:", leagues)
+
+        self.clear_columns()
+
+        active_leagues = []
+
+        for league_data in leagues or []:
+            emoji, league, games = self.normalize_league(league_data)
+
+            print(f"Normalized league {league}: {len(games)} game(s)")
+
+            if league:
+                active_leagues.append((emoji, league, games))
+
+        if not active_leagues:
+            self.edition.setText("No active leagues")
+            self.columns.addWidget(
+                EmptyGamesMessage("No MLB, NFL, or NBA leagues are currently in season."),
+                1,
+            )
+            return
+
+        league_names = " / ".join([league for _, league, _ in active_leagues])
+        self.edition.setText(f"In Season: {league_names}")
+
+        for emoji, league, games in active_leagues:
+            display_games = games
+
+            if not display_games:
+                display_games = [
+                    ("No games scheduled", "—", "No games found in the next 3 days")
+                ]
+
+            self.columns.addWidget(
+                LeagueColumn(
+                    emoji=emoji,
+                    league=league,
+                    games=display_games,
+                ),
+                1,
+            )
+
+    def update_games_data(self, leagues):
+        self.update_leagues(leagues)

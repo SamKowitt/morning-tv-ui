@@ -1,4 +1,4 @@
-from PySide6.QtCore import Qt, QRectF, QUrl
+from PySide6.QtCore import Qt, QRectF, QUrl, QSize
 from PySide6.QtGui import QColor, QDesktopServices, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget, QHBoxLayout, QFrame
 
@@ -25,7 +25,7 @@ class NewspaperImagePanel(QWidget):
 
         self.setObjectName("NewsPaperPhotoBox")
         self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setMinimumHeight(120)
+        self.setMinimumHeight(150)
 
     def set_label_text(self, text):
         self.label_text = text
@@ -66,14 +66,19 @@ class NewspaperImagePanel(QWidget):
         painter.setClipPath(path)
 
         if self.original_pixmap:
+            target_size = QSize(
+                int(rect.width() * 1.12),
+                int(rect.height() * 1.12),
+            )
+
             scaled = self.original_pixmap.scaled(
-                rect.size(),
-                Qt.KeepAspectRatioByExpanding,
+                target_size,
+                Qt.KeepAspectRatio,
                 Qt.SmoothTransformation,
             )
 
-            x = int((rect.width() - scaled.width()) / 2)
-            y = int((rect.height() - scaled.height()) / 2)
+            x = int(rect.left() + (rect.width() - scaled.width()) / 2)
+            y = int(rect.top() + (rect.height() - scaled.height()) / 2)
             painter.drawPixmap(x, y, scaled)
 
             overlay = QLinearGradient(0, 0, 0, rect.height())
@@ -89,7 +94,6 @@ class NewspaperImagePanel(QWidget):
         painter.setPen(QPen(QColor(96, 78, 55, 130), 1))
         painter.drawPath(path)
 
-        self.draw_photo_caption(painter, rect)
 
     def draw_fallback_art(self, painter, rect):
         gradient = QLinearGradient(rect.topLeft(), rect.bottomRight())
@@ -160,11 +164,10 @@ class NewsCard(QWidget):
         self.setCursor(Qt.PointingHandCursor)
 
         outer = QVBoxLayout()
-        outer.setContentsMargins(12, 8, 12, 10)
-        outer.setSpacing(5)
+        outer.setContentsMargins(12, 4, 12, 8)
+        outer.setSpacing(3)
         self.setLayout(outer)
 
-        # Newspaper section title at the top
         top_row = QHBoxLayout()
         top_row.setContentsMargins(0, 0, 0, 0)
         top_row.setSpacing(8)
@@ -172,10 +175,12 @@ class NewsCard(QWidget):
         self.top_source_label = QLabel(source)
         self.top_source_label.setObjectName("OldNewsTopMasthead")
         self.top_source_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.top_source_label.setFixedHeight(18)
 
         self.edition_label = QLabel("Politics")
         self.edition_label.setObjectName("OldNewsEditionSmall")
         self.edition_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.edition_label.setFixedHeight(18)
 
         top_row.addWidget(self.top_source_label, 1)
         top_row.addWidget(self.edition_label)
@@ -195,8 +200,8 @@ class NewsCard(QWidget):
         self.text_panel.setCursor(Qt.PointingHandCursor)
 
         text_layout = QVBoxLayout()
-        text_layout.setContentsMargins(12, 8, 12, 8)
-        text_layout.setSpacing(4)
+        text_layout.setContentsMargins(12, 5, 12, 5)
+        text_layout.setSpacing(2)
         self.text_panel.setLayout(text_layout)
 
         self.kicker_label = QLabel("TOP STORY" if variant == "fox" else "MARKETS & BUSINESS")
@@ -205,8 +210,8 @@ class NewsCard(QWidget):
 
         self.headline_label = AutoFitLabel(
             headline,
-            min_size=15,
-            max_size=33,
+            min_size=13,
+            max_size=29,
             bold=True,
             alignment=Qt.AlignLeft | Qt.AlignTop,
             word_wrap=True,
@@ -234,8 +239,8 @@ class NewsCard(QWidget):
         text_layout.addWidget(self.headline_label, 1)
         text_layout.addLayout(bottom_row)
 
-        outer.addWidget(self.image, 54)
-        outer.addWidget(self.text_panel, 46)
+        outer.addWidget(self.image, 80)
+        outer.addWidget(self.text_panel, 20)
 
     def update_article(self, article):
         self.source = article.source
@@ -252,9 +257,9 @@ class NewsCard(QWidget):
             self.page_label.setText("PAGE 1")
         elif article.source == "CNBC":
             self.image.set_label_text("BUSINESS")
-            self.edition_label.setText("BUSINESS EDITION")
+            self.edition_label.setText("BUSINESS")
             self.kicker_label.setText("BUSINESS")
-            self.page_label.setText("PAGE 2")
+            self.page_label.setText("PAGE 1")
         else:
             self.image.set_label_text("LATEST")
             self.edition_label.setText("POLITICS")

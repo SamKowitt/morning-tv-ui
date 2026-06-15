@@ -5,6 +5,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import certifi
 
@@ -83,6 +84,50 @@ def format_hour_label(iso_time):
     except Exception:
         return ""
 
+def is_day_from_nws_period(period):
+    nws_is_day = period.get("isDay", None)
+
+    if isinstance(nws_is_day, bool):
+        return nws_is_day
+
+    start_time = period.get("startTime", "")
+
+    try:
+        value = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+        hour = value.hour
+
+        # Conservative fallback only when NWS isDay is missing/bad.
+        # Avoid trying to model sunset exactly.
+        if 0 <= hour < 6:
+            return False
+        if 10 <= hour < 17:
+            return True
+
+    except Exception:
+        pass
+
+    return True
+
+def is_daytime_from_start_time(iso_time, fallback=True):
+    if not iso_time:
+        return bool(fallback)
+
+    try:
+        value = datetime.fromisoformat(iso_time.replace("Z", "+00:00"))
+
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=ZoneInfo(TIMEZONE))
+        else:
+            value = value.astimezone(ZoneInfo(TIMEZONE))
+
+        hour = value.hour
+
+        # General local daytime window for this dashboard.
+        # This avoids trusting bad/missing NWS isDay values for overnight rows.
+        return 6 <= hour < 21
+
+    except Exception:
+        return bool(fallback)
 
 def condition_from_text(text, is_day=True):
     lowered = (text or "").lower()
@@ -296,9 +341,11 @@ def build_rows_from_nws_periods(periods, max_rows, alerts=None, observation=None
 
     for index, period in enumerate(periods[:max_rows]):
         temperature = safe_round_temperature(period.get("temperature"))
-        is_day = bool(period.get("isDay", True))
+        nws_is_day = is_day_from_nws_period(period)
         short_forecast = period.get("shortForecast", "") or ""
         start_time = period.get("startTime", "")
+
+        is_day = is_daytime_from_start_time(start_time, fallback=nws_is_day)
 
         condition, icon = condition_from_text(short_forecast, is_day=is_day)
 

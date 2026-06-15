@@ -1,4 +1,8 @@
 APP_STYLE = """
+* {
+    font-family: "Times New Roman";
+}
+
 QMainWindow {
     background-color: #1f2d35;
 }
@@ -183,7 +187,6 @@ QWidget#PaperGameListing {
 }
 
 QLabel#PaperGamesMasthead {
-    font-family: "Times New Roman", "Georgia", serif;
     font-size: 24px;
     font-weight: 900;
     color: #2f2a24;
@@ -191,7 +194,6 @@ QLabel#PaperGamesMasthead {
 }
 
 QLabel#PaperGamesEdition {
-    font-family: "Georgia", "Times New Roman", serif;
     font-size: 9px;
     font-weight: 700;
     color: #6b5f50;
@@ -199,7 +201,6 @@ QLabel#PaperGamesEdition {
 }
 
 QLabel#PaperScheduleTag {
-    font-family: "Arial";
     font-size: 9px;
     font-weight: 900;
     color: #fff8ec;
@@ -209,7 +210,6 @@ QLabel#PaperScheduleTag {
 }
 
 QLabel#PaperLeagueTitle {
-    font-family: "Times New Roman", "Georgia", serif;
     font-size: 20px;
     font-weight: 900;
     color: #2f2a24;
@@ -217,7 +217,6 @@ QLabel#PaperLeagueTitle {
 }
 
 QLabel#PaperGameTime {
-    font-family: "Arial";
     font-size: 9px;
     font-weight: 900;
     color: #9a4d3d;
@@ -225,18 +224,17 @@ QLabel#PaperGameTime {
 }
 
 QLabel#PaperGameMatchup {
-    font-family: "Georgia", "Times New Roman", serif;
     font-size: 14px;
     font-weight: 900;
     color: #2b2621;
 }
 
 QLabel#PaperGameDetail {
-    font-family: "Georgia", "Times New Roman", serif;
     font-size: 10px;
     font-weight: 500;
     color: #5b5045;
 }
+
 QWidget#CleanGamesCard {
     background-color: rgba(247, 241, 229, 235);
     border: 2px solid rgba(166, 149, 122, 170);
@@ -250,7 +248,6 @@ QWidget#CleanGameCard {
 }
 
 QLabel#CleanGamesTitle {
-    font-family: "Times New Roman", "Georgia", serif;
     font-size: 22px;
     font-weight: 900;
     color: #2f2a24;
@@ -258,7 +255,6 @@ QLabel#CleanGamesTitle {
 }
 
 QLabel#CleanGamesSubtitle {
-    font-family: "Arial";
     font-size: 9px;
     font-weight: 900;
     color: #7a5f43;
@@ -266,28 +262,24 @@ QLabel#CleanGamesSubtitle {
 }
 
 QLabel#CleanLeagueTitle {
-    font-family: "Times New Roman", "Georgia", serif;
     font-size: 22px;
     font-weight: 900;
     color: #2f2a24;
 }
 
 QLabel#CleanGameTime {
-    font-family: "Arial";
     font-size: 10px;
     font-weight: 900;
     color: #9a4d3d;
 }
 
 QLabel#CleanGameMatchup {
-    font-family: "Georgia", "Times New Roman", serif;
     font-size: 15px;
     font-weight: 900;
     color: #2b2621;
 }
 
 QLabel#CleanGameDetail {
-    font-family: "Georgia", "Times New Roman", serif;
     font-size: 10px;
     font-weight: 600;
     color: #5b5045;
@@ -352,6 +344,7 @@ QLabel#GameDayDetail {
     font-weight: 700;
     color: #cfd8d3;
 }
+
 QWidget#MarketTapeCard {
     background-color: qlineargradient(
         x1:0, y1:0, x2:1, y2:1,
@@ -580,11 +573,7 @@ QLabel#CnbcHeadlineText {
     line-height: 1.1em;
 }
 
-
-
-
 QLabel#NewsPaperMasthead {
-    font-family: "Times New Roman", "Georgia", serif;
     font-size: 27px;
     font-weight: 900;
     color: #2f2a24;
@@ -592,7 +581,6 @@ QLabel#NewsPaperMasthead {
 }
 
 QLabel#NewsPaperEdition {
-    font-family: "Georgia", "Times New Roman", serif;
     font-size: 9px;
     font-weight: 700;
     color: #6b5f50;
@@ -600,7 +588,6 @@ QLabel#NewsPaperEdition {
 }
 
 QLabel#NewsPaperKicker {
-    font-family: "Arial";
     font-size: 8px;
     font-weight: 900;
     color: #9a4d3d;
@@ -608,14 +595,12 @@ QLabel#NewsPaperKicker {
 }
 
 QLabel#NewsPaperHeadline {
-    font-family: "Georgia", "Times New Roman", serif;
     font-size: 23px;
     font-weight: 900;
     color: #2b2621;
 }
 
 QLabel#NewsPaperFooter {
-    font-family: "Georgia", "Times New Roman", serif;
     font-size: 8px;
     font-weight: 700;
     color: #7a6d5c;
@@ -697,43 +682,38 @@ QLabel#ScoreboardDetail {
 }
 
 QLabel#PaperMasthead {
-    font-family: "Times New Roman", "Georgia", serif;
-    font-size: 30px;
+    font-size: 25px;
     font-weight: 900;
     color: #2f2a24;
     letter-spacing: 2px;
 }
 
 QLabel#PaperEditionLine {
-    font-family: "Georgia", "Times New Roman", serif;
-    font-size: 10px;
+    font-size: 9px;
     font-weight: 700;
     color: #6b5f50;
     letter-spacing: 1px;
 }
 
 QLabel#PaperKicker {
-    font-family: "Arial";
-    font-size: 9px;
+    font-size: 8px;
     font-weight: 900;
     color: #7a5f43;
     letter-spacing: 1px;
 }
 
 QLabel#PaperKickerFeatured {
-    font-family: "Arial";
-    font-size: 9px;
+    font-size: 8px;
     font-weight: 900;
     color: #9a4d3d;
     letter-spacing: 1px;
 }
 
 QLabel#PaperHeadlineFeatured {
-    font-family: "Georgia", "Times New Roman", serif;
-    font-size: 17px;
+    font-size: 20px;
     font-weight: 900;
     color: #2b2621;
-    line-height: 1.1em;
+    line-height: 1.05em;
 }
 
 QWidget#NewspaperNewsCard {
@@ -755,7 +735,6 @@ QWidget#NewsPaperStoryPanel {
 }
 
 QLabel#OldNewsSourceName {
-    font-family: "Times New Roman", "Georgia", serif;
     font-size: 25px;
     font-weight: 900;
     color: #2f2a24;
@@ -763,7 +742,6 @@ QLabel#OldNewsSourceName {
 }
 
 QLabel#OldNewsEditionSmall {
-    font-family: "Georgia", "Times New Roman", serif;
     font-size: 8px;
     font-weight: 900;
     color: #7a6d5c;
@@ -771,14 +749,12 @@ QLabel#OldNewsEditionSmall {
 }
 
 QLabel#OldNewsHeadline {
-    font-family: "Georgia", "Times New Roman", serif;
     font-size: 22px;
     font-weight: 900;
     color: #2b2621;
 }
 
 QLabel#OldNewsFooter {
-    font-family: "Georgia", "Times New Roman", serif;
     font-size: 8px;
     font-weight: 800;
     color: #8b4e3f;
@@ -786,7 +762,6 @@ QLabel#OldNewsFooter {
 }
 
 QLabel#OldNewsPageNumber {
-    font-family: "Times New Roman", "Georgia", serif;
     font-size: 8px;
     font-weight: 900;
     color: #6b5f50;
@@ -794,25 +769,17 @@ QLabel#OldNewsPageNumber {
 }
 
 QLabel#OldNewsTopMasthead {
-    font-family: "Times New Roman", "Georgia", serif;
-    font-size: 27px;
+    font-size: 22px;
     font-weight: 900;
     color: #2f2a24;
     letter-spacing: 2px;
 }
 
 QLabel#OldNewsKicker {
-    font-family: "Times New Roman", "Georgia", serif;
     font-size: 10px;
     font-weight: 900;
     color: #8b4e3f;
     letter-spacing: 2px;
-}
-
-QWidget#NewspaperSportsCard {
-    background-color: rgba(247, 241, 229, 240);
-    border: 2px solid rgba(166, 149, 122, 170);
-    border-radius: 14px;
 }
 
 QWidget#PaperFeaturedStory {
@@ -834,59 +801,19 @@ QWidget#PaperLeagueColumn {
 }
 
 QWidget#PaperGameListing {
-    background-color: rgba(255, 250, 241, 120);
+    background-color: rgba(255, 250, 241, 125);
     border: 1px solid rgba(155, 137, 112, 75);
     border-radius: 7px;
 }
 
-QLabel#PaperMasthead {
-    font-family: "Times New Roman", "Georgia", serif;
-    font-size: 25px;
-    font-weight: 900;
-    color: #2f2a24;
-    letter-spacing: 2px;
-}
-
-QLabel#PaperEditionLine {
-    font-family: "Georgia", "Times New Roman", serif;
-    font-size: 9px;
-    font-weight: 700;
-    color: #6b5f50;
-    letter-spacing: 1px;
-}
-
-QLabel#PaperKicker {
-    font-family: "Arial";
-    font-size: 8px;
-    font-weight: 900;
-    color: #7a5f43;
-    letter-spacing: 1px;
-}
-
-QLabel#PaperKickerFeatured {
-    font-family: "Arial";
-    font-size: 8px;
-    font-weight: 900;
-    color: #9a4d3d;
-    letter-spacing: 1px;
-}
-
-QLabel#PaperHeadlineFeatured {
-    font-family: "Georgia", "Times New Roman", serif;
-    font-size: 13px;
-    font-weight: 900;
-    color: #2b2621;
-}
-
 QLabel#PaperHeadline {
-    font-family: "Georgia", "Times New Roman", serif;
-    font-size: 10px;
-    font-weight: 800;
+    font-size: 11px;
+    font-weight: 700;
     color: #2f2a24;
+    line-height: 1.1em;
 }
 
 QLabel#PaperLeagueTitle {
-    font-family: "Times New Roman", "Georgia", serif;
     font-size: 18px;
     font-weight: 900;
     color: #2f2a24;
@@ -894,7 +821,6 @@ QLabel#PaperLeagueTitle {
 }
 
 QLabel#PaperGameTime {
-    font-family: "Arial";
     font-size: 8px;
     font-weight: 900;
     color: #9a4d3d;
@@ -902,21 +828,18 @@ QLabel#PaperGameTime {
 }
 
 QLabel#PaperGameMatchup {
-    font-family: "Georgia", "Times New Roman", serif;
     font-size: 11px;
     font-weight: 900;
     color: #2b2621;
 }
 
 QLabel#PaperGameDetail {
-    font-family: "Georgia", "Times New Roman", serif;
     font-size: 8px;
     font-weight: 600;
     color: #5b5045;
 }
 
 QLabel#PaperFooterLeft {
-    font-family: "Georgia", "Times New Roman", serif;
     font-size: 8px;
     font-weight: 800;
     color: #7a6d5c;
@@ -924,7 +847,6 @@ QLabel#PaperFooterLeft {
 }
 
 QLabel#PaperFooterPage {
-    font-family: "Times New Roman", "Georgia", serif;
     font-size: 8px;
     font-weight: 900;
     color: #6b5f50;
@@ -935,28 +857,13 @@ QLabel#PaperLeagueEmoji {
     font-size: 16px;
 }
 
-QWidget#PaperGameListing {
-    background-color: rgba(255, 250, 241, 125);
-    border: 1px solid rgba(155, 137, 112, 75);
-    border-radius: 7px;
-}
-
 QWidget#PaperGameListingEmpty {
     background-color: rgba(255, 250, 241, 55);
     border: 1px dashed rgba(155, 137, 112, 70);
     border-radius: 7px;
 }
 
-QLabel#PaperGameTime {
-    font-family: "Arial";
-    font-size: 8px;
-    font-weight: 900;
-    color: #9a4d3d;
-    letter-spacing: 1px;
-}
-
 QLabel#PaperGameTimeEmpty {
-    font-family: "Arial";
     font-size: 8px;
     font-weight: 900;
     color: rgba(90, 78, 63, 115);
@@ -964,21 +871,18 @@ QLabel#PaperGameTimeEmpty {
 }
 
 QLabel#PaperGameMatchupEmpty {
-    font-family: "Georgia", "Times New Roman", serif;
     font-size: 9px;
     font-weight: 700;
     color: rgba(47, 42, 36, 125);
 }
 
 QLabel#PaperGameDetailEmpty {
-    font-family: "Georgia", "Times New Roman", serif;
     font-size: 7px;
     font-weight: 600;
     color: rgba(91, 80, 69, 105);
 }
 
 QLabel#OldNewsReadLink {
-    font-family: "Georgia", "Times New Roman", serif;
     font-size: 8px;
     font-weight: 900;
     color: #8b4e3f;
@@ -1025,7 +929,7 @@ QLabel#DateNumberWeather {
 }
 
 QLabel#DateCurrentWeather {
-    font-size: 24px;
+    font-size: 30px;
     font-weight: 900;
     letter-spacing: 1px;
 }
@@ -1036,16 +940,25 @@ QLabel#DateSubtitleWeather {
     letter-spacing: 1px;
 }
 
-QLabel#PaperHeadline {
-    font-family: "Georgia", "Times New Roman", serif;
-    font-size: 11px;
-    font-weight: 700;
-    color: #2f2a24;
-    line-height: 1.1em;
+QPushButton#ReminderSendButton {
+    background-color: rgba(92, 74, 52, 210);
+    color: #fff8ec;
+    border: 1px solid rgba(55, 43, 30, 180);
+    border-radius: 7px;
+    padding: 3px 6px;
+    font-size: 9px;
+    font-weight: 900;
+}
+
+QPushButton#ReminderSendButton:hover {
+    background-color: rgba(120, 94, 62, 230);
+}
+
+QPushButton#ReminderSendButton:pressed {
+    background-color: rgba(72, 55, 37, 240);
 }
 
 QLabel#PaperNote {
-    font-family: "Georgia", "Times New Roman", serif;
     font-size: 10px;
     font-weight: 500;
     color: #40372e;
@@ -1053,20 +966,14 @@ QLabel#PaperNote {
 }
 
 QWidget#UpcomingReminderRow {
-    background-color: rgba(255, 248, 230, 80);
-    border: 1px solid rgba(214, 205, 184, 140);
-    border-radius: 10px;
+    background-color: rgba(255, 248, 230, 70);
+    border: 1px solid rgba(214, 205, 184, 110);
+    border-radius: 9px;
 }
 
 QWidget#TodayReminderRow {
     background-color: rgba(239, 217, 160, 150);
     border: 1px solid rgba(211, 184, 107, 170);
-    border-radius: 9px;
-}
-
-QWidget#UpcomingReminderRow {
-    background-color: rgba(255, 248, 230, 70);
-    border: 1px solid rgba(214, 205, 184, 110);
     border-radius: 9px;
 }
 
@@ -1133,74 +1040,62 @@ QLabel#FeaturedSportsNumberBadge {
 }
 
 QLabel#SportsHeadline {
-    font-size: 14px;
-    font-weight: 700;
+    font-size: 16px;
+    font-weight: 600;
     color: #35434d;
 }
 
-QLabel#TodayReminderText {
-    font-size: 17px;
-    font-weight: 900;
-    color: #25313b;
-}
-
-QLabel#UpcomingReminderText {
-    font-size: 13px;
-    font-weight: 700;
-    color: #3b4a52;
-}
-
 QLabel#ReminderGroupTitle {
-    font-size: 13px;
+    font-size: 16px;
     font-weight: 900;
     color: #6f807a;
     letter-spacing: 1px;
 }
 
 QLabel#SectionTitle {
-    font-size: 28px;
+    font-size: 37px;
     font-weight: 900;
     color: #25313b;
 }
 
 QLabel#StockTicker {
-    font-size: 13px;
+    font-size: 15px;
     font-weight: 900;
     color: #a9bbb4;
 }
 
 QLabel#StockPrice {
-    font-size: 20px;
+    font-size: 25px;
     font-weight: 900;
     color: #fff8ec;
 }
 
 QLabel#StockUp {
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 900;
     color: #a8d5a2;
 }
 
 QLabel#StockDown {
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 900;
     color: #e0a2a2;
 }
 
 QLabel#IndexPrice {
-    font-size: 17px;
+    font-size: 19px;
     font-weight: 900;
     color: #fff8ec;
 }
 
 QLabel#IndexName {
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 900;
     color: #a9bbb4;
 }
 
 QLabel {
-    font-family: Arial;
+    font-family: "Times New Roman";
     color: #263238;
 }
 
@@ -1241,12 +1136,6 @@ QLabel#WeatherText {
     color: #263238;
 }
 
-QLabel#SectionTitle {
-    font-size: 37px;
-    font-weight: 900;
-    color: #25313b;
-}
-
 QLabel#SectionSubtitle {
     font-size: 13px;
     font-weight: 800;
@@ -1266,12 +1155,6 @@ QLabel#StocksHeaderRight {
     font-weight: 900;
     color: #a9bbb4;
     letter-spacing: 1px;
-}
-
-QLabel#SportsHeadline {
-    font-size: 16px;
-    font-weight: 600;
-    color: #35434d;
 }
 
 QLabel#FoxHeadline {
@@ -1298,65 +1181,10 @@ QLabel#GameText {
     color: #33424b;
 }
 
-QLabel#IndexName {
-    font-size: 12px;
-    font-weight: 900;
-    color: #a9bbb4;
-}
-
-QLabel#IndexPrice {
-    font-size: 19px;
-    font-weight: 900;
-    color: #fff8ec;
-}
-
-QLabel#StockTicker {
-    font-size: 15px;
-    font-weight: 900;
-    color: #a9bbb4;
-}
-
-QLabel#StockPrice {
-    font-size: 25px;
-    font-weight: 900;
-    color: #fff8ec;
-}
-
 QLabel#AfterHoursLabel {
     font-size: 9px;
     font-weight: 900;
     color: #a9bbb4;
-}
-
-QLabel#StockUp {
-    font-size: 12px;
-    font-weight: 900;
-    color: #a8d5a2;
-}
-
-QLabel#StockDown {
-    font-size: 12px;
-    font-weight: 900;
-    color: #e0a2a2;
-}
-
-QLabel#ReminderGroupTitle {
-    font-size: 16px;
-    font-weight: 900;
-    color: #6f807a;
-    letter-spacing: 1px;
-}
-
-QLabel#TodayReminderText {
-    font-size: 22px;
-    font-weight: 900;
-    color: #25313b;
-}
-
-QLabel#UpcomingReminderText {
-    font-size: 16px;
-    font-weight: 700;
-    color: #3b4a52;
 }
 
 QLabel#ImageBadge {
@@ -1399,5 +1227,109 @@ QLabel#SkyArtLight {
     font-size: 42px;
     font-weight: 900;
     color: #7a938e;
+}
+
+
+QPushButton#DashboardSettingsButton {
+    background-color: rgba(255, 250, 241, 175);
+    color: #2f2a24;
+    border: 1px solid rgba(117, 97, 72, 150);
+    border-radius: 15px;
+    font-size: 16px;
+    font-weight: 900;
+}
+
+QPushButton#DashboardSettingsButton:hover {
+    background-color: rgba(255, 250, 241, 230);
+}
+
+QPushButton#DashboardSettingsButton:pressed {
+    background-color: rgba(222, 204, 168, 230);
+}
+
+QWidget#SettingsPage {
+    background-color: qlineargradient(
+        x1:0, y1:0, x2:1, y2:1,
+        stop:0 #1f2d35,
+        stop:0.45 #2f4548,
+        stop:1 #5d6f63
+    );
+}
+
+QFrame#SettingsCard {
+    background-color: rgba(247, 241, 229, 245);
+    border: 2px solid rgba(166, 149, 122, 180);
+    border-radius: 18px;
+}
+
+QLabel#SettingsTitle {
+    font-size: 34px;
+    font-weight: 900;
+    color: #2f2a24;
+    letter-spacing: 2px;
+}
+
+QLabel#SettingsSubtitle {
+    font-size: 14px;
+    font-weight: 700;
+    color: #5f5447;
+}
+
+QLabel#SettingsFieldLabel {
+    font-size: 12px;
+    font-weight: 900;
+    color: #8b4e3f;
+    letter-spacing: 2px;
+}
+
+QComboBox#SettingsComboBox {
+    background-color: rgba(255, 252, 247, 230);
+    color: #2f2a24;
+    border: 1px solid rgba(117, 97, 72, 140);
+    border-radius: 9px;
+    padding: 7px 10px;
+    font-size: 17px;
+    font-weight: 900;
+}
+
+QComboBox#SettingsComboBox::drop-down {
+    border: none;
+    width: 28px;
+}
+
+QComboBox#SettingsComboBox QAbstractItemView {
+    background-color: #fffaf1;
+    color: #2f2a24;
+    selection-background-color: #d8c9ac;
+    border: 1px solid rgba(117, 97, 72, 150);
+    font-size: 15px;
+}
+
+QPushButton#SettingsPrimaryButton {
+    background-color: #7a5f43;
+    color: #fff8ec;
+    border: 1px solid rgba(55, 43, 30, 180);
+    border-radius: 10px;
+    padding: 8px 14px;
+    font-size: 15px;
+    font-weight: 900;
+}
+
+QPushButton#SettingsPrimaryButton:hover {
+    background-color: #8d704f;
+}
+
+QPushButton#SettingsSecondaryButton {
+    background-color: rgba(255, 252, 247, 180);
+    color: #2f2a24;
+    border: 1px solid rgba(117, 97, 72, 140);
+    border-radius: 10px;
+    padding: 8px 14px;
+    font-size: 15px;
+    font-weight: 900;
+}
+
+QPushButton#SettingsSecondaryButton:hover {
+    background-color: rgba(255, 252, 247, 235);
 }
 """

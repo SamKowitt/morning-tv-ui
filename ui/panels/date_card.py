@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QLabel, QHBoxLayout, QStackedLayout, QVBoxLayout, QWidget, QSizePolicy
 
 from ui.auto_fit_label import AutoFitLabel
@@ -13,6 +14,8 @@ class DateCard(QWidget):
 
         self.setObjectName("DateCard")
         self.setAttribute(Qt.WA_StyledBackground, True)
+
+        self.text_color = "#2f2a24"
 
         self.background_weather_row = self.create_weather_background()
 
@@ -68,18 +71,36 @@ class DateCard(QWidget):
         date_block.addWidget(self.month_label, 24)
         date_block.addWidget(self.date_number_label, 76)
 
+        weather_block = QVBoxLayout()
+        weather_block.setContentsMargins(0, 0, 0, 2)
+        weather_block.setSpacing(0)
+
         self.current_weather_label = AutoFitLabel(
             "--°",
-            min_size=22,
-            max_size=46,
+            min_size=20,
+            max_size=40,
             bold=True,
             alignment=Qt.AlignRight | Qt.AlignBottom,
             word_wrap=False,
         )
         self.current_weather_label.setObjectName("DateCurrentWeather")
 
+        self.low_high_label = AutoFitLabel(
+            "L --°  H --°",
+            min_size=12,
+            max_size=24,
+            bold=True,
+            alignment=Qt.AlignRight | Qt.AlignTop,
+            word_wrap=False,
+        )
+        self.low_high_label.setObjectName("DateLowHighWeather")
+
+        weather_block.addStretch(1)
+        weather_block.addWidget(self.current_weather_label, 0)
+        weather_block.addWidget(self.low_high_label, 0)
+
         bottom_row.addLayout(date_block, 64)
-        bottom_row.addWidget(self.current_weather_label, 36)
+        bottom_row.addLayout(weather_block, 36)
 
         overlay_layout.addWidget(self.day_label, 0)
         overlay_layout.addStretch(1)
@@ -107,10 +128,10 @@ class DateCard(QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
 
-        # Keep the June / 14 / temp block anchored at the bottom.
         bottom_height = max(88, int(self.height() * 0.46))
         self.bottom_widget.setFixedHeight(bottom_height)
 
+        self.apply_text_color()
         self.overlay.raise_()
 
     def create_weather_background(self):
@@ -136,6 +157,7 @@ class DateCard(QWidget):
         self.month_label.setText(now.strftime("%B"))
         self.date_number_label.setText(now.strftime("%-d"))
 
+        self.apply_text_color()
         self.overlay.raise_()
 
     def update_current_weather(self, row):
@@ -152,6 +174,23 @@ class DateCard(QWidget):
 
         self.current_weather_label.setText(f"{row.temperature}°")
 
+        low = (
+            getattr(row, "low_temperature", None)
+            or getattr(row, "low_temp", None)
+            or getattr(row, "daily_low", None)
+            or getattr(row, "low", None)
+        )
+
+        high = (
+            getattr(row, "high_temperature", None)
+            or getattr(row, "high_temp", None)
+            or getattr(row, "daily_high", None)
+            or getattr(row, "high", None)
+        )
+
+        if low is not None and high is not None:
+            self.set_low_high(low, high)
+
         if row.is_night:
             self.set_night_text()
         else:
@@ -161,14 +200,52 @@ class DateCard(QWidget):
         self.background_weather_row.lower()
         self.overlay.raise_()
 
+    def set_low_high(self, low, high):
+        low_text = str(low).replace("°", "")
+        high_text = str(high).replace("°", "")
+        self.low_high_label.setText(f"L {low_text}°  H {high_text}°")
+        self.apply_text_color()
+
+    def update_low_high_from_rows(self, rows):
+        temperatures = []
+
+        for row in rows or []:
+            try:
+                temperatures.append(int(float(str(row.temperature).replace("°", ""))))
+            except Exception:
+                pass
+
+        if not temperatures:
+            self.low_high_label.setText("L --°  H --°")
+            self.apply_text_color()
+            return
+
+        self.set_low_high(min(temperatures), max(temperatures))
+
+    def force_label_color(self, label, color):
+        label.setStyleSheet(f"color: {color};")
+
+        palette = label.palette()
+        qcolor = QColor(color)
+        palette.setColor(QPalette.WindowText, qcolor)
+        palette.setColor(QPalette.Text, qcolor)
+        palette.setColor(QPalette.ButtonText, qcolor)
+        label.setPalette(palette)
+
+    def apply_text_color(self):
+        for label in [
+            self.day_label,
+            self.month_label,
+            self.date_number_label,
+            self.current_weather_label,
+            self.low_high_label,
+        ]:
+            self.force_label_color(label, self.text_color)
+
     def set_night_text(self):
-        self.day_label.setStyleSheet("color: #ffffff;")
-        self.month_label.setStyleSheet("color: rgba(255, 255, 255, 225);")
-        self.date_number_label.setStyleSheet("color: #ffffff;")
-        self.current_weather_label.setStyleSheet("color: rgba(255, 255, 255, 230);")
+        self.text_color = "#ffffff"
+        self.apply_text_color()
 
     def set_day_text(self):
-        self.day_label.setStyleSheet("color: #2f2a24;")
-        self.month_label.setStyleSheet("color: #5f4d36;")
-        self.date_number_label.setStyleSheet("color: #2f2a24;")
-        self.current_weather_label.setStyleSheet("color: #4b3d2c;")
+        self.text_color = "#2f2a24"
+        self.apply_text_color()

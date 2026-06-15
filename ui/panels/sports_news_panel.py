@@ -19,14 +19,21 @@ class CompactPaperStory(QWidget):
         super().__init__()
 
         self.article_url = link
+        self.featured = featured
 
         self.setObjectName("PaperFeaturedStory" if featured else "PaperStory")
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setCursor(Qt.PointingHandCursor)
 
         layout = QVBoxLayout()
-        layout.setContentsMargins(7, 3, 7, 3)
-        layout.setSpacing(1)
+
+        if featured:
+            layout.setContentsMargins(9, 5, 9, 5)
+            layout.setSpacing(2)
+        else:
+            layout.setContentsMargins(7, 3, 7, 3)
+            layout.setSpacing(1)
+
         self.setLayout(layout)
 
         self.kicker_label = QLabel(kicker)
@@ -37,8 +44,8 @@ class CompactPaperStory(QWidget):
 
         self.headline_label = AutoFitLabel(
             headline,
-            min_size=6,
-            max_size=13 if featured else 10,
+            min_size=10 if featured else 6,
+            max_size=22 if featured else 10,
             bold=True,
             alignment=Qt.AlignLeft | Qt.AlignVCenter,
             word_wrap=True,
@@ -87,7 +94,7 @@ class SportsNewsPanel(QWidget):
         header.setSpacing(8)
 
         masthead = AutoFitLabel(
-            "SPORTS",
+            "ESPN",
             min_size=14,
             max_size=27,
             bold=True,
@@ -109,7 +116,7 @@ class SportsNewsPanel(QWidget):
         header.addWidget(masthead, 35)
         header.addWidget(edition, 65)
 
-        main.addLayout(header, 14)
+        main.addLayout(header, 13)
         main.addWidget(NewspaperDivider())
 
         lead_story = CompactPaperStory(
@@ -118,7 +125,7 @@ class SportsNewsPanel(QWidget):
             featured=True,
         )
         self.story_widgets.append(lead_story)
-        main.addWidget(lead_story, 30)
+        main.addWidget(lead_story, 28)
 
         lower_row = QHBoxLayout()
         lower_row.setSpacing(6)
@@ -132,7 +139,7 @@ class SportsNewsPanel(QWidget):
             self.story_widgets.append(story)
             lower_row.addWidget(story, 1)
 
-        main.addLayout(lower_row, 32)
+        main.addLayout(lower_row, 37)
 
         footer = QHBoxLayout()
         footer.setContentsMargins(0, 0, 0, 0)

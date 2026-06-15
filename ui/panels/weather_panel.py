@@ -91,21 +91,33 @@ class WeatherRow(QWidget):
         self.icon_label.setStyleSheet(font_css)
         self.hour_label.setStyleSheet(font_css)
 
+    def should_draw_night_art(self):
+        return bool(self.is_night)
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
 
         rect = self.rect().adjusted(1, 1, -1, -1)
 
+        night_art = self.should_draw_night_art()
+
         # Background gradient
         gradient = QLinearGradient(rect.topLeft(), rect.bottomRight())
 
-        if self.is_night:
+        if self.condition in ["rain", "storm"]:
+            # Rain and thunderstorm use the exact same base art/colors.
+            gradient.setColorAt(0.0, QColor("#6f8794"))
+            gradient.setColorAt(0.5, QColor("#536c78"))
+            gradient.setColorAt(1.0, QColor("#394f5b"))
+            border = QColor("#9eb8c4")
+
+        elif night_art:
             gradient.setColorAt(0.0, QColor("#0d1b2a"))
             gradient.setColorAt(1.0, QColor("#223a5e"))
             border = QColor("#5f7da0")
 
-        elif self.condition in ["rain", "storm"]:
+        elif self.condition == "cloud":
             # Rain and thunderstorm use the exact same base art/colors.
             gradient.setColorAt(0.0, QColor("#6f8794"))
             gradient.setColorAt(0.5, QColor("#536c78"))
@@ -132,21 +144,24 @@ class WeatherRow(QWidget):
         painter.setBrush(gradient)
         painter.drawRoundedRect(rect, 16, 16)
 
-        # Decorative background art.
-        # Important: storm uses the EXACT same rain droplets as rain,
-        # then lightning is drawn on top.
-        if self.is_night:
-            self.draw_night_sky(painter, rect)
-        elif self.condition in ["rain", "storm"]:
+        # Important:
+        # Rain and storm always keep the existing rain animation.
+        # Only non-rain rows from 12am–5am use deep night/moon art.
+        if self.condition in ["rain", "storm"]:
             self.draw_rain(painter, rect)
 
             if self.condition == "storm":
                 self.draw_lightning(painter, rect)
 
+        elif night_art:
+            self.draw_night_sky(painter, rect)
+
         elif self.condition == "cloud":
             self.draw_cloudy(painter, rect)
+
         elif self.condition == "fog":
             self.draw_cloudy(painter, rect)
+
         else:
             self.draw_clear(painter, rect)
 

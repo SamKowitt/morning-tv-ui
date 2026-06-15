@@ -1,19 +1,25 @@
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from ui.auto_fit_label import AutoFitLabel
 
 
 class ReminderItem(QWidget):
-    def __init__(self, icon, text, today=False):
+    def __init__(self, icon, text, today=False, show_reminder_button=False):
         super().__init__()
 
         self.today = today
+        self.reminder_text = text
         self.setObjectName("TodayReminderRow" if today else "UpcomingReminderRow")
         self.setAttribute(Qt.WA_StyledBackground, True)
 
         layout = QHBoxLayout()
-        layout.setContentsMargins(10 if today else 8, 5 if today else 3, 10 if today else 8, 5 if today else 3)
+        layout.setContentsMargins(
+            10 if today else 8,
+            5 if today else 3,
+            10 if today else 8,
+            5 if today else 3,
+        )
         layout.setSpacing(8 if today else 6)
         self.setLayout(layout)
 
@@ -31,8 +37,21 @@ class ReminderItem(QWidget):
         )
         text_label.setObjectName("TodayReminderText" if today else "UpcomingReminderText")
 
-        layout.addWidget(icon_label, 14 if today else 11)
-        layout.addWidget(text_label, 86 if today else 89)
+        layout.addWidget(icon_label, 12 if today else 11)
+        layout.addWidget(text_label, 58 if today and show_reminder_button else 86)
+
+        if today and show_reminder_button:
+            send_button = QPushButton("Send Reminder")
+            send_button.setObjectName("ReminderSendButton")
+            send_button.setCursor(Qt.PointingHandCursor)
+            send_button.setFixedWidth(92)
+            send_button.clicked.connect(self.send_reminder)
+
+            layout.addStretch(1)
+            layout.addWidget(send_button, 0, Qt.AlignRight | Qt.AlignVCenter)
+
+    def send_reminder(self):
+        print(f"Send Reminder clicked for: {self.reminder_text}")
 
 
 class RemindersPanel(QWidget):
@@ -54,13 +73,7 @@ class RemindersPanel(QWidget):
         title.setObjectName("RemindersTitle")
         title.setAlignment(Qt.AlignLeft)
 
-        count_badge = QLabel("2 TODAY")
-        count_badge.setObjectName("ReminderTodayBadge")
-        count_badge.setAlignment(Qt.AlignCenter)
-        count_badge.setFixedWidth(74)
-
         title_row.addWidget(title, 1)
-        title_row.addWidget(count_badge)
 
         layout.addLayout(title_row)
 
@@ -69,8 +82,24 @@ class RemindersPanel(QWidget):
         today_title.setAlignment(Qt.AlignLeft)
         layout.addWidget(today_title)
 
-        layout.addWidget(ReminderItem("🗑️", "Trash day today", today=True), 2)
-        layout.addWidget(ReminderItem("🎉", "Zara's birthday today", today=True), 2)
+        layout.addWidget(
+            ReminderItem(
+                "🗑️",
+                "Trash day today",
+                today=True,
+                show_reminder_button=True,
+            ),
+            2,
+        )
+        layout.addWidget(
+            ReminderItem(
+                "🎉",
+                "Zara's birthday today",
+                today=True,
+                show_reminder_button=True,
+            ),
+            2,
+        )
 
         upcoming_title = QLabel("UPCOMING")
         upcoming_title.setObjectName("UpcomingReminderGroupTitle")
