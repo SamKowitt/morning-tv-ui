@@ -355,8 +355,11 @@ def build_mlb_detail(game):
     away = teams.get("away", {})
     home = teams.get("home", {})
 
-    away_pitcher = away.get("probablePitcher", {})
-    home_pitcher = home.get("probablePitcher", {})
+    away_abbr, _away_name = get_mlb_team_info(away)
+    home_abbr, _home_name = get_mlb_team_info(home)
+
+    away_pitcher = away.get("probablePitcher") or {}
+    home_pitcher = home.get("probablePitcher") or {}
 
     away_pitcher_name = away_pitcher.get("fullName", "")
     home_pitcher_name = home_pitcher.get("fullName", "")
@@ -364,18 +367,13 @@ def build_mlb_detail(game):
     if away_pitcher_name and home_pitcher_name:
         return f"{away_pitcher_name} vs. {home_pitcher_name}"
 
-    broadcasts = game.get("broadcasts", [])
-    names = []
+    if away_pitcher_name:
+        return f"{away_abbr or 'Away'}: {away_pitcher_name} | {home_abbr or 'Home'}: TBD"
 
-    for broadcast in broadcasts[:2]:
-        name = broadcast.get("name")
-        if name:
-            names.append(name)
+    if home_pitcher_name:
+        return f"{away_abbr or 'Away'}: TBD | {home_abbr or 'Home'}: {home_pitcher_name}"
 
-    if names:
-        return "TV: " + ", ".join(names)
-
-    return ""
+    return "Pitchers TBD"
 
 
 def mlb_base_sort_key(game):

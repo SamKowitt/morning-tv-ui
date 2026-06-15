@@ -108,9 +108,11 @@ class MarketIndex(QWidget):
         self.name_label.setObjectName("MarketTapeIndexName")
         self.name_label.setAlignment(Qt.AlignLeft)
 
-        self.price_label = QLabel(price)
+        self.price_label = QLabel()
         self.price_label.setObjectName("MarketTapeIndexPrice")
         self.price_label.setAlignment(Qt.AlignLeft)
+        self.price_label.setTextFormat(Qt.RichText)
+        self.price_label.setText(self.format_index_price_text(price))
 
         left.addWidget(self.name_label)
         left.addWidget(self.price_label)
@@ -122,9 +124,25 @@ class MarketIndex(QWidget):
         layout.addLayout(left, 42)
         layout.addWidget(self.sparkline, 58)
 
+    def format_index_price_text(self, price):
+        price_text = str(price or "—")
+
+        if "." not in price_text:
+            return price_text
+
+        whole, decimals = price_text.rsplit(".", 1)
+
+        if not decimals:
+            return price_text
+
+        return (
+            f'{whole}'
+            f'<span style="font-size: 9px; font-weight: 900;">.{decimals}</span>'
+        )
+
     def update_index(self, name, price, history=None):
         self.name_label.setText(name)
-        self.price_label.setText(price)
+        self.price_label.setText(self.format_index_price_text(price))
         self.sparkline.set_values(history or [1, 1, 1])
 
 
@@ -147,9 +165,11 @@ class StockTile(QWidget):
         self.ticker_label.setObjectName("MarketTapeTicker")
         self.ticker_label.setAlignment(Qt.AlignLeft)
 
-        self.price_label = QLabel(price)
+        self.price_label = QLabel()
         self.price_label.setObjectName("MarketTapePrice")
         self.price_label.setAlignment(Qt.AlignLeft)
+        self.price_label.setTextFormat(Qt.RichText)
+        self.price_label.setText(self.format_stock_price_text(price))
 
         left.addWidget(self.ticker_label)
         left.addWidget(self.price_label)
@@ -183,9 +203,32 @@ class StockTile(QWidget):
 
         self.update_stock(ticker, price, ah_change, history)
 
+    def format_stock_price_text(self, price):
+        price_text = str(price or "—").strip()
+
+        if price_text in {"", "—", "-", "Loading"}:
+            return price_text
+
+        if "." not in price_text:
+            return (
+                f'<span style="font-size: 18px; font-weight: 1000;">{price_text}</span>'
+            )
+
+        whole, decimals = price_text.rsplit(".", 1)
+
+        if not decimals:
+            return (
+                f'<span style="font-size: 18px; font-weight: 1000;">{whole}</span>'
+            )
+
+        return (
+            f'<span style="font-size: 18px; font-weight: 1000;">{whole}</span>'
+            f'<span style="font-size: 9px; font-weight: 900;">.{decimals}</span>'
+        )
+
     def update_stock(self, ticker, price, ah_change, history):
         self.ticker_label.setText(ticker)
-        self.price_label.setText(price)
+        self.price_label.setText(self.format_stock_price_text(price))
         self.sparkline.set_values(history)
 
         if ah_change.startswith("-"):

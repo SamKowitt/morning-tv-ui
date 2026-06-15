@@ -238,11 +238,41 @@ class ReminderItem(QWidget):
 
         self.active_timers.append(timer)
 
-        QMessageBox.information(
-            self,
-            "Reminder Scheduled",
-            f"Reminder scheduled for {selected_time_text}.",
-        )
+        confirmation = QMessageBox(self)
+        confirmation.setWindowTitle("Reminder Scheduled")
+        confirmation.setIcon(QMessageBox.Information)
+        confirmation.setText(f"Reminder scheduled for {selected_time_text}.")
+        confirmation.setStyleSheet("""
+            QMessageBox {
+                background-color: #f5ead7;
+                color: #2d2114;
+                font-size: 14px;
+                font-weight: 900;
+            }
+
+            QMessageBox QLabel {
+                color: #2d2114;
+                background: transparent;
+                font-size: 14px;
+                font-weight: 900;
+            }
+
+            QMessageBox QPushButton {
+                background-color: #72542d;
+                color: #f7f0df;
+                border: 1px solid #4d351b;
+                border-radius: 7px;
+                padding: 5px 18px;
+                font-size: 12px;
+                font-weight: 900;
+                min-width: 64px;
+            }
+
+            QMessageBox QPushButton:hover {
+                background-color: #846236;
+            }
+        """)
+        confirmation.exec()
 
         print(f"Scheduled reminder for '{self.reminder_text}' at {scheduled_time}")
 

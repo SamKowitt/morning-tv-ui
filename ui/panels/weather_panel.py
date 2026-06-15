@@ -118,17 +118,18 @@ class WeatherRow(QWidget):
             border = QColor("#5f7da0")
 
         elif self.condition == "cloud":
-            # Rain and thunderstorm use the exact same base art/colors.
-            gradient.setColorAt(0.0, QColor("#6f8794"))
-            gradient.setColorAt(0.5, QColor("#536c78"))
-            gradient.setColorAt(1.0, QColor("#394f5b"))
-            border = QColor("#9eb8c4")
-
-        elif self.condition == "cloud":
-            gradient.setColorAt(0.0, QColor("#9fb1ba"))
-            gradient.setColorAt(0.5, QColor("#8299a4"))
-            gradient.setColorAt(1.0, QColor("#687f8b"))
-            border = QColor("#b7c8cf")
+            # Daytime partly-cloudy should stay close to the sunny/warm art,
+            # not the dark rain/storm palette.
+            if self.is_now:
+                gradient.setColorAt(0.0, QColor("#c7c7b8"))
+                gradient.setColorAt(0.55, QColor("#b8b8aa"))
+                gradient.setColorAt(1.0, QColor("#a9aba0"))
+                border = QColor("#d8c89a")
+            else:
+                gradient.setColorAt(0.0, QColor("#d3cfbd"))
+                gradient.setColorAt(0.55, QColor("#c3c0ae"))
+                gradient.setColorAt(1.0, QColor("#b3b2a6"))
+                border = QColor("#d8c89a")
 
         else:
             if self.is_now:
@@ -441,29 +442,29 @@ class WeatherRow(QWidget):
         w = max(1, rect.width())
         h = max(1, rect.height())
 
-        # Soft cloudy sky background
+        # Warm partly-cloudy overlay that keeps the sunny daytime feel.
         sky = QLinearGradient(rect.topLeft(), rect.bottomRight())
-        sky.setColorAt(0.0, QColor(112, 143, 162, 185))
-        sky.setColorAt(0.45, QColor(152, 174, 184, 155))
-        sky.setColorAt(1.0, QColor(205, 196, 166, 110))
+        sky.setColorAt(0.0, QColor(190, 197, 196, 145))
+        sky.setColorAt(0.45, QColor(176, 185, 184, 132))
+        sky.setColorAt(1.0, QColor(160, 169, 169, 112))
 
-        painter.setOpacity(0.58)
+        painter.setOpacity(0.52)
         painter.setPen(Qt.NoPen)
         painter.setBrush(QBrush(sky))
         painter.drawRoundedRect(rect.adjusted(5, 5, -5, -5), 14, 14)
 
-        # Muted hidden sun glow behind clouds
-        sun_x = rect.left() + int(w * 0.78)
+        # Brighter sun glow behind clouds for daytime partly-cloudy rows.
+        sun_x = rect.left() + int(w * 0.80)
         sun_y = rect.top() + int(h * 0.28)
-        sun_radius = max(9, min(w, h) * 0.12)
+        sun_radius = max(9, min(w, h) * 0.13)
 
-        painter.setOpacity(0.20)
+        painter.setOpacity(0.14)
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(255, 220, 130, 125))
-        painter.drawEllipse(QPointF(sun_x, sun_y), sun_radius * 1.9, sun_radius * 1.9)
+        painter.setBrush(QColor(255, 226, 145, 95))
+        painter.drawEllipse(QPointF(sun_x, sun_y), sun_radius * 2.0, sun_radius * 2.0)
 
-        painter.setOpacity(0.26)
-        painter.setBrush(QColor(255, 238, 168, 150))
+        painter.setOpacity(0.22)
+        painter.setBrush(QColor(255, 238, 170, 125))
         painter.drawEllipse(QPointF(sun_x, sun_y), sun_radius, sun_radius)
 
         # Big slow cloud bank
@@ -474,9 +475,9 @@ class WeatherRow(QWidget):
             y_ratio=0.38,
             scale=0.95,
             speed=0.085,
-            opacity=0.56,
-            shade=QColor(235, 241, 244, 180),
-            shadow=QColor(117, 139, 154, 95),
+            opacity=0.62,
+            shade=QColor(226, 231, 232, 188),
+            shadow=QColor(125, 135, 139, 112),
         )
 
         # Second layer drifting at a different speed
@@ -487,9 +488,9 @@ class WeatherRow(QWidget):
             y_ratio=0.60,
             scale=0.75,
             speed=0.055,
-            opacity=0.42,
-            shade=QColor(220, 229, 234, 160),
-            shadow=QColor(92, 114, 132, 80),
+            opacity=0.48,
+            shade=QColor(210, 218, 222, 170),
+            shadow=QColor(105, 116, 122, 96),
         )
 
         # Thin lower haze

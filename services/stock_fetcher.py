@@ -1,3 +1,5 @@
+import csv
+import io
 import json
 import os
 import ssl
@@ -38,6 +40,37 @@ FMP_BASE_URL = "https://financialmodelingprep.com/stable"
 
 FINNHUB_API_KEY_ENV_NAME = "FINNHUB_API_KEY"
 FINNHUB_BASE_URL = "https://finnhub.io/api/v1"
+
+TWELVE_DATA_API_KEY_ENV_NAME = "TWELVE_DATA_API_KEY"
+TWELVE_DATA_BASE_URL = "https://api.twelvedata.com"
+
+# Twelve Data true index symbols. If one symbol changes or is not covered
+# by your Twelve Data plan, the code tries the next candidate.
+TWELVE_DATA_INDEX_SYMBOL_CANDIDATES = {
+    "^GSPC": ["SPX", "GSPC", "INX"],
+    "^DJI": ["DJI", "DJIA"],
+    "^IXIC": ["IXIC", "COMP"],
+}
+
+STOOQ_QUOTE_BASE_URL = "https://stooq.com/q/l/"
+STOOQ_HISTORY_BASE_URL = "https://stooq.com/q/d/l/"
+
+# True index symbols from Stooq. These are index levels, not ETF proxies.
+STOOQ_INDEX_SYMBOLS = {
+    "^GSPC": "^spx",
+    "^DJI": "^dji",
+    "^IXIC": "^ixic",
+}
+
+YAHOO_CHART_BASE_URL = "https://query1.finance.yahoo.com/v8/finance/chart"
+
+# True Yahoo index symbols. These are index levels, not ETF proxies.
+YAHOO_INDEX_SYMBOLS = {
+    "^GSPC": "^GSPC",
+    "^DJI": "^DJI",
+    "^IXIC": "^IXIC",
+}
+
 
 INDEX_SYMBOLS = [
     ("S&P", "^GSPC"),
@@ -245,9 +278,6 @@ def format_price(value, decimals=2):
     if value is None:
         return "—"
 
-    if abs(value) >= 1000:
-        return f"${value:,.0f}"
-
     return f"${value:,.{decimals}f}"
 
 
@@ -257,7 +287,7 @@ def format_index_price(value):
     if value is None:
         return "—"
 
-    return f"${value:,.0f}"
+    return f"${value:,.2f}"
 
 
 def format_change(value):
@@ -553,45 +583,402 @@ def placeholder_history_from_price(price):
     return [value for _ in range(65)]
 
 
-def fetch_index_quote(display_name, symbol):
-    quote_symbol = symbol
-    proxy_symbol = INDEX_PROXY_SYMBOLS.get(symbol, symbol)
+
+def get_twelve_data_api_key():
+    api_key = os.getenv(TWELVE_DATA_API_KEY_ENV_NAME, "").strip()
+
+    if not api_key:
+        raise RuntimeError(
+            f"Missing {TWELVE_DATA_API_KEY_ENV_NAME}. "
+            "Set it before launching the app."
+        )
+
+    return api_key
+
+
+def has_twelve_data_api_key():
+    return bool(os.getenv(TWELVE_DATA_API_KEY_ENV_NAME, "").strip())
+
+
+def twelve_data_url(path, params):
+    api_key = get_twelve_data_api_key()
+    full_params = dict(params)
+    full_params["apikey"] = api_key
+
+    return (
+        f"{TWELVE_DATA_BASE_URL}{path}?"
+        + urllib.parse.urlencode(full_params)
+    )
+
+
+def fetch_twelve_data_json(path, params, timeout=12):
+    url = twelve_data_url(path, params)
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "MorningTVUI/1.0",
+            "Accept": "application/json",
+        },
+    )
 
     try:
-        item = fetch_finnhub_quote(quote_symbol)
-        price = get_price_from_finnhub_quote(item)
-        history_symbol = quote_symbol
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            payload = response.read().decode("utf-8", errors="ignore")
+    except Exception as first_error:
+        if "CERTIFICATE_VERIFY_FAILED" not in str(first_error):
+            raise
 
-        print(f"Loaded Finnhub direct index quote {display_name}/{quote_symbol}: {format_index_price(price)}")
+        print(f"Twelve Data SSL verification failed for {url}; retrying with relaxed SSL context.")
+        relaxed_context = ssl._create_unverified_context()
+
+        with urllib.request.urlopen(
+            request,
+            timeout=timeout,
+            context=relaxed_context,
+        ) as response:
+            payload = response.read().decode("utf-8", errors="ignore")
+
+    data = json.loads(payload)
+
+    if isinstance(data, dict) and data.get("status") == "error":
+        message = data.get("message") or data.get("code") or "Unknown Twelve Data error"
+        raise RuntimeError(str(message))
+
+    return data
+
+
+def fetch_twelve_data_quote(symbol):
+    return fetch_twelve_data_json(
+        "/quote",
+        {
+            "symbol": symbol,
+        },
+    )
+
+
+def get_price_from_twelve_data_quote(item):
+    for key in ["close", "price", "previous_close"]:
+        value = item.get(key)
+
+        if value in [None, ""]:
+            continue
+
+        try:
+            return float(value)
+        except Exception:
+            continue
+
+    raise RuntimeError(f"Twelve Data quote did not include a usable price: {item}")
+
+
+def fetch_twelve_data_history(symbol, fallback_price=None):
+    try:
+        data = fetch_twelve_data_json(
+            "/time_series",
+            {
+                "symbol": symbol,
+                "interval": "1day",
+                "outputsize": 65,
+            },
+            timeout=14,
+        )
+
+        values = data.get("values", []) if isinstance(data, dict) else []
+        history = []
+
+        # Twelve Data usually returns newest first. Reverse so the chart trends left-to-right.
+        for row in reversed(values):
+            close_value = row.get("close")
+
+            if close_value in [None, ""]:
+                continue
+
+            try:
+                history.append(float(close_value))
+            except Exception:
+                continue
+
+        if history:
+            return history
 
     except Exception as error:
-        print(f"Finnhub direct index quote failed for {display_name}/{symbol}: {error}")
+        print(f"Twelve Data history failed for {symbol}: {error}")
 
-        if proxy_symbol == symbol:
-            print(f"No Finnhub proxy configured for {display_name}/{symbol}, trying FMP.")
-            item = fetch_fmp_quote(symbol)
-            price = get_price_from_fmp_quote(item)
-            history_symbol = symbol
-        else:
-            print(f"Trying Finnhub ETF proxy for {display_name}: {proxy_symbol}")
-            item = fetch_finnhub_quote(proxy_symbol)
-            price = get_price_from_finnhub_quote(item)
-            history_symbol = proxy_symbol
+    if fallback_price is not None:
+        return [float(fallback_price)] * 65
 
-    history = placeholder_history_from_price(price)
+    return []
+
+
+def fetch_twelve_data_index_quote(display_name, original_symbol):
+    if not has_twelve_data_api_key():
+        return None
+
+    candidates = TWELVE_DATA_INDEX_SYMBOL_CANDIDATES.get(original_symbol, [original_symbol])
+
+    for twelve_symbol in candidates:
+        try:
+            print(f"Fetching true index quote from Twelve Data: {display_name} -> {twelve_symbol}")
+            quote = fetch_twelve_data_quote(twelve_symbol)
+            price = get_price_from_twelve_data_quote(quote)
+
+            # Guard against symbol collisions. For example, DJIA or COMP can
+            # resolve to low-priced securities instead of the real index.
+            if original_symbol in ["^GSPC", "^DJI", "^IXIC"] and price < 1000:
+                raise RuntimeError(
+                    f"Twelve Data symbol {twelve_symbol} returned {price}, "
+                    "which is too low to be the actual index level."
+                )
+
+            history = fetch_twelve_data_history(twelve_symbol, price)
+
+            return IndexQuote(
+                name=display_name,
+                price=format_index_price(price),
+                history=history,
+            )
+
+        except Exception as error:
+            print(f"Twelve Data index quote failed for {display_name} / {twelve_symbol}: {error}")
+
+    return None
+
+
+
+def stooq_url(base_url, params):
+    return base_url + "?" + urllib.parse.urlencode(params)
+
+
+def fetch_stooq_text(base_url, params, timeout=14):
+    url = stooq_url(base_url, params)
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "MorningTVUI/1.0",
+            "Accept": "text/csv,text/plain,*/*",
+        },
+    )
 
     try:
-        history = fetch_stock_history(history_symbol, price)
-        print(f"Loaded index/proxy history {display_name}/{history_symbol}: {len(history)} points")
-    except Exception as error:
-        print(f"Index/proxy history unavailable for {display_name}/{history_symbol}: {error}")
-        print(f"Keeping quote price for {display_name} and using flat placeholder chart.")
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return response.read().decode("utf-8", errors="ignore")
+    except Exception as first_error:
+        if "CERTIFICATE_VERIFY_FAILED" not in str(first_error):
+            raise
+
+        print(f"Stooq SSL verification failed for {url}; retrying with relaxed SSL context.")
+        relaxed_context = ssl._create_unverified_context()
+
+        with urllib.request.urlopen(
+            request,
+            timeout=timeout,
+            context=relaxed_context,
+        ) as response:
+            return response.read().decode("utf-8", errors="ignore")
+
+
+def fetch_stooq_index_history(stooq_symbol):
+    csv_text = fetch_stooq_text(
+        STOOQ_HISTORY_BASE_URL,
+        {
+            "s": stooq_symbol,
+            "i": "d",
+        },
+        timeout=16,
+    )
+
+    rows = list(csv.DictReader(io.StringIO(csv_text)))
+    closes = []
+
+    for row in rows[-65:]:
+        close_value = row.get("Close") or row.get("close")
+
+        if not close_value or close_value.upper() == "N/D":
+            continue
+
+        try:
+            closes.append(float(close_value))
+        except Exception:
+            continue
+
+    return closes
+
+
+def fetch_stooq_index_quote(display_name, original_symbol):
+    stooq_symbol = STOOQ_INDEX_SYMBOLS.get(original_symbol)
+
+    if not stooq_symbol:
+        raise RuntimeError(f"No Stooq symbol configured for {display_name}/{original_symbol}")
+
+    print(f"Fetching true index quote from Stooq: {display_name} -> {stooq_symbol}")
+
+    csv_text = fetch_stooq_text(
+        STOOQ_QUOTE_BASE_URL,
+        {
+            "s": stooq_symbol,
+            "f": "sd2t2ohlcv",
+            "h": "",
+            "e": "csv",
+        },
+        timeout=14,
+    )
+
+    rows = list(csv.DictReader(io.StringIO(csv_text)))
+
+    if not rows:
+        raise RuntimeError(f"No Stooq quote rows returned for {display_name}/{stooq_symbol}")
+
+    row = rows[0]
+    close_value = row.get("Close") or row.get("close")
+
+    if not close_value or close_value.upper() == "N/D":
+        raise RuntimeError(f"No usable Stooq close value returned for {display_name}/{stooq_symbol}: {row}")
+
+    price = float(close_value)
+
+    if price < 1000:
+        raise RuntimeError(
+            f"Stooq symbol {stooq_symbol} returned {price}, "
+            "which is too low to be the actual major index level."
+        )
+
+    history = fetch_stooq_index_history(stooq_symbol)
+
+    if not history:
+        history = [price] * 65
 
     return IndexQuote(
         name=display_name,
         price=format_index_price(price),
         history=history,
     )
+
+
+
+def yahoo_chart_url(symbol, params):
+    encoded_symbol = urllib.parse.quote(symbol, safe="")
+    return (
+        f"{YAHOO_CHART_BASE_URL}/{encoded_symbol}?"
+        + urllib.parse.urlencode(params)
+    )
+
+
+def fetch_yahoo_json(symbol, params, timeout=14):
+    url = yahoo_chart_url(symbol, params)
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0",
+            "Accept": "application/json,text/plain,*/*",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            payload = response.read().decode("utf-8", errors="ignore")
+    except Exception as first_error:
+        if "CERTIFICATE_VERIFY_FAILED" not in str(first_error):
+            raise
+
+        print(f"Yahoo SSL verification failed for {url}; retrying with relaxed SSL context.")
+        relaxed_context = ssl._create_unverified_context()
+
+        with urllib.request.urlopen(
+            request,
+            timeout=timeout,
+            context=relaxed_context,
+        ) as response:
+            payload = response.read().decode("utf-8", errors="ignore")
+
+    return json.loads(payload)
+
+
+def fetch_yahoo_index_quote(display_name, original_symbol):
+    yahoo_symbol = YAHOO_INDEX_SYMBOLS.get(original_symbol)
+
+    if not yahoo_symbol:
+        raise RuntimeError(f"No Yahoo symbol configured for {display_name}/{original_symbol}")
+
+    print(f"Fetching true index quote from Yahoo chart API: {display_name} -> {yahoo_symbol}")
+
+    data = fetch_yahoo_json(
+        yahoo_symbol,
+        {
+            "range": "3mo",
+            "interval": "1d",
+            "includePrePost": "false",
+        },
+    )
+
+    chart = data.get("chart", {})
+    error = chart.get("error")
+
+    if error:
+        raise RuntimeError(f"Yahoo chart error for {display_name}: {error}")
+
+    results = chart.get("result") or []
+
+    if not results:
+        raise RuntimeError(f"No Yahoo chart result returned for {display_name}/{yahoo_symbol}")
+
+    result = results[0]
+    meta = result.get("meta", {})
+    current_price = meta.get("regularMarketPrice")
+
+    indicators = result.get("indicators", {})
+    quote_rows = indicators.get("quote") or []
+    quote = quote_rows[0] if quote_rows else {}
+    closes = quote.get("close") or []
+
+    history = []
+
+    for value in closes[-65:]:
+        if value is None:
+            continue
+
+        try:
+            history.append(float(value))
+        except Exception:
+            continue
+
+    if current_price is None:
+        if history:
+            current_price = history[-1]
+        else:
+            raise RuntimeError(f"No usable Yahoo index price returned for {display_name}")
+
+    price = float(current_price)
+
+    if price < 1000:
+        raise RuntimeError(
+            f"Yahoo symbol {yahoo_symbol} returned {price}, "
+            "which is too low to be the actual major index level."
+        )
+
+    if not history:
+        history = [price] * 65
+
+    return IndexQuote(
+        name=display_name,
+        price=format_index_price(price),
+        history=history,
+    )
+
+
+def fetch_index_quote(display_name, symbol):
+    # Use Yahoo's true index symbols for the three major indexes.
+    # No ETF proxy fallback.
+    try:
+        return fetch_yahoo_index_quote(display_name, symbol)
+    except Exception as error:
+        print(f"Yahoo true index quote failed for {display_name}/{symbol}: {error}")
+
+    return IndexQuote(
+        name=display_name,
+        price="—",
+        history=[1, 1, 1],
+    )
+
 
 
 def fetch_stock_quote(symbol):

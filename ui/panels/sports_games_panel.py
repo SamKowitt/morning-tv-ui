@@ -56,7 +56,7 @@ class GameListing(QWidget):
 
         info = QVBoxLayout()
         info.setContentsMargins(0, 0, 0, 0)
-        info.setSpacing(0 if compact else 1)
+        info.setSpacing(1 if compact else 2)
 
         matchup_label = QLabel(matchup)
         matchup_label.setObjectName("PaperGameMatchup")
@@ -68,7 +68,10 @@ class GameListing(QWidget):
         if is_no_games_placeholder:
             matchup_font_size = 10 if compact else 11
         else:
-            matchup_font_size = 13 if compact else 16
+            # Compact mode is used when a league has three games displayed.
+            # Make MLB-style matchup text like "MIN @ TEX" slightly smaller
+            # so pitcher/detail text has more room in each game bubble.
+            matchup_font_size = 12 if compact else 16
 
         matchup_label.setStyleSheet(f"""
             QLabel#PaperGameMatchup {{
@@ -79,19 +82,22 @@ class GameListing(QWidget):
                 letter-spacing: 0.5px;
             }}
         """)
-        info.addWidget(matchup_label, 3)
+        info.addWidget(matchup_label, 2)
 
         if detail:
+            info.addStretch(1)
+
             detail_label = AutoFitLabel(
                 detail,
                 min_size=4 if compact else 5,
                 max_size=34 if compact else 8,
                 bold=False,
-                alignment=Qt.AlignLeft | Qt.AlignVCenter,
+                alignment=Qt.AlignLeft | Qt.AlignBottom,
                 word_wrap=True,
             )
             detail_label.setObjectName("PaperGameDetail")
-            info.addWidget(detail_label, 1)
+            detail_label.setMinimumHeight(9 if compact else 12)
+            info.addWidget(detail_label, 0)
 
         layout.addWidget(time_label)
         layout.addLayout(info, 1)

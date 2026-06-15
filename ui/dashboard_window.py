@@ -290,6 +290,7 @@ class DashboardWindow(QMainWindow):
         self.stock_index_symbols = self.load_saved_stock_index_symbols()
         self.stock_favorite_symbols = self.load_saved_stock_favorite_symbols()
         self.stock_setting_inputs = {}
+        self.stock_setting_labels = {}
         self.stock_suggestions = self.build_stock_suggestions()
 
         self.sports_team_orders = self.load_saved_sports_team_orders()
@@ -932,6 +933,7 @@ class DashboardWindow(QMainWindow):
         row_layout.addWidget(input_box, 1)
 
         self.stock_setting_inputs[(section_key, slot_index)] = input_box
+        self.stock_setting_labels[(section_key, slot_index)] = label
 
         return row_widget
 
@@ -999,7 +1001,7 @@ class DashboardWindow(QMainWindow):
 
     def sports_team_display_code(self, team_code):
         code = str(team_code or "").strip().upper()
-        return code[:3].title()
+        return code[:3]
 
     def build_sports_team_button(self, league, team_code, team_name):
         button = QPushButton()
@@ -1269,14 +1271,27 @@ class DashboardWindow(QMainWindow):
         if not hasattr(self, "stock_setting_inputs"):
             return
 
+        if not hasattr(self, "stock_setting_labels"):
+            self.stock_setting_labels = {}
+
         for index, (display_name, symbol) in enumerate(self.stock_index_symbols):
+            label = self.stock_setting_labels.get(("index", index))
             input_box = self.stock_setting_inputs.get(("index", index))
+
+            if label:
+                label.setText(display_name)
+
             if input_box:
                 input_box.setPlaceholderText(symbol)
                 input_box.setText("")
 
         for index, symbol in enumerate(self.stock_favorite_symbols):
+            label = self.stock_setting_labels.get(("favorite", index))
             input_box = self.stock_setting_inputs.get(("favorite", index))
+
+            if label:
+                label.setText(symbol)
+
             if input_box:
                 input_box.setPlaceholderText(symbol)
                 input_box.setText("")
@@ -1637,6 +1652,7 @@ class DashboardWindow(QMainWindow):
         self.set_combo_to_source(self.left_news_combo, self.left_news_source_key)
         self.set_combo_to_source(self.right_news_combo, self.right_news_source_key)
         self.weather_zip_input.setText(self.weather_zip_code)
+        self.refresh_stock_settings_inputs()
         self.sports_team_setting_orders = self.copy_sports_team_orders(self.sports_team_orders)
         self.refresh_sports_team_buttons()
         self.settings_button.hide()
