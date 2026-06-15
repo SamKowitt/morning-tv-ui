@@ -90,9 +90,16 @@ class SportsGamesFetchWorker(QObject):
     finished = Signal(object)
     failed = Signal(str)
 
+    def __init__(self, sports_team_orders=None):
+        super().__init__()
+        self.sports_team_orders = sports_team_orders or {}
+
     def run(self):
         try:
-            leagues = fetch_current_sports_games(max_games_per_league=3)
+            leagues = fetch_current_sports_games(
+                max_games_per_league=3,
+                favorite_teams=self.sports_team_orders,
+            )
             self.finished.emit(leagues)
         except Exception as error:
             self.failed.emit(str(error))
@@ -143,6 +150,114 @@ class AppleCalendarFetchWorker(QObject):
             self.failed.emit(str(error))
 
 
+SPORTS_TEAM_OPTIONS = {
+    "MLB": [
+        ("ARI", "Arizona Diamondbacks"),
+        ("ATH", "Athletics"),
+        ("ATL", "Atlanta Braves"),
+        ("BAL", "Baltimore Orioles"),
+        ("BOS", "Boston Red Sox"),
+        ("CHC", "Chicago Cubs"),
+        ("CWS", "Chicago White Sox"),
+        ("CIN", "Cincinnati Reds"),
+        ("CLE", "Cleveland Guardians"),
+        ("COL", "Colorado Rockies"),
+        ("DET", "Detroit Tigers"),
+        ("HOU", "Houston Astros"),
+        ("KC", "Kansas City Royals"),
+        ("LAA", "Los Angeles Angels"),
+        ("LAD", "Los Angeles Dodgers"),
+        ("MIA", "Miami Marlins"),
+        ("MIL", "Milwaukee Brewers"),
+        ("MIN", "Minnesota Twins"),
+        ("NYM", "New York Mets"),
+        ("NYY", "New York Yankees"),
+        ("PHI", "Philadelphia Phillies"),
+        ("PIT", "Pittsburgh Pirates"),
+        ("SD", "San Diego Padres"),
+        ("SEA", "Seattle Mariners"),
+        ("SF", "San Francisco Giants"),
+        ("STL", "St. Louis Cardinals"),
+        ("TB", "Tampa Bay Rays"),
+        ("TEX", "Texas Rangers"),
+        ("TOR", "Toronto Blue Jays"),
+        ("WSH", "Washington Nationals"),
+    ],
+    "NFL": [
+        ("ARI", "Arizona Cardinals"),
+        ("ATL", "Atlanta Falcons"),
+        ("BAL", "Baltimore Ravens"),
+        ("BUF", "Buffalo Bills"),
+        ("CAR", "Carolina Panthers"),
+        ("CHI", "Chicago Bears"),
+        ("CIN", "Cincinnati Bengals"),
+        ("CLE", "Cleveland Browns"),
+        ("DAL", "Dallas Cowboys"),
+        ("DEN", "Denver Broncos"),
+        ("DET", "Detroit Lions"),
+        ("GB", "Green Bay Packers"),
+        ("HOU", "Houston Texans"),
+        ("IND", "Indianapolis Colts"),
+        ("JAX", "Jacksonville Jaguars"),
+        ("KC", "Kansas City Chiefs"),
+        ("LAC", "Los Angeles Chargers"),
+        ("LAR", "Los Angeles Rams"),
+        ("LV", "Las Vegas Raiders"),
+        ("MIA", "Miami Dolphins"),
+        ("MIN", "Minnesota Vikings"),
+        ("NE", "New England Patriots"),
+        ("NO", "New Orleans Saints"),
+        ("NYG", "New York Giants"),
+        ("NYJ", "New York Jets"),
+        ("PHI", "Philadelphia Eagles"),
+        ("PIT", "Pittsburgh Steelers"),
+        ("SEA", "Seattle Seahawks"),
+        ("SF", "San Francisco 49ers"),
+        ("TB", "Tampa Bay Buccaneers"),
+        ("TEN", "Tennessee Titans"),
+        ("WAS", "Washington Commanders"),
+    ],
+    "NBA": [
+        ("ATL", "Atlanta Hawks"),
+        ("BOS", "Boston Celtics"),
+        ("BKN", "Brooklyn Nets"),
+        ("CHA", "Charlotte Hornets"),
+        ("CHI", "Chicago Bulls"),
+        ("CLE", "Cleveland Cavaliers"),
+        ("DAL", "Dallas Mavericks"),
+        ("DEN", "Denver Nuggets"),
+        ("DET", "Detroit Pistons"),
+        ("GSW", "Golden State Warriors"),
+        ("HOU", "Houston Rockets"),
+        ("IND", "Indiana Pacers"),
+        ("LAC", "LA Clippers"),
+        ("LAL", "Los Angeles Lakers"),
+        ("MEM", "Memphis Grizzlies"),
+        ("MIA", "Miami Heat"),
+        ("MIL", "Milwaukee Bucks"),
+        ("MIN", "Minnesota Timberwolves"),
+        ("NOP", "New Orleans Pelicans"),
+        ("NYK", "New York Knicks"),
+        ("OKC", "Oklahoma City Thunder"),
+        ("ORL", "Orlando Magic"),
+        ("PHI", "Philadelphia 76ers"),
+        ("PHX", "Phoenix Suns"),
+        ("POR", "Portland Trail Blazers"),
+        ("SAC", "Sacramento Kings"),
+        ("SAS", "San Antonio Spurs"),
+        ("TOR", "Toronto Raptors"),
+        ("UTA", "Utah Jazz"),
+        ("WAS", "Washington Wizards"),
+    ],
+}
+
+DEFAULT_SPORTS_TEAM_ORDERS = {
+    "MLB": ["NYY", "LAD", "CLE"],
+    "NFL": ["CAR", "CLE"],
+    "NBA": ["CHA", "CHI"],
+}
+
+
 class DashboardWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -176,6 +291,10 @@ class DashboardWindow(QMainWindow):
         self.stock_favorite_symbols = self.load_saved_stock_favorite_symbols()
         self.stock_setting_inputs = {}
         self.stock_suggestions = self.build_stock_suggestions()
+
+        self.sports_team_orders = self.load_saved_sports_team_orders()
+        self.sports_team_setting_orders = self.copy_sports_team_orders(self.sports_team_orders)
+        self.sports_team_buttons = {}
 
         self.apple_calendar_email = self.load_saved_apple_calendar_email()
         self.apple_calendar_password = self.load_saved_apple_calendar_password()
@@ -816,6 +935,283 @@ class DashboardWindow(QMainWindow):
 
         return row_widget
 
+    def copy_sports_team_orders(self, orders):
+        copied = {}
+
+        for league in ["MLB", "NFL", "NBA"]:
+            values = orders.get(league, []) if isinstance(orders, dict) else []
+            copied[league] = [str(value).strip().upper() for value in values if str(value).strip()]
+
+        return copied
+
+    def load_saved_sports_team_orders(self):
+        orders = {}
+
+        valid_by_league = {
+            league: {team_code for team_code, _team_name in teams}
+            for league, teams in SPORTS_TEAM_OPTIONS.items()
+        }
+
+        for league in ["MLB", "NFL", "NBA"]:
+            saved_value = str(
+                self.saved_settings.value(
+                    f"sports_teams_{league.lower()}",
+                    ",".join(DEFAULT_SPORTS_TEAM_ORDERS[league]),
+                )
+                or ""
+            ).strip()
+
+            selected = []
+            seen = set()
+
+            for raw_value in saved_value.split(","):
+                team_code = raw_value.strip().upper()
+
+                if team_code in valid_by_league[league] and team_code not in seen:
+                    selected.append(team_code)
+                    seen.add(team_code)
+
+            if not selected:
+                selected = list(DEFAULT_SPORTS_TEAM_ORDERS[league])
+
+            orders[league] = selected
+
+        return orders
+
+    def save_sports_team_settings(self):
+        for league in ["MLB", "NFL", "NBA"]:
+            self.saved_settings.setValue(
+                f"sports_teams_{league.lower()}",
+                ",".join(self.sports_team_orders.get(league, [])),
+            )
+
+        self.saved_settings.sync()
+
+        print(f"Saved sports team settings -> {self.sports_team_orders}")
+
+    def ordinal_label(self, number):
+        if 10 <= number % 100 <= 20:
+            suffix = "th"
+        else:
+            suffix = {1: "st", 2: "nd", 3: "rd"}.get(number % 10, "th")
+
+        return f"{number}{suffix}"
+
+    def sports_team_display_code(self, team_code):
+        code = str(team_code or "").strip().upper()
+        return code[:3].title()
+
+    def build_sports_team_button(self, league, team_code, team_name):
+        button = QPushButton()
+        button.setObjectName("SportsTeamSettingsButton")
+        button.setCursor(Qt.PointingHandCursor)
+        button.setCheckable(True)
+        button.clicked.connect(
+            lambda _checked=False, selected_league=league, selected_team=team_code: (
+                self.toggle_sports_team(selected_league, selected_team)
+            )
+        )
+
+        self.sports_team_buttons[(league, team_code)] = button
+
+        return button
+
+    def build_sports_teams_settings_section(self, card_layout):
+        section_title = QLabel("SPORTS TEAMS")
+        section_title.setObjectName("SettingsSectionTitle")
+        section_title.setAlignment(Qt.AlignLeft)
+        section_title.setStyleSheet("""
+            QLabel {
+                color: #2d2114;
+                background: transparent;
+                font-size: 24px;
+                font-weight: 1000;
+                letter-spacing: 1.4px;
+                margin-bottom: 0px;
+                padding-bottom: 0px;
+            }
+        """)
+
+        section_subtitle = QLabel(
+            "Select favorite teams in order. Badges show each league's game priority."
+        )
+        section_subtitle.setObjectName("SettingsSectionSubtitle")
+        section_subtitle.setAlignment(Qt.AlignLeft)
+        section_subtitle.setWordWrap(True)
+
+        card_layout.addWidget(section_title)
+        card_layout.addWidget(self.build_settings_divider())
+        card_layout.addWidget(section_subtitle)
+
+        leagues_row = QHBoxLayout()
+        leagues_row.setContentsMargins(0, 0, 0, 0)
+        leagues_row.setSpacing(10)
+
+        for league in ["MLB", "NFL", "NBA"]:
+            league_box = QFrame()
+            league_box.setObjectName("SportsTeamLeagueBox")
+            league_box.setStyleSheet("""
+                QFrame#SportsTeamLeagueBox {
+                    background: rgba(255, 248, 236, 0.36);
+                    border: 1px solid rgba(83, 59, 33, 0.20);
+                    border-radius: 8px;
+                }
+            """)
+
+            league_box_layout = QVBoxLayout()
+            league_box_layout.setContentsMargins(6, 5, 6, 6)
+            league_box_layout.setSpacing(5)
+            league_box.setLayout(league_box_layout)
+
+            league_header = QFrame()
+            league_header.setObjectName("SportsTeamLeagueHeaderFrame")
+            league_header.setFixedHeight(26)
+            league_header.setMinimumHeight(26)
+            league_header.setMaximumHeight(26)
+            league_header.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            league_header.setStyleSheet("""
+                QFrame#SportsTeamLeagueHeaderFrame {
+                    background: rgba(216, 199, 164, 0.72);
+                    border: 1px solid rgba(83, 59, 33, 0.32);
+                    border-radius: 7px;
+                }
+            """)
+
+            league_header_layout = QVBoxLayout()
+            league_header_layout.setContentsMargins(0, 0, 0, 0)
+            league_header_layout.setSpacing(0)
+            league_header.setLayout(league_header_layout)
+
+            league_label = QLabel(league)
+            league_label.setObjectName("SportsTeamLeagueHeaderText")
+            league_label.setAlignment(Qt.AlignCenter)
+            league_label.setFixedHeight(24)
+            league_label.setMinimumHeight(24)
+            league_label.setMaximumHeight(24)
+            league_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            league_label.setStyleSheet("""
+                QLabel#SportsTeamLeagueHeaderText {
+                    color: #2d2114;
+                    background: transparent;
+                    border: none;
+                    font-size: 13px;
+                    font-weight: 1000;
+                    letter-spacing: 1.2px;
+                    padding: 0px;
+                    margin: 0px;
+                }
+            """)
+
+            league_header_layout.addWidget(league_label)
+            league_box_layout.addWidget(league_header)
+
+            team_grid = QHBoxLayout()
+            team_grid.setContentsMargins(0, 0, 0, 0)
+            team_grid.setSpacing(4)
+
+            team_columns = []
+            for _column_index in range(3):
+                column = QVBoxLayout()
+                column.setContentsMargins(0, 0, 0, 0)
+                column.setSpacing(3)
+                team_columns.append(column)
+                team_grid.addLayout(column, 1)
+
+            for index, (team_code, team_name) in enumerate(SPORTS_TEAM_OPTIONS[league]):
+                team_columns[index % 3].addWidget(
+                    self.build_sports_team_button(
+                        league=league,
+                        team_code=team_code,
+                        team_name=team_name,
+                    )
+                )
+
+            league_box_layout.addLayout(team_grid)
+            leagues_row.addWidget(league_box, 1)
+
+        card_layout.addLayout(leagues_row)
+        self.refresh_sports_team_buttons()
+
+
+    def toggle_sports_team(self, league, team_code):
+        selected = list(self.sports_team_setting_orders.get(league, []))
+
+        if team_code in selected:
+            selected.remove(team_code)
+        else:
+            selected.append(team_code)
+
+        self.sports_team_setting_orders[league] = selected
+        self.refresh_sports_team_buttons()
+
+    def refresh_sports_team_buttons(self):
+        if not hasattr(self, "sports_team_buttons"):
+            return
+
+        button_style_unselected = """
+            QPushButton#SportsTeamSettingsButton {
+                background-color: rgba(255, 248, 236, 0.52);
+                color: #2d2114;
+                border: 1px solid rgba(83, 59, 33, 0.28);
+                border-radius: 6px;
+                padding: 0px 2px;
+                font-size: 10px;
+                font-weight: 900;
+                text-align: center;
+            }
+
+            QPushButton#SportsTeamSettingsButton:hover {
+                background-color: rgba(255, 248, 236, 0.86);
+                border: 1px solid rgba(83, 59, 33, 0.52);
+            }
+        """
+
+        button_style_selected = """
+            QPushButton#SportsTeamSettingsButton {
+                background-color: rgba(114, 84, 45, 0.92);
+                color: #f7f0df;
+                border: 1px solid rgba(77, 53, 27, 0.95);
+                border-radius: 6px;
+                padding: 0px 2px;
+                font-size: 9px;
+                font-weight: 900;
+                text-align: center;
+            }
+        """
+
+        for league, teams in SPORTS_TEAM_OPTIONS.items():
+            selected = self.sports_team_setting_orders.get(league, [])
+
+            for team_code, team_name in teams:
+                button = self.sports_team_buttons.get((league, team_code))
+
+                if not button:
+                    continue
+
+                display_code = self.sports_team_display_code(team_code)
+
+                button.setFixedHeight(24)
+                button.setMinimumHeight(24)
+                button.setMaximumHeight(24)
+                button.setMinimumWidth(42)
+                button.setMaximumWidth(54)
+                button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+                if team_code in selected:
+                    priority = selected.index(team_code) + 1
+                    badge = self.ordinal_label(priority)
+
+                    button.setChecked(True)
+                    button.setToolTip(f"{badge}: {team_name}")
+                    button.setText(f"{display_code} {badge}")
+                    button.setStyleSheet(button_style_selected)
+                else:
+                    button.setChecked(False)
+                    button.setToolTip(team_name)
+                    button.setText(display_code)
+                    button.setStyleSheet(button_style_unselected)
+
+
     def build_stock_settings_section(self, card_layout):
         section_title = QLabel("MARKET TAPE")
         section_title.setObjectName("SettingsSectionTitle")
@@ -1125,6 +1521,8 @@ class DashboardWindow(QMainWindow):
         left_settings_col.addWidget(apple_days_label)
         left_settings_col.addWidget(self.apple_calendar_days_input)
 
+        self.build_sports_teams_settings_section(right_settings_col)
+        right_settings_col.addSpacing(14)
         self.build_stock_settings_section(right_settings_col)
 
         left_settings_col.addStretch(1)
@@ -1239,6 +1637,8 @@ class DashboardWindow(QMainWindow):
         self.set_combo_to_source(self.left_news_combo, self.left_news_source_key)
         self.set_combo_to_source(self.right_news_combo, self.right_news_source_key)
         self.weather_zip_input.setText(self.weather_zip_code)
+        self.sports_team_setting_orders = self.copy_sports_team_orders(self.sports_team_orders)
+        self.refresh_sports_team_buttons()
         self.settings_button.hide()
         self.page_stack.setCurrentWidget(self.settings_page)
         self.resize_settings_card_to_window()
@@ -1270,6 +1670,7 @@ class DashboardWindow(QMainWindow):
             self.apple_calendar_password,
             self.apple_calendar_days_ahead,
         )
+        old_sports_team_orders = self.copy_sports_team_orders(self.sports_team_orders)
 
         try:
             requested_calendar_days = int(self.apple_calendar_days_input.text().strip() or 14)
@@ -1303,6 +1704,8 @@ class DashboardWindow(QMainWindow):
         self.apple_calendar_password = self.apple_calendar_password_input.text().strip()
         self.apple_calendar_days_ahead = requested_calendar_days
         self.save_apple_calendar_settings()
+        self.sports_team_orders = self.copy_sports_team_orders(self.sports_team_setting_orders)
+        self.save_sports_team_settings()
         self.save_stock_symbol_settings()
 
         self.refresh_news_card_placeholders()
@@ -1321,6 +1724,9 @@ class DashboardWindow(QMainWindow):
 
         if new_apple_calendar_settings != old_apple_calendar_settings:
             self.start_apple_calendar_fetch()
+
+        if self.sports_team_orders != old_sports_team_orders:
+            self.start_sports_games_fetch()
 
         if stock_settings_changed:
             self.start_stock_fetch()
@@ -1633,7 +2039,9 @@ class DashboardWindow(QMainWindow):
 
     def start_sports_games_fetch(self):
         self.sports_games_thread = QThread()
-        self.sports_games_worker = SportsGamesFetchWorker()
+        self.sports_games_worker = SportsGamesFetchWorker(
+            sports_team_orders=self.sports_team_orders,
+        )
         self.sports_games_worker.moveToThread(self.sports_games_thread)
 
         self.sports_games_thread.started.connect(self.sports_games_worker.run)

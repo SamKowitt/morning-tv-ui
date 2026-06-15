@@ -35,9 +35,15 @@ LEAGUE_META = {
     },
 }
 
-MLB_FAVORITES = {"NYY", "LAD", "CLE"}
-NFL_FAVORITES = {"CAR", "CLE"}
-NBA_FAVORITES = {"CHA", "CHI"}
+DEFAULT_FAVORITE_TEAMS = {
+    "MLB": ["NYY", "LAD", "CLE"],
+    "NFL": ["CAR", "CLE"],
+    "NBA": ["CHA", "CHI"],
+}
+
+MLB_FAVORITES = set(DEFAULT_FAVORITE_TEAMS["MLB"])
+NFL_FAVORITES = set(DEFAULT_FAVORITE_TEAMS["NFL"])
+NBA_FAVORITES = set(DEFAULT_FAVORITE_TEAMS["NBA"])
 
 EXCLUDED_ESPN_STATUS_TYPES = {
     "STATUS_CANCELED",
@@ -82,6 +88,47 @@ def is_mlb_expanded_month(current_date=None):
         current_date = datetime.now(LOCAL_TIMEZONE).date()
 
     return current_date.month in {9, 10, 11}
+
+
+def normalize_favorite_teams(favorite_teams=None):
+    normalized = {}
+
+    for league, defaults in DEFAULT_FAVORITE_TEAMS.items():
+        values = []
+
+        if isinstance(favorite_teams, dict):
+            values = favorite_teams.get(league, []) or []
+
+        cleaned = []
+        seen = set()
+
+        for value in values:
+            team = str(value or "").strip().upper()
+
+            if team and team not in seen:
+                cleaned.append(team)
+                seen.add(team)
+
+        if not cleaned:
+            cleaned = list(defaults)
+
+        normalized[league] = cleaned
+
+    return normalized
+
+
+def favorite_teams_for_league(league, favorite_teams=None):
+    return normalize_favorite_teams(favorite_teams).get(league, [])
+
+
+def favorite_priority_for_teams(teams, ordered_favorites):
+    team_set = {str(team or "").strip().upper() for team in teams if team}
+
+    for index, favorite in enumerate(ordered_favorites):
+        if favorite in team_set:
+            return index
+
+    return 999999
 
 
 def make_placeholder_league(league, message):
@@ -239,8 +286,9 @@ def get_mlb_team_abbreviations(game):
     return {away_abbr, home_abbr}
 
 
-def is_mlb_favorite_game(game):
-    return bool(get_mlb_team_abbreviations(game) & MLB_FAVORITES)
+def is_mlb_favorite_game(game, favorite_teams=None):
+    selected_teams = set(favorite_teams_for_league("MLB", favorite_teams))
+    return bool(get_mlb_team_abbreviations(game) & selected_teams)
 
 
 def build_mlb_matchup(game):
@@ -357,8 +405,9 @@ def mlb_sort_key(game):
     return favorite_priority, base_priority, parsed
 
 
-def fetch_mlb_games(max_games_per_league=3):
+def fetch_mlb_games(max_games_per_league=3, favorite_teams=None):
     today = datetime.now(LOCAL_TIMEZONE).date()
+    selected_teams = favorite_teams_for_league("MLB", favorite_teams)
     date_from = today
     date_to = today
 
@@ -393,16 +442,26 @@ def fetch_mlb_games(max_games_per_league=3):
     else:
         filtered_games = [
             game for game in usable_games
-            if is_mlb_favorite_game(game)
+            if is_mlb_favorite_game(game, favorite_teams)
         ]
-        print("MLB selected-team rule active. Showing Yankees, Dodgers, and Guardians games from today only.")
+        print(f"MLB selected-team rule active. Showing selected MLB teams in order: {selected_teams}.")
 
     if not filtered_games:
         print("MLB is active, but no selected MLB games were found for today.")
         return []
 
-    filtered_games = sorted(filtered_games, key=mlb_sort_key)
+    # First choose which games make the panel using selected-team priority.
+    filtered_games = sorted(
+        filtered_games,
+        key=lambda game: (
+            favorite_priority_for_teams(get_mlb_team_abbreviations(game), selected_teams),
+            mlb_sort_key(game),
+        ),
+    )
     filtered_games = filtered_games[:max_games_per_league]
+
+    # Then display the chosen games by nearest game time.
+    filtered_games = sorted(filtered_games, key=mlb_sort_key)
 
     games = []
 
@@ -494,16 +553,11 @@ def get_espn_team_abbreviations(event):
     return abbreviations
 
 
-def is_espn_favorite_game(event, league):
+def is_espn_favorite_game(event, league, favorite_teams=None):
     teams = get_espn_team_abbreviations(event)
+    selected_teams = set(favorite_teams_for_league(league, favorite_teams))
 
-    if league == "NFL":
-        return bool(teams & NFL_FAVORITES)
-
-    if league == "NBA":
-        return bool(teams & NBA_FAVORITES)
-
-    return False
+    return bool(teams & selected_teams)
 
 
 def get_espn_home_away(event):
@@ -644,8 +698,9 @@ def fetch_espn_events_for_day(league, date_value):
     return data.get("events", []) or []
 
 
-def fetch_espn_games(league, max_games_per_league=3):
+def fetch_espn_games(league, max_games_per_league=3, favorite_teams=None):
     today = datetime.now(LOCAL_TIMEZONE).date()
+    selected_teams = favorite_teams_for_league(league, favorite_teams)
 
     if league == "NFL":
         lookahead_days = 7
@@ -688,12 +743,31 @@ def fetch_espn_games(league, max_games_per_league=3):
         print(f"{league} is active by month, but no usable {league} games were found for the allowed date range.")
         return []
 
+    selected_events = [
+        event for event in usable_events
+        if is_espn_favorite_game(event, league, favorite_teams)
+    ]
+
+    if not selected_events:
+        print(f"{league} is active, but no selected-team {league} games were found. Selected teams: {selected_teams}")
+        return []
+
+    # First choose which games make the panel using selected-team priority.
+    selected_events = sorted(
+        selected_events,
+        key=lambda event: (
+            favorite_priority_for_teams(get_espn_team_abbreviations(event), selected_teams),
+            espn_sort_key(event, league),
+        ),
+    )
+
+    usable_events = selected_events[:max_games_per_league]
+
+    # Then display the chosen games by nearest game time.
     usable_events = sorted(
         usable_events,
         key=lambda event: espn_sort_key(event, league),
     )
-
-    usable_events = usable_events[:max_games_per_league]
 
     games = []
 
@@ -713,14 +787,18 @@ def fetch_espn_games(league, max_games_per_league=3):
 # Public fetch entry point
 # -----------------------------
 
-def fetch_games_for_league(league, max_games_per_league=3):
+def fetch_games_for_league(league, max_games_per_league=3, favorite_teams=None):
     try:
         if league == "MLB":
-            games = fetch_mlb_games(max_games_per_league=max_games_per_league)
+            games = fetch_mlb_games(
+                max_games_per_league=max_games_per_league,
+                favorite_teams=favorite_teams,
+            )
         else:
             games = fetch_espn_games(
                 league=league,
                 max_games_per_league=max_games_per_league,
+                favorite_teams=favorite_teams,
             )
 
         if games:
@@ -751,8 +829,9 @@ def fetch_games_for_league(league, max_games_per_league=3):
         )
 
 
-def fetch_current_sports_games(max_games_per_league=3):
+def fetch_current_sports_games(max_games_per_league=3, favorite_teams=None):
     today = datetime.now(LOCAL_TIMEZONE).date()
+    favorite_teams = normalize_favorite_teams(favorite_teams)
 
     print(f"Checking active sports leagues for month {today.month}...")
 
@@ -768,6 +847,7 @@ def fetch_current_sports_games(max_games_per_league=3):
         league_data = fetch_games_for_league(
             league=league,
             max_games_per_league=max_games_per_league,
+            favorite_teams=favorite_teams,
         )
 
         leagues.append(league_data)
