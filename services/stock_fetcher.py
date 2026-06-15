@@ -573,3 +573,60 @@ def fetch_market_data():
         stocks[index].history = history
 
     return MarketData(indexes=indexes, stocks=stocks)
+
+
+def fallback_market_data_for_symbols(index_symbols=None, stock_symbols=None):
+    index_symbols = index_symbols or INDEX_SYMBOLS
+    stock_symbols = stock_symbols or STOCK_SYMBOLS
+
+    return MarketData(
+        indexes=[
+            IndexQuote(display_name, "—", [1, 1, 1])
+            for display_name, symbol in index_symbols
+        ],
+        stocks=[
+            StockQuote(symbol, "—", "—", [1, 1, 1])
+            for symbol in stock_symbols
+        ],
+    )
+
+
+def fetch_market_data_for_symbols(index_symbols=None, stock_symbols=None):
+    print("Fetching configurable stock data from FMP with Nasdaq fallback...")
+
+    index_symbols = index_symbols or INDEX_SYMBOLS
+    stock_symbols = stock_symbols or STOCK_SYMBOLS
+
+    try:
+        get_fmp_api_key()
+    except Exception as error:
+        print(f"FMP setup error: {error}")
+        return fallback_market_data_for_symbols(
+            index_symbols=index_symbols,
+            stock_symbols=stock_symbols,
+        )
+
+    indexes = []
+
+    for display_name, symbol in index_symbols:
+        try:
+            quote = fetch_index_quote(display_name, symbol)
+            print(f"Loaded index {display_name}/{symbol}: {quote.price}")
+            indexes.append(quote)
+        except Exception as error:
+            print(f"Index fetch failed for {display_name}/{symbol}: {error}")
+            indexes.append(IndexQuote(display_name, "—", [1, 1, 1]))
+
+    stocks = []
+
+    for symbol in stock_symbols:
+        try:
+            stock = fetch_stock_quote(symbol)
+            stock.history = fetch_stock_history(symbol, stock.price)
+            print(f"Loaded stock quote {symbol}: {stock.price} DAY {stock.ah_change}")
+            stocks.append(stock)
+        except Exception as error:
+            print(f"Stock fetch failed for {symbol}: {error}")
+            stocks.append(StockQuote(symbol, "—", "—", [1, 1, 1]))
+
+    return MarketData(indexes=indexes, stocks=stocks)

@@ -1,6 +1,7 @@
 from PySide6.QtCore import QObject, QThread, Signal, Qt, QSettings, QEvent
 from PySide6.QtWidgets import (
     QComboBox,
+    QCompleter,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -17,7 +18,7 @@ from PySide6.QtWidgets import (
 from services.news_fetcher import NEWS_SOURCES, NEWS_SOURCE_OPTIONS, fetch_news_cards, get_news_source_display
 from services.sports_games_fetcher import fetch_current_sports_games
 from services.sports_news_fetcher import fetch_espn_sports_articles
-from services.stock_fetcher import fetch_market_data
+from services.stock_fetcher import INDEX_SYMBOLS, STOCK_SYMBOLS, fetch_market_data, fetch_market_data_for_symbols
 from services.weather_fetcher import fetch_weather_rows, validate_zip_code
 
 from ui.styles import APP_STYLE
@@ -97,9 +98,21 @@ class StockFetchWorker(QObject):
     finished = Signal(object)
     failed = Signal(str)
 
+    def __init__(self, index_symbols=None, stock_symbols=None):
+        super().__init__()
+        self.index_symbols = index_symbols
+        self.stock_symbols = stock_symbols
+
     def run(self):
         try:
-            market_data = fetch_market_data()
+            if self.index_symbols is not None or self.stock_symbols is not None:
+                market_data = fetch_market_data_for_symbols(
+                    index_symbols=self.index_symbols,
+                    stock_symbols=self.stock_symbols,
+                )
+            else:
+                market_data = fetch_market_data()
+
             self.finished.emit(market_data)
         except Exception as error:
             self.failed.emit(str(error))
@@ -133,6 +146,11 @@ class DashboardWindow(QMainWindow):
         self.weather_zip_code = self.load_saved_weather_zip()
 
         self.weather_location_label = self.load_saved_weather_location_label()
+
+        self.stock_index_symbols = self.load_saved_stock_index_symbols()
+        self.stock_favorite_symbols = self.load_saved_stock_favorite_symbols()
+        self.stock_setting_inputs = {}
+        self.stock_suggestions = self.build_stock_suggestions()
 
         self.news_request_id = 0
 
@@ -389,6 +407,374 @@ class DashboardWindow(QMainWindow):
 
         return layout
 
+
+    def build_stock_suggestions(self):
+        # Pull live public ticker suggestions from Nasdaq Trader's symbol directory.
+        # Suggestions are only hints; the user can still type any public ticker manually.
+        import ssl
+        import urllib.request
+        import certifi
+
+        ssl_context = ssl.create_default_context(cafile=certifi.where())
+
+        urls = [
+            "https://www.nasdaqtrader.com/dynamic/symdir/nasdaqlisted.txt",
+            "https://www.nasdaqtrader.com/dynamic/symdir/otherlisted.txt",
+        ]
+
+        suggestions = []
+        seen_symbols = set()
+
+        def add_symbol(symbol, name):
+            symbol = str(symbol or "").strip().upper()
+            name = str(name or "").strip()
+
+            if not symbol:
+                return
+
+            if symbol in seen_symbols:
+                return
+
+            if symbol.startswith("FILE CREATION TIME"):
+                return
+
+            seen_symbols.add(symbol)
+
+            if name:
+                suggestions.append(f"{symbol} — {name}")
+            else:
+                suggestions.append(symbol)
+
+        for url in urls:
+            try:
+                request = urllib.request.Request(
+                    url,
+                    headers={
+                        "User-Agent": (
+                            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                            "AppleWebKit/537.36 (KHTML, like Gecko) "
+                            "Chrome/125.0 Safari/537.36"
+                        ),
+                        "Accept": "text/plain,*/*",
+                    },
+                )
+
+                with urllib.request.urlopen(
+                    request,
+                    timeout=8,
+                    context=ssl_context,
+                ) as response:
+                    body = response.read().decode("utf-8", errors="ignore")
+
+                lines = body.splitlines()
+
+                if not lines:
+                    continue
+
+                header = lines[0].split("|")
+
+                for line in lines[1:]:
+                    if not line:
+                        continue
+
+                    if line.startswith("File Creation Time"):
+                        continue
+
+                    parts = line.split("|")
+
+                    if len(parts) < 2:
+                        continue
+
+                    row = {}
+
+                    for index, key in enumerate(header):
+                        if index < len(parts):
+                            row[key] = parts[index]
+
+                    symbol = (
+                        row.get("Symbol")
+                        or row.get("ACT Symbol")
+                        or row.get("NASDAQ Symbol")
+                        or ""
+                    )
+
+                    name = (
+                        row.get("Security Name")
+                        or row.get("Company Name")
+                        or row.get("Issue Name")
+                        or ""
+                    )
+
+                    test_issue = row.get("Test Issue", "").upper()
+
+                    if test_issue == "Y":
+                        continue
+
+                    add_symbol(symbol, name)
+
+            except Exception as error:
+                print(f"Could not load ticker suggestions from {url}: {error}")
+
+        fallback_symbols = [
+            ("^GSPC", "S&P 500 Index"),
+            ("^DJI", "Dow Jones Industrial Average"),
+            ("^IXIC", "Nasdaq Composite"),
+            ("SPY", "SPDR S&P 500 ETF"),
+            ("DIA", "SPDR Dow Jones Industrial Average ETF"),
+            ("QQQ", "Invesco QQQ Trust"),
+            ("IWM", "iShares Russell 2000 ETF"),
+            ("VRT", "Vertiv Holdings"),
+            ("SPCX", "SPAC and New Issue ETF"),
+            ("FITB", "Fifth Third Bancorp"),
+            ("AMZN", "Amazon"),
+            ("AAPL", "Apple"),
+            ("MSFT", "Microsoft"),
+            ("NVDA", "NVIDIA"),
+            ("GOOGL", "Alphabet Class A"),
+            ("TSLA", "Tesla"),
+        ]
+
+        for symbol, name in fallback_symbols:
+            add_symbol(symbol, name)
+
+        suggestions.sort(key=lambda value: value.split(" — ", 1)[0])
+
+        print(f"Loaded {len(suggestions)} ticker suggestions.")
+
+        return suggestions
+
+    def normalize_market_symbol_input(self, value):
+        raw_value = str(value or "").strip()
+
+        if "—" in raw_value:
+            raw_value = raw_value.split("—", 1)[0].strip()
+        elif " - " in raw_value:
+            raw_value = raw_value.split(" - ", 1)[0].strip()
+
+        raw_value = raw_value.upper()
+        cleaned = ""
+
+        for character in raw_value:
+            if character.isalnum() or character in {"^", ".", "-"}:
+                cleaned += character
+
+        return cleaned
+
+    def validate_market_symbol_input(self, symbol):
+        symbol = self.normalize_market_symbol_input(symbol)
+
+        if not symbol:
+            raise ValueError("Enter a ticker symbol.")
+
+        if len(symbol) > 12:
+            raise ValueError("Ticker symbol is too long.")
+
+        if symbol in {"-", ".", "^"}:
+            raise ValueError("Enter a valid ticker symbol.")
+
+        return symbol
+
+    def load_saved_stock_index_symbols(self):
+        default_symbols = [symbol for display_name, symbol in INDEX_SYMBOLS]
+        default_names = [display_name for display_name, symbol in INDEX_SYMBOLS]
+
+        saved_value = str(self.saved_settings.value("stock_index_symbols", "") or "").strip()
+
+        if saved_value:
+            saved_symbols = [
+                self.normalize_market_symbol_input(value)
+                for value in saved_value.split(",")
+            ]
+            saved_symbols = [symbol for symbol in saved_symbols if symbol]
+        else:
+            saved_symbols = []
+
+        while len(saved_symbols) < len(default_symbols):
+            saved_symbols.append(default_symbols[len(saved_symbols)])
+
+        result = []
+
+        for index, symbol in enumerate(saved_symbols[:len(default_symbols)]):
+            default_symbol = default_symbols[index]
+            default_name = default_names[index]
+            display_name = default_name if symbol == default_symbol else symbol
+            result.append((display_name, symbol))
+
+        return result
+
+    def load_saved_stock_favorite_symbols(self):
+        saved_value = str(self.saved_settings.value("stock_favorite_symbols", "") or "").strip()
+
+        if saved_value:
+            saved_symbols = [
+                self.normalize_market_symbol_input(value)
+                for value in saved_value.split(",")
+            ]
+            saved_symbols = [symbol for symbol in saved_symbols if symbol]
+        else:
+            saved_symbols = []
+
+        while len(saved_symbols) < len(STOCK_SYMBOLS):
+            saved_symbols.append(STOCK_SYMBOLS[len(saved_symbols)])
+
+        return saved_symbols[:len(STOCK_SYMBOLS)]
+
+    def save_stock_symbol_settings(self):
+        self.saved_settings.setValue(
+            "stock_index_symbols",
+            ",".join(symbol for display_name, symbol in self.stock_index_symbols),
+        )
+        self.saved_settings.setValue(
+            "stock_favorite_symbols",
+            ",".join(self.stock_favorite_symbols),
+        )
+        self.saved_settings.sync()
+
+        print(
+            "Saved stock settings -> "
+            f"indexes={self.stock_index_symbols}, favorites={self.stock_favorite_symbols}"
+        )
+
+    def attach_stock_symbol_completer(self, input_box):
+        completer = QCompleter(self.stock_suggestions, input_box)
+        completer.setCaseSensitivity(Qt.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchContains)
+        completer.setCompletionMode(QCompleter.PopupCompletion)
+        input_box.setCompleter(completer)
+
+    def build_stock_replace_row(self, section_key, slot_index, label_text, current_symbol):
+        row_widget = QWidget()
+        row_widget.setObjectName("StockSettingsRow")
+
+        row_layout = QHBoxLayout()
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.setSpacing(8)
+        row_widget.setLayout(row_layout)
+
+        label = QLabel(label_text)
+        label.setObjectName("StockSettingsSlotLabel")
+        label.setFixedWidth(76)
+        label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+
+        input_box = QLineEdit()
+        input_box.setObjectName("StockSettingsLineEdit")
+        input_box.setPlaceholderText(current_symbol)
+        input_box.setText("")
+        input_box.setMinimumWidth(240)
+
+        self.attach_stock_symbol_completer(input_box)
+
+        row_layout.addWidget(label)
+        row_layout.addWidget(input_box, 1)
+
+        self.stock_setting_inputs[(section_key, slot_index)] = input_box
+
+        return row_widget
+
+    def build_stock_settings_section(self, card_layout):
+        section_title = QLabel("MARKET TAPE")
+        section_title.setObjectName("SettingsSectionTitle")
+        section_title.setAlignment(Qt.AlignLeft)
+
+        section_subtitle = QLabel("Enter replacement tickers, then click Apply to update the dashboard.")
+        section_subtitle.setObjectName("SettingsSectionSubtitle")
+        section_subtitle.setAlignment(Qt.AlignLeft)
+        section_subtitle.setWordWrap(True)
+
+        card_layout.addWidget(section_title)
+        card_layout.addWidget(section_subtitle)
+
+        indexes_label = QLabel("INDEXES")
+        indexes_label.setObjectName("SettingsFieldLabel")
+        card_layout.addWidget(indexes_label)
+
+        for index, (display_name, symbol) in enumerate(self.stock_index_symbols):
+            card_layout.addWidget(
+                self.build_stock_replace_row(
+                    section_key="index",
+                    slot_index=index,
+                    label_text=display_name,
+                    current_symbol=symbol,
+                )
+            )
+
+        favorites_label = QLabel("FAVORITES")
+        favorites_label.setObjectName("SettingsFieldLabel")
+        card_layout.addWidget(favorites_label)
+
+        for index, symbol in enumerate(self.stock_favorite_symbols):
+            card_layout.addWidget(
+                self.build_stock_replace_row(
+                    section_key="favorite",
+                    slot_index=index,
+                    label_text=symbol,
+                    current_symbol=symbol,
+                )
+            )
+
+    def refresh_stock_settings_inputs(self):
+        if not hasattr(self, "stock_setting_inputs"):
+            return
+
+        for index, (display_name, symbol) in enumerate(self.stock_index_symbols):
+            input_box = self.stock_setting_inputs.get(("index", index))
+            if input_box:
+                input_box.setPlaceholderText(symbol)
+                input_box.setText("")
+
+        for index, symbol in enumerate(self.stock_favorite_symbols):
+            input_box = self.stock_setting_inputs.get(("favorite", index))
+            if input_box:
+                input_box.setPlaceholderText(symbol)
+                input_box.setText("")
+
+    def collect_stock_settings_from_inputs(self):
+        old_index_symbols = list(self.stock_index_symbols)
+        old_favorite_symbols = list(self.stock_favorite_symbols)
+
+        new_index_symbols = []
+
+        for index, (display_name, current_symbol) in enumerate(self.stock_index_symbols):
+            input_box = self.stock_setting_inputs.get(("index", index))
+            typed_value = input_box.text().strip() if input_box else ""
+
+            if typed_value:
+                new_symbol = self.validate_market_symbol_input(typed_value)
+            else:
+                new_symbol = current_symbol
+
+            if index < len(INDEX_SYMBOLS):
+                default_name, default_symbol = INDEX_SYMBOLS[index]
+                new_display_name = default_name if new_symbol == default_symbol else new_symbol
+            else:
+                new_display_name = new_symbol
+
+            new_index_symbols.append((new_display_name, new_symbol))
+
+        new_favorite_symbols = []
+
+        for index, current_symbol in enumerate(self.stock_favorite_symbols):
+            input_box = self.stock_setting_inputs.get(("favorite", index))
+            typed_value = input_box.text().strip() if input_box else ""
+
+            if typed_value:
+                new_symbol = self.validate_market_symbol_input(typed_value)
+            else:
+                new_symbol = current_symbol
+
+            new_favorite_symbols.append(new_symbol)
+
+        changed = (
+            new_index_symbols != old_index_symbols
+            or new_favorite_symbols != old_favorite_symbols
+        )
+
+        self.stock_index_symbols = new_index_symbols
+        self.stock_favorite_symbols = new_favorite_symbols
+
+        return changed
+
+
     def build_settings_page(self):
         page = QWidget()
         page.setObjectName("SettingsPage")
@@ -446,6 +832,7 @@ class DashboardWindow(QMainWindow):
         self.weather_zip_input.setPlaceholderText("Enter 5-digit ZIP code")
         self.weather_zip_input.setMaxLength(5)
         self.weather_zip_input.setText(self.weather_zip_code)
+        self.refresh_stock_settings_inputs()
 
         card_layout.addWidget(left_label)
         card_layout.addWidget(self.left_news_combo)
@@ -453,6 +840,8 @@ class DashboardWindow(QMainWindow):
         card_layout.addWidget(self.right_news_combo)
         card_layout.addWidget(weather_label)
         card_layout.addWidget(self.weather_zip_input)
+
+        self.build_stock_settings_section(card_layout)
 
         button_row = QHBoxLayout()
         button_row.setContentsMargins(0, 8, 0, 0)
@@ -579,6 +968,16 @@ class DashboardWindow(QMainWindow):
 
         old_weather_zip = self.weather_zip_code
 
+        try:
+            stock_settings_changed = self.collect_stock_settings_from_inputs()
+        except Exception as error:
+            QMessageBox.warning(
+                self,
+                "Invalid Ticker",
+                str(error),
+            )
+            return
+
         self.left_news_source_key = self.left_news_combo.currentData() or "FOX"
         self.right_news_source_key = self.right_news_combo.currentData() or "CNBC"
         self.weather_zip_code = validated_location.zip_code
@@ -588,6 +987,7 @@ class DashboardWindow(QMainWindow):
 
         self.save_news_source_settings()
         self.save_weather_zip_setting()
+        self.save_stock_symbol_settings()
 
         self.refresh_news_card_placeholders()
         self.show_dashboard_page()
@@ -596,6 +996,9 @@ class DashboardWindow(QMainWindow):
         if self.weather_zip_code != old_weather_zip:
             self.refresh_weather_placeholders()
             self.start_weather_fetch()
+
+        if stock_settings_changed:
+            self.start_stock_fetch()
 
     def refresh_news_card_placeholders(self):
         left_label = get_news_source_display(self.left_news_source_key)
@@ -784,7 +1187,10 @@ class DashboardWindow(QMainWindow):
 
     def start_stock_fetch(self):
         self.stock_thread = QThread()
-        self.stock_worker = StockFetchWorker()
+        self.stock_worker = StockFetchWorker(
+            index_symbols=self.stock_index_symbols,
+            stock_symbols=self.stock_favorite_symbols,
+        )
         self.stock_worker.moveToThread(self.stock_thread)
 
         self.stock_thread.started.connect(self.stock_worker.run)

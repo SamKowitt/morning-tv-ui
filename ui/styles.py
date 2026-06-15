@@ -1460,4 +1460,51 @@ QPushButton#SettingsSecondaryButton:pressed {
     color: #2d2114;
 }
 
+/* STOCK SETTINGS SECTION */
+QLabel#SettingsSectionTitle {
+    color: #2d2114;
+    background: transparent;
+    font-size: 18px;
+    font-weight: 1000;
+    letter-spacing: 1.0px;
+    margin-top: 8px;
+}
+
+QLabel#SettingsSectionSubtitle {
+    color: rgba(45, 33, 20, 0.78);
+    background: transparent;
+    font-size: 12px;
+    font-weight: 800;
+    margin-bottom: 2px;
+}
+
+QWidget#StockSettingsRow {
+    background: rgba(114, 84, 45, 0.14);
+    border: 1px solid rgba(114, 84, 45, 0.22);
+    border-radius: 10px;
+}
+
+QLabel#StockSettingsSlotLabel {
+    color: #2d2114;
+    background: transparent;
+    font-size: 13px;
+    font-weight: 1000;
+    letter-spacing: 0.6px;
+}
+
+QLineEdit#StockSettingsLineEdit {
+    background-color: #f7f0df;
+    color: #2d2114;
+    border: 1px solid #b59b6c;
+    border-radius: 9px;
+    padding: 7px 10px;
+    font-size: 14px;
+    font-weight: 900;
+}
+
+QLineEdit#StockSettingsLineEdit:focus {
+    background-color: #fff7e8;
+    border: 2px solid #8b6d3e;
+}
+
 """
