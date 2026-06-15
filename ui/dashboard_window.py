@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QStackedLayout,
     QVBoxLayout,
@@ -20,6 +21,7 @@ from services.sports_games_fetcher import fetch_current_sports_games
 from services.sports_news_fetcher import fetch_espn_sports_articles
 from services.stock_fetcher import INDEX_SYMBOLS, STOCK_SYMBOLS, fetch_market_data, fetch_market_data_for_symbols
 from services.weather_fetcher import fetch_weather_rows, validate_zip_code
+from services.apple_calendar_fetcher import fetch_icloud_calendar_events
 
 from ui.styles import APP_STYLE
 from ui.panels.date_card import DateCard
@@ -118,6 +120,28 @@ class StockFetchWorker(QObject):
             self.failed.emit(str(error))
 
 
+class AppleCalendarFetchWorker(QObject):
+    finished = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, apple_email, apple_password, days_ahead=14):
+        super().__init__()
+        self.apple_email = apple_email
+        self.apple_password = apple_password
+        self.days_ahead = days_ahead
+
+    def run(self):
+        try:
+            events = fetch_icloud_calendar_events(
+                apple_id_email=self.apple_email,
+                app_specific_password=self.apple_password,
+                days_ahead=self.days_ahead,
+            )
+            self.finished.emit(events)
+        except Exception as error:
+            self.failed.emit(str(error))
+
+
 class DashboardWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -151,6 +175,10 @@ class DashboardWindow(QMainWindow):
         self.stock_favorite_symbols = self.load_saved_stock_favorite_symbols()
         self.stock_setting_inputs = {}
         self.stock_suggestions = self.build_stock_suggestions()
+
+        self.apple_calendar_email = self.load_saved_apple_calendar_email()
+        self.apple_calendar_password = self.load_saved_apple_calendar_password()
+        self.apple_calendar_days_ahead = self.load_saved_apple_calendar_days_ahead()
 
         self.news_request_id = 0
 
@@ -232,6 +260,8 @@ class DashboardWindow(QMainWindow):
         self.start_sports_games_fetch()
         self.start_stock_fetch()
         self.start_weather_fetch()
+
+        self.start_apple_calendar_fetch()
 
     def valid_news_source_keys(self):
         return {source_key for source_key, _label in NEWS_SOURCE_OPTIONS}
@@ -775,9 +805,41 @@ class DashboardWindow(QMainWindow):
         return changed
 
 
+
+    def load_saved_apple_calendar_email(self):
+        return str(self.saved_settings.value("apple_calendar_email", "") or "").strip()
+
+    def load_saved_apple_calendar_password(self):
+        return str(self.saved_settings.value("apple_calendar_password", "") or "").strip()
+
+    def load_saved_apple_calendar_days_ahead(self):
+        try:
+            value = int(self.saved_settings.value("apple_calendar_days_ahead", 14) or 14)
+        except Exception:
+            value = 14
+
+        return max(1, min(value, 60))
+
+    def save_apple_calendar_settings(self):
+        self.saved_settings.setValue("apple_calendar_email", self.apple_calendar_email)
+        self.saved_settings.setValue("apple_calendar_password", self.apple_calendar_password)
+        self.saved_settings.setValue("apple_calendar_days_ahead", self.apple_calendar_days_ahead)
+        self.saved_settings.sync()
+
+        print(
+            "Saved Apple Calendar settings -> "
+            f"email={self.apple_calendar_email}, days={self.apple_calendar_days_ahead}"
+        )
+
+    def apple_calendar_is_configured(self):
+        return bool(self.apple_calendar_email and self.apple_calendar_password)
+
+
     def build_settings_page(self):
         page = QWidget()
         page.setObjectName("SettingsPage")
+        page.setMinimumSize(0, 0)
+        page.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         outer = QVBoxLayout()
         outer.setContentsMargins(0, 0, 0, 0)
@@ -840,6 +902,49 @@ class DashboardWindow(QMainWindow):
         card_layout.addWidget(self.right_news_combo)
         card_layout.addWidget(weather_label)
         card_layout.addWidget(self.weather_zip_input)
+
+        apple_calendar_title = QLabel("APPLE CALENDAR")
+        apple_calendar_title.setObjectName("SettingsSectionTitle")
+        apple_calendar_title.setAlignment(Qt.AlignLeft)
+
+        apple_calendar_subtitle = QLabel("Use your Apple ID email and an Apple app-specific password.")
+        apple_calendar_subtitle.setObjectName("SettingsSectionSubtitle")
+        apple_calendar_subtitle.setAlignment(Qt.AlignLeft)
+        apple_calendar_subtitle.setWordWrap(True)
+
+        apple_email_label = QLabel("APPLE ID EMAIL")
+        apple_email_label.setObjectName("SettingsFieldLabel")
+
+        self.apple_calendar_email_input = QLineEdit()
+        self.apple_calendar_email_input.setObjectName("SettingsLineEdit")
+        self.apple_calendar_email_input.setPlaceholderText("name@example.com")
+        self.apple_calendar_email_input.setText(self.apple_calendar_email)
+
+        apple_password_label = QLabel("APP-SPECIFIC PASSWORD")
+        apple_password_label.setObjectName("SettingsFieldLabel")
+
+        self.apple_calendar_password_input = QLineEdit()
+        self.apple_calendar_password_input.setObjectName("SettingsLineEdit")
+        self.apple_calendar_password_input.setPlaceholderText("xxxx-xxxx-xxxx-xxxx")
+        self.apple_calendar_password_input.setEchoMode(QLineEdit.Password)
+        self.apple_calendar_password_input.setText(self.apple_calendar_password)
+
+        apple_days_label = QLabel("DAYS AHEAD")
+        apple_days_label.setObjectName("SettingsFieldLabel")
+
+        self.apple_calendar_days_input = QLineEdit()
+        self.apple_calendar_days_input.setObjectName("SettingsLineEdit")
+        self.apple_calendar_days_input.setPlaceholderText("14")
+        self.apple_calendar_days_input.setText(str(self.apple_calendar_days_ahead))
+
+        card_layout.addWidget(apple_calendar_title)
+        card_layout.addWidget(apple_calendar_subtitle)
+        card_layout.addWidget(apple_email_label)
+        card_layout.addWidget(self.apple_calendar_email_input)
+        card_layout.addWidget(apple_password_label)
+        card_layout.addWidget(self.apple_calendar_password_input)
+        card_layout.addWidget(apple_days_label)
+        card_layout.addWidget(self.apple_calendar_days_input)
 
         self.build_stock_settings_section(card_layout)
 
@@ -930,7 +1035,17 @@ class DashboardWindow(QMainWindow):
 
         outer.addStretch(1)
 
-        return page
+        scroll_area = QScrollArea()
+        scroll_area.setObjectName("SettingsScrollArea")
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QFrame.NoFrame)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setWidget(page)
+        scroll_area.setMinimumSize(0, 0)
+        scroll_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+        return scroll_area
 
     def set_combo_to_source(self, combo, source_key):
         for index in range(combo.count()):
@@ -967,6 +1082,20 @@ class DashboardWindow(QMainWindow):
             return
 
         old_weather_zip = self.weather_zip_code
+        old_apple_calendar_settings = (
+            self.apple_calendar_email,
+            self.apple_calendar_password,
+            self.apple_calendar_days_ahead,
+        )
+
+        try:
+            requested_calendar_days = int(self.apple_calendar_days_input.text().strip() or 14)
+            requested_calendar_days = max(1, min(requested_calendar_days, 60))
+        except Exception:
+            QMessageBox.warning(self, "Invalid Calendar Range", "Days ahead must be a number from 1 to 60.")
+            self.apple_calendar_days_input.setFocus()
+            return
+
 
         try:
             stock_settings_changed = self.collect_stock_settings_from_inputs()
@@ -987,6 +1116,10 @@ class DashboardWindow(QMainWindow):
 
         self.save_news_source_settings()
         self.save_weather_zip_setting()
+        self.apple_calendar_email = self.apple_calendar_email_input.text().strip()
+        self.apple_calendar_password = self.apple_calendar_password_input.text().strip()
+        self.apple_calendar_days_ahead = requested_calendar_days
+        self.save_apple_calendar_settings()
         self.save_stock_symbol_settings()
 
         self.refresh_news_card_placeholders()
@@ -996,6 +1129,15 @@ class DashboardWindow(QMainWindow):
         if self.weather_zip_code != old_weather_zip:
             self.refresh_weather_placeholders()
             self.start_weather_fetch()
+
+        new_apple_calendar_settings = (
+            self.apple_calendar_email,
+            self.apple_calendar_password,
+            self.apple_calendar_days_ahead,
+        )
+
+        if new_apple_calendar_settings != old_apple_calendar_settings:
+            self.start_apple_calendar_fetch()
 
         if stock_settings_changed:
             self.start_stock_fetch()
@@ -1184,6 +1326,48 @@ class DashboardWindow(QMainWindow):
 
     def on_weather_failed(self, message):
         print(f"Weather fetch failed: {message}")
+
+
+    def start_apple_calendar_fetch(self):
+        if not self.apple_calendar_is_configured():
+            print("Apple Calendar is not configured.")
+            if hasattr(self.reminders, "set_calendar_error"):
+                self.reminders.set_calendar_error("Connect Apple Calendar in Settings")
+            return
+
+        self.apple_calendar_thread = QThread()
+        self.apple_calendar_worker = AppleCalendarFetchWorker(
+            apple_email=self.apple_calendar_email,
+            apple_password=self.apple_calendar_password,
+            days_ahead=self.apple_calendar_days_ahead,
+        )
+        self.apple_calendar_worker.moveToThread(self.apple_calendar_thread)
+
+        self.apple_calendar_thread.started.connect(self.apple_calendar_worker.run)
+
+        self.apple_calendar_worker.finished.connect(self.on_apple_calendar_loaded)
+        self.apple_calendar_worker.failed.connect(self.on_apple_calendar_failed)
+
+        self.apple_calendar_worker.finished.connect(self.apple_calendar_thread.quit)
+        self.apple_calendar_worker.failed.connect(self.apple_calendar_thread.quit)
+
+        self.apple_calendar_thread.finished.connect(self.apple_calendar_worker.deleteLater)
+        self.apple_calendar_thread.finished.connect(self.apple_calendar_thread.deleteLater)
+
+        self.apple_calendar_thread.start()
+
+    def on_apple_calendar_loaded(self, events):
+        print(f"Apple Calendar events loaded: {len(events)}")
+
+        if hasattr(self.reminders, "update_calendar_events"):
+            self.reminders.update_calendar_events(events)
+
+    def on_apple_calendar_failed(self, error_message):
+        print(f"Apple Calendar fetch failed: {error_message}")
+
+        if hasattr(self.reminders, "set_calendar_error"):
+            self.reminders.set_calendar_error("Unable to load Apple Calendar events")
+
 
     def start_stock_fetch(self):
         self.stock_thread = QThread()

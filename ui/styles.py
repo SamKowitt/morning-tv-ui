@@ -1507,4 +1507,22 @@ QLineEdit#StockSettingsLineEdit:focus {
     border: 2px solid #8b6d3e;
 }
 
+/* APPLE CALENDAR SETTINGS */
+QLabel#SettingsSectionTitle {
+    color: #2d2114;
+    background: transparent;
+    font-size: 18px;
+    font-weight: 1000;
+    letter-spacing: 1.0px;
+    margin-top: 8px;
+}
+
+QLabel#SettingsSectionSubtitle {
+    color: rgba(45, 33, 20, 0.78);
+    background: transparent;
+    font-size: 12px;
+    font-weight: 800;
+    margin-bottom: 2px;
+}
+
 """
