@@ -1,6 +1,6 @@
-from PySide6.QtCore import Qt, QRectF, QUrl, QSize
+from PySide6.QtCore import Qt, QRectF, QUrl, QSize, QEvent
 from PySide6.QtGui import QColor, QDesktopServices, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap
-from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget, QHBoxLayout, QFrame
+from PySide6.QtWidgets import QSizePolicy, QLabel, QVBoxLayout, QWidget, QHBoxLayout, QFrame
 
 from ui.auto_fit_label import AutoFitLabel
 
@@ -158,12 +158,15 @@ class NewsCard(QWidget):
         self.source = source
         self.image_label = image_label
         self.article_url = ""
+        self.page2_widgets = []
+        self.page2_widget_urls = {}
 
         self.setObjectName("NewspaperNewsCard")
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setCursor(Qt.PointingHandCursor)
 
-        outer = QVBoxLayout()
+        self.outer_layout = QVBoxLayout()
+        outer = self.outer_layout
         outer.setContentsMargins(12, 4, 12, 8)
         outer.setSpacing(3)
         self.setLayout(outer)
@@ -199,7 +202,8 @@ class NewsCard(QWidget):
         self.text_panel.setAttribute(Qt.WA_StyledBackground, True)
         self.text_panel.setCursor(Qt.PointingHandCursor)
 
-        text_layout = QVBoxLayout()
+        self.text_layout = QVBoxLayout()
+        text_layout = self.text_layout
         text_layout.setContentsMargins(12, 5, 12, 5)
         text_layout.setSpacing(2)
         self.text_panel.setLayout(text_layout)
@@ -242,7 +246,21 @@ class NewsCard(QWidget):
         outer.addWidget(self.image, 80)
         outer.addWidget(self.text_panel, 20)
 
+    def clear_page2_widgets(self):
+        for widget in getattr(self, "page2_widgets", []):
+            self.text_layout.removeWidget(widget)
+            widget.deleteLater()
+
+        self.page2_widgets = []
+        self.page2_widget_urls = {}
+
+        self.image.show()
+        self.headline_label.show()
+
     def update_article(self, article):
+        self.clear_page2_widgets()
+        self.outer_layout.setStretchFactor(self.image, 80)
+        self.outer_layout.setStretchFactor(self.text_panel, 20)
         self.source = article.source
         self.article_url = getattr(article, "link", "") or ""
 
@@ -281,6 +299,129 @@ class NewsCard(QWidget):
             self.image.set_pixmap_from_data(article.image_bytes)
         else:
             self.image.set_pixmap_from_data(b"")
+
+    def update_article_list(self, articles, page_label="PAGE 2"):
+        self.clear_page2_widgets()
+
+        articles = list(articles or [])[:4]
+
+        self.image.set_pixmap_from_data(b"")
+        self.image.hide()
+        self.headline_label.hide()
+
+        self.outer_layout.setStretchFactor(self.image, 0)
+        self.outer_layout.setStretchFactor(self.text_panel, 1)
+
+        if articles:
+            self.source = articles[0].source
+            self.top_source_label.setText(articles[0].source)
+            self.image.set_source_text(articles[0].source)
+
+        self.article_url = ""
+        self.edition_label.setText("CONTINUED")
+        self.kicker_label.setText("MORE HEADLINES")
+        self.page_label.setText(page_label)
+        self.read_label.setText("")
+
+        self.setCursor(Qt.ArrowCursor)
+        self.text_panel.setCursor(Qt.ArrowCursor)
+
+        # One visible page-2 container with four equal rows.
+        page2_container = QWidget()
+        page2_container.setObjectName("Page2Container")
+        page2_container.setAttribute(Qt.WA_StyledBackground, True)
+        page2_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+        page2_layout = QVBoxLayout()
+        page2_layout.setContentsMargins(0, 0, 0, 0)
+        page2_layout.setSpacing(6)
+        page2_container.setLayout(page2_layout)
+
+        for index in range(4):
+            article = articles[index] if index < len(articles) else None
+            title = getattr(article, "title", "") if article else "Additional headline unavailable."
+            article_url = getattr(article, "link", "") if article else ""
+
+            row = QWidget()
+            row.setObjectName("Page2HeadlineBox")
+            row.setAttribute(Qt.WA_StyledBackground, True)
+            row.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+            row_layout = QVBoxLayout()
+            row_layout.setContentsMargins(10, 5, 10, 5)
+            row_layout.setSpacing(2)
+            row.setLayout(row_layout)
+
+            story_label = QLabel(f"STORY {index + 1}")
+            story_label.setObjectName("Page2HeadlineSection")
+            story_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+
+            title_label = AutoFitLabel(
+                title,
+                min_size=11,
+                max_size=18,
+                bold=True,
+                alignment=Qt.AlignLeft | Qt.AlignVCenter,
+                word_wrap=True,
+            )
+            title_label.setObjectName("Page2HeadlineText")
+
+            row_layout.addWidget(story_label)
+            row_layout.addWidget(title_label, 1)
+
+            row.setStyleSheet("""
+                QWidget#Page2HeadlineBox {
+                    background: rgba(255, 248, 236, 0.70);
+                    border: 1px solid rgba(83, 59, 33, 0.32);
+                    border-radius: 6px;
+                }
+                QWidget#Page2HeadlineBox:hover {
+                    background: rgba(255, 248, 236, 0.92);
+                    border: 1px solid rgba(83, 59, 33, 0.55);
+                }
+                QLabel#Page2HeadlineSection {
+                    color: rgba(83, 59, 33, 0.76);
+                    background: transparent;
+                    font-size: 8px;
+                    font-weight: 900;
+                    letter-spacing: 1px;
+                }
+                QLabel#Page2HeadlineText {
+                    color: #2d2114;
+                    background: transparent;
+                    font-weight: 900;
+                }
+            """)
+
+            if article_url:
+                row.setCursor(Qt.PointingHandCursor)
+                title_label.setCursor(Qt.PointingHandCursor)
+                story_label.setCursor(Qt.PointingHandCursor)
+
+                row.installEventFilter(self)
+                title_label.installEventFilter(self)
+                story_label.installEventFilter(self)
+
+                self.page2_widget_urls[row] = article_url
+                self.page2_widget_urls[title_label] = article_url
+                self.page2_widget_urls[story_label] = article_url
+
+            page2_layout.addWidget(row, 1)
+
+        # Put the four-row container between the paper rule and the footer.
+        self.text_layout.insertWidget(2, page2_container, 1)
+        self.page2_widgets.append(page2_container)
+
+
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.MouseButtonPress:
+            article_url = getattr(self, "page2_widget_urls", {}).get(watched, "")
+
+            if article_url:
+                QDesktopServices.openUrl(QUrl(article_url))
+                return True
+
+        return super().eventFilter(watched, event)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton and self.article_url:

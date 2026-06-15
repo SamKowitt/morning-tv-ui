@@ -1,4 +1,4 @@
-from PySide6.QtCore import QObject, QThread, Signal, Qt, QSettings, QEvent
+from PySide6.QtCore import QStringListModel, QObject, QThread, Signal, Qt, QSettings, QEvent
 from PySide6.QtWidgets import (
     QComboBox,
     QCompleter,
@@ -256,7 +256,24 @@ class DashboardWindow(QMainWindow):
         self.settings_button.setGraphicsEffect(self.settings_button_opacity)
         self.settings_button.enterEvent = self.settings_button_enter_event
         self.settings_button.leaveEvent = self.settings_button_leave_event
-        self.settings_button.setFixedSize(30, 30)
+        self.settings_button.setFixedSize(22, 22)
+        self.settings_button.setStyleSheet("""
+            QPushButton {
+                background: rgba(245, 234, 215, 0.65);
+                border: 1px solid rgba(83, 59, 33, 0.45);
+                border-radius: 11px;
+                color: #2d2114;
+                font-size: 12px;
+                font-weight: 900;
+                padding: 0px;
+            }
+
+            QPushButton:hover {
+                background: rgba(245, 234, 215, 1.0);
+                border: 1px solid rgba(83, 59, 33, 0.80);
+                color: #2d2114;
+            }
+        """)
         self.settings_button.clicked.connect(self.show_settings_page)
 
         self.apply_forced_row_heights()
@@ -672,12 +689,88 @@ class DashboardWindow(QMainWindow):
             f"indexes={self.stock_index_symbols}, favorites={self.stock_favorite_symbols}"
         )
 
+    def split_stock_suggestion(self, suggestion):
+        parts = str(suggestion or "").split(" — ", 1)
+        symbol = parts[0].strip().upper()
+
+        if len(parts) > 1:
+            company = parts[1].strip()
+        else:
+            company = ""
+
+        return symbol, company
+
+    def rank_stock_suggestion(self, suggestion, query):
+        query = str(query or "").strip().upper()
+
+        if not query:
+            return (0, suggestion)
+
+        symbol, company = self.split_stock_suggestion(suggestion)
+        company_upper = company.upper()
+
+        # Exact ticker matches first: TSLA -> TSLA — Tesla...
+        if symbol == query:
+            return (0, symbol)
+
+        # Then ticker starts-with matches: TS -> TSLA...
+        if symbol.startswith(query):
+            return (1, symbol)
+
+        # Then ticker contains matches.
+        if query in symbol:
+            return (2, symbol)
+
+        # Then company-name starts-with matches.
+        if company_upper.startswith(query):
+            return (3, company_upper)
+
+        # Then company-name contains matches.
+        if query in company_upper:
+            return (4, company_upper)
+
+        return (9, suggestion)
+
+    def filtered_stock_suggestions(self, query):
+        query = str(query or "").strip()
+
+        if not query:
+            return self.stock_suggestions[:80]
+
+        query_upper = query.upper()
+        matches = []
+
+        for suggestion in self.stock_suggestions:
+            symbol, company = self.split_stock_suggestion(suggestion)
+            searchable = f"{symbol} {company}".upper()
+
+            if query_upper in searchable:
+                matches.append(suggestion)
+
+        matches.sort(key=lambda suggestion: self.rank_stock_suggestion(suggestion, query))
+
+        return matches[:80]
+
+    def update_stock_completer_model(self, model, query):
+        model.setStringList(self.filtered_stock_suggestions(query))
+
     def attach_stock_symbol_completer(self, input_box):
-        completer = QCompleter(self.stock_suggestions, input_box)
+        model = QStringListModel(self.filtered_stock_suggestions(""))
+
+        completer = QCompleter(model, input_box)
         completer.setCaseSensitivity(Qt.CaseInsensitive)
         completer.setFilterMode(Qt.MatchContains)
         completer.setCompletionMode(QCompleter.PopupCompletion)
+        completer.setMaxVisibleItems(12)
+
         input_box.setCompleter(completer)
+
+        input_box.textEdited.connect(
+            lambda query, suggestion_model=model: self.update_stock_completer_model(
+                suggestion_model,
+                query,
+            )
+        )
 
 
     def build_settings_divider(self):
@@ -1301,8 +1394,10 @@ class DashboardWindow(QMainWindow):
         if not hasattr(self, "settings_button"):
             return
 
-        x = 4
-        y = max(4, self.root.height() - self.settings_button.height() - 4)
+        button_size = self.settings_button.size()
+        x = 3
+        y = self.height() - button_size.height() - 3
+
         self.settings_button.move(x, y)
         self.settings_button.raise_()
 
@@ -1365,6 +1460,13 @@ class DashboardWindow(QMainWindow):
                 "image.cnbcfm.com",
             ])
 
+        if source_key == "NYTIMES":
+            allowed_image_domains.extend([
+                "static01.nyt.com",
+                "static02.nyt.com",
+                "nyt.com",
+            ])
+
         if source_key == "BLOOMBERG":
             allowed_image_domains.extend([
                 "bwbx.io",
@@ -1374,7 +1476,13 @@ class DashboardWindow(QMainWindow):
                 "assets.bloombergmedia.com",
             ])
 
-        if article_image_url and not any(domain in article_image_url for domain in allowed_image_domains):
+        article_image_bytes = getattr(article, "image_bytes", b"") or b""
+
+        if (
+            article_image_url
+            and not article_image_bytes
+            and not any(domain in article_image_url for domain in allowed_image_domains)
+        ):
             print(
                 f"Removing wrong-domain image for {expected_source}: "
                 f"{article_image_url}"
@@ -1614,7 +1722,24 @@ class DashboardWindow(QMainWindow):
         else:
             self.reject_mismatched_news_card(self.fox_card, left_source_key)
 
-        if self.article_matches_selected_source(right_article, right_source_key):
+        if isinstance(right_article, list):
+            valid_right_articles = [
+                article
+                for article in right_article
+                if self.article_matches_selected_source(article, right_source_key)
+            ]
+
+            if valid_right_articles:
+                self.force_clear_news_card(self.cnbc_card, right_source_key)
+                self.cnbc_card.update_article_list(valid_right_articles, page_label="PAGE 2")
+                print(
+                    f"RIGHT CARD NOW SET TO PAGE 2: "
+                    f"{len(valid_right_articles)} article(s) from {valid_right_articles[0].source}"
+                )
+            else:
+                self.reject_mismatched_news_card(self.cnbc_card, right_source_key)
+
+        elif self.article_matches_selected_source(right_article, right_source_key):
             self.force_clear_news_card(self.cnbc_card, right_source_key)
             self.cnbc_card.update_article(right_article)
             print(f"RIGHT CARD NOW SET TO: {right_article.source} | {right_article.title}")

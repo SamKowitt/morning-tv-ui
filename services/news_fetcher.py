@@ -211,6 +211,7 @@ def fetch_url_bytes(url, timeout=REQUEST_TIMEOUT):
         return response.read(), response.headers.get("Content-Type", "")
 
 
+
 def fetch_url_text(url, timeout=REQUEST_TIMEOUT):
     data, _ = fetch_url_bytes(url, timeout=timeout)
     return data.decode("utf-8", errors="ignore")
@@ -768,6 +769,36 @@ def print_candidate_debug(source_key, candidates, label):
             print(f"   link={candidate.link}")
 
 
+def fetch_reuters_url_text(url, timeout=REQUEST_TIMEOUT):
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/125.0.0.0 Safari/537.36"
+            ),
+            "Accept": (
+                "text/html,application/xhtml+xml,application/xml;q=0.9,"
+                "image/avif,image/webp,image/apng,*/*;q=0.8"
+            ),
+            "Accept-Language": "en-US,en;q=0.9",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
+
+    relaxed_context = ssl._create_unverified_context()
+
+    with urllib.request.urlopen(
+        request,
+        timeout=timeout,
+        context=relaxed_context,
+    ) as response:
+        return response.read().decode("utf-8", errors="ignore")
+
+
 def fetch_homepage_candidates(source_key):
     config = NEWS_SOURCES[source_key]
     source_name = config["source_name"]
@@ -775,7 +806,11 @@ def fetch_homepage_candidates(source_key):
     allowed_domain_text = config["allowed_domain"]
 
     print(f"Trying {source_name} homepage: {homepage_url}")
-    page_html = fetch_url_text(homepage_url, timeout=REQUEST_TIMEOUT)
+
+    if source_key == "REUTERS":
+        page_html = fetch_reuters_url_text(homepage_url, timeout=REQUEST_TIMEOUT)
+    else:
+        page_html = fetch_url_text(homepage_url, timeout=REQUEST_TIMEOUT)
 
     candidates = []
     candidates.extend(
@@ -985,10 +1020,18 @@ def choose_best_candidate(source_key, candidates):
     return candidates[0]
 
 
-def fetch_configured_article(source_key):
+def normalize_source_key(source_key):
+    source_key = str(source_key or "").strip().upper()
+
     if source_key not in NEWS_SOURCES:
         print(f"Unknown news source key {source_key}; falling back to FOX NEWS")
         source_key = "FOX"
+
+    return source_key
+
+
+def fetch_ranked_candidates(source_key):
+    source_key = normalize_source_key(source_key)
 
     config = NEWS_SOURCES[source_key]
     source_name = config["source_name"]
@@ -1029,23 +1072,75 @@ def fetch_configured_article(source_key):
             print(f"{source_name} homepage failed: {error}")
             errors.append(message)
 
+    ranked_candidates = dedupe_candidates(all_candidates)
+
+    if not ranked_candidates:
+        raise RuntimeError("No usable headline candidates found: " + " | ".join(errors))
+
+    for candidate in ranked_candidates:
+        score_candidate(candidate, source_key)
+
+    ranked_candidates.sort(key=lambda item: item.score, reverse=True)
+
+    return source_key, source_name, ranked_candidates
+
+
+def fetch_configured_article(source_key):
+    source_key = normalize_source_key(source_key)
+    source_name = get_news_source_display(source_key)
+
     try:
-        best = choose_best_candidate(source_key, all_candidates)
+        source_key, source_name, ranked_candidates = fetch_ranked_candidates(source_key)
+        best = ranked_candidates[0]
+
         print(
             f"SELECTED {source_name}: score={best.score:.1f} "
             f"origin={best.origin} title={best.title}"
         )
+
         article = enrich_article(build_article_from_candidate(best))
         cache_article(source_key, article)
         return article
     except Exception as error:
-        errors.append(str(error))
         print(f"{source_name} selection failed: {error}")
+        return fallback_article(source_key, str(error))
 
-    return fallback_article(source_key, " | ".join(errors))
+
+def fetch_configured_articles(source_key, max_articles=5):
+    source_key = normalize_source_key(source_key)
+    source_name = get_news_source_display(source_key)
+
+    try:
+        source_key, source_name, ranked_candidates = fetch_ranked_candidates(source_key)
+
+        articles = []
+        for index, candidate in enumerate(ranked_candidates[:max_articles], start=1):
+            print(
+                f"SELECTED {source_name} #{index}: score={candidate.score:.1f} "
+                f"origin={candidate.origin} title={candidate.title}"
+            )
+            article = enrich_article(build_article_from_candidate(candidate))
+            cache_article(f"{source_key}_{index}", article)
+            articles.append(article)
+
+        return articles
+    except Exception as error:
+        print(f"{source_name} multi-article selection failed: {error}")
+        return [fallback_article(source_key, str(error))]
 
 
 def fetch_news_cards(left_source_key="FOX", right_source_key="CNBC"):
+    left_source_key = normalize_source_key(left_source_key)
+    right_source_key = normalize_source_key(right_source_key)
+
+    if left_source_key == right_source_key:
+        articles = fetch_configured_articles(left_source_key, max_articles=5)
+
+        left_article = articles[0]
+        right_articles = articles[1:5]
+
+        return left_article, right_articles
+
     # Fetch left and right in parallel so a slow optional source does not block the
     # other article card.
     with ThreadPoolExecutor(max_workers=2) as executor:
