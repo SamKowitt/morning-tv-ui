@@ -1282,15 +1282,93 @@ QLabel#SettingsFieldLabel {
     letter-spacing: 2px;
 }
 
+
 QComboBox#SettingsComboBox {
-    background-color: rgba(255, 252, 247, 230);
-    color: #2f2a24;
-    border: 1px solid rgba(117, 97, 72, 140);
-    border-radius: 9px;
-    padding: 7px 10px;
-    font-size: 17px;
+    background-color: #f7f0df;
+    color: #2d2114;
+    border: 1px solid #b59b6c;
+    border-radius: 10px;
+    padding: 8px 12px;
+    font-size: 15px;
+    font-weight: 900;
+    selection-background-color: #d8c7a4;
+    selection-color: #2d2114;
+}
+
+QComboBox#SettingsComboBox:hover {
+    background-color: #fff7e8;
+    border: 1px solid #8b6d3e;
+}
+
+QComboBox#SettingsComboBox:focus {
+    background-color: #fff7e8;
+    border: 2px solid #8b6d3e;
+}
+
+QComboBox#SettingsComboBox::drop-down {
+    border: none;
+    width: 34px;
+    background-color: transparent;
+}
+
+QComboBox#SettingsComboBox::down-arrow {
+    width: 12px;
+    height: 12px;
+}
+
+QComboBox#SettingsComboBox QAbstractItemView {
+    background-color: #f7f0df;
+    color: #2d2114;
+    border: 2px solid #8b6d3e;
+    border-radius: 8px;
+    padding: 6px;
+    outline: none;
+    selection-background-color: #8b5e2a;
+    selection-color: #f7f0df;
+    font-size: 15px;
     font-weight: 900;
 }
+
+QComboBox#SettingsComboBox QAbstractItemView::item {
+    min-height: 28px;
+    padding: 6px 10px;
+    color: #2d2114;
+    background-color: #f7f0df;
+}
+
+QComboBox#SettingsComboBox QAbstractItemView::item:hover {
+    background-color: #eadab7;
+    color: #2d2114;
+}
+
+QComboBox#SettingsComboBox QAbstractItemView::item:selected {
+    background-color: #8b5e2a;
+    color: #f7f0df;
+}
+
+
+QLineEdit#SettingsLineEdit {
+    background: rgba(255, 255, 255, 0.78);
+    border: 1px solid rgba(110, 92, 62, 0.30);
+    border-radius: 12px;
+    padding: 9px 12px;
+    color: #2d2a24;
+    font-size: 15px;
+    font-weight: 700;
+}
+
+QLineEdit#SettingsLineEdit:focus {
+    border: 2px solid rgba(139, 109, 62, 0.72);
+    background: rgba(255, 255, 255, 0.94);
+}
+
+# QLabel#DateLocationLabel {
+#     color: #2d2a24;
+#     background: transparent;
+#     font-size: 12px;
+#     font-weight: 900;
+#     letter-spacing: 0.4px;
+# }
 
 QComboBox#SettingsComboBox::drop-down {
     border: none;
@@ -1306,30 +1384,80 @@ QComboBox#SettingsComboBox QAbstractItemView {
 }
 
 QPushButton#SettingsPrimaryButton {
-    background-color: #7a5f43;
-    color: #fff8ec;
-    border: 1px solid rgba(55, 43, 30, 180);
-    border-radius: 10px;
-    padding: 8px 14px;
+    background: rgba(114, 84, 45, 0.92);
+    color: #f7f0df;
+    border: 1px solid rgba(76, 55, 30, 0.45);
+    border-radius: 12px;
+    padding: 10px 18px;
     font-size: 15px;
     font-weight: 900;
 }
 
 QPushButton#SettingsPrimaryButton:hover {
-    background-color: #8d704f;
+    background: rgba(132, 98, 54, 0.96);
+}
+
+QPushButton#SettingsPrimaryButton:pressed {
+    background: rgba(92, 67, 36, 0.98);
 }
 
 QPushButton#SettingsSecondaryButton {
-    background-color: rgba(255, 252, 247, 180);
-    color: #2f2a24;
-    border: 1px solid rgba(117, 97, 72, 140);
-    border-radius: 10px;
-    padding: 8px 14px;
+    background: rgba(246, 238, 219, 0.88);
+    color: #3a3124;
+    border: 1px solid rgba(110, 92, 62, 0.35);
+    border-radius: 12px;
+    padding: 10px 18px;
     font-size: 15px;
     font-weight: 900;
 }
 
 QPushButton#SettingsSecondaryButton:hover {
-    background-color: rgba(255, 252, 247, 235);
+    background: rgba(255, 247, 229, 0.96);
 }
+
+QPushButton#SettingsSecondaryButton:pressed {
+    background: rgba(226, 214, 190, 0.96);
+}
+
+/* FINAL SETTINGS BUTTON OVERRIDE */
+QPushButton#SettingsPrimaryButton {
+    background-color: #72542d;
+    color: #2d2114;
+    border: 2px solid #4d351b;
+    border-radius: 12px;
+    padding: 10px 18px;
+    font-size: 15px;
+    font-weight: 900;
+}
+
+QPushButton#SettingsPrimaryButton:hover {
+    background-color: #846236;
+    color: #2d2114;
+}
+
+QPushButton#SettingsPrimaryButton:pressed {
+    background-color: #5c4324;
+    color: #f7f0df;
+}
+
+QPushButton#SettingsSecondaryButton {
+    background-color: #d8c7a4;
+    color: #2d2114;
+    border: 2px solid #8b6d3e;
+    border-radius: 12px;
+    padding: 10px 18px;
+    font-size: 15px;
+    font-weight: 900;
+}
+
+QPushButton#SettingsSecondaryButton:hover {
+    background-color: #eadab7;
+    color: #2d2114;
+}
+
+QPushButton#SettingsSecondaryButton:pressed {
+    background-color: #b79b6a;
+    color: #2d2114;
+}
+
 """

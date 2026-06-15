@@ -193,8 +193,8 @@ def condition_from_open_meteo_code(weather_code, precipitation_probability, is_d
     return "clear", "☀️"
 
 
-def get_nws_point_metadata():
-    point_url = f"{NWS_BASE_URL}/points/{LATITUDE},{LONGITUDE}"
+def get_nws_point_metadata(location):
+    point_url = f"{NWS_BASE_URL}/points/{location.latitude},{location.longitude}"
     point_data = fetch_json(point_url, nws=True)
     properties = point_data.get("properties", {})
 
@@ -208,10 +208,10 @@ def get_nws_point_metadata():
     }
 
 
-def fetch_nws_active_alerts():
+def fetch_nws_active_alerts(location):
     query = urllib.parse.urlencode(
         {
-            "point": f"{LATITUDE},{LONGITUDE}",
+            "point": f"{location.latitude},{location.longitude}",
         }
     )
 
@@ -378,15 +378,67 @@ def build_rows_from_nws_periods(periods, max_rows, alerts=None, observation=None
     return rows
 
 
-def fetch_weather_rows_from_nws(max_rows=9):
-    print(f"Fetching weather data from NWS for ZIP {ZIP_CODE}...")
+@dataclass
+class WeatherLocation:
+    zip_code: str
+    label: str
+    latitude: float
+    longitude: float
+    timezone: str = "America/New_York"
 
-    metadata = get_nws_point_metadata()
+
+def validate_zip_code(zip_code):
+    cleaned_zip = "".join(ch for ch in str(zip_code or "") if ch.isdigit())
+
+    if len(cleaned_zip) != 5:
+        raise ValueError("Enter a valid 5-digit ZIP code.")
+
+    url = f"https://api.zippopotam.us/us/{cleaned_zip}"
+
+    try:
+        data = fetch_json(url, timeout=5)
+    except Exception:
+        raise ValueError(f"ZIP code {cleaned_zip} was not found.")
+
+    places = data.get("places", [])
+
+    if not places:
+        raise ValueError(f"ZIP code {cleaned_zip} was not found.")
+
+    place = places[0]
+
+    try:
+        latitude = float(place.get("latitude"))
+        longitude = float(place.get("longitude"))
+    except Exception:
+        raise ValueError(f"ZIP code {cleaned_zip} did not return a usable location.")
+
+    city = place.get("place name", "")
+    state = place.get("state abbreviation", "")
+    label = cleaned_zip
+
+    if city and state:
+        label = f"{cleaned_zip} — {city}, {state}"
+
+    return WeatherLocation(
+        zip_code=cleaned_zip,
+        label=label,
+        latitude=latitude,
+        longitude=longitude,
+        timezone="America/New_York",
+    )
+
+def fetch_weather_rows_from_nws(max_rows=9, location=None):
+    location = location or validate_zip_code(ZIP_CODE)
+
+    print(f"Fetching weather data from NWS for ZIP {location.zip_code}...")
+
+    metadata = get_nws_point_metadata(location)
 
     alerts = []
 
     try:
-        alerts = fetch_nws_active_alerts()
+        alerts = fetch_nws_active_alerts(location)
         if alerts:
             print("NWS active alerts found:")
             for alert in alerts[:3]:
@@ -422,21 +474,23 @@ def fetch_weather_rows_from_nws(max_rows=9):
         observation=observation,
     )
 
-    print(f"Loaded NWS weather rows: {len(rows)}")
+    print(f"Loaded NWS weather rows for {location.zip_code}: {len(rows)}")
 
     return rows
 
 
-def fetch_weather_rows_from_open_meteo(max_rows=9):
-    print(f"Fetching weather data from Open-Meteo for ZIP {ZIP_CODE}...")
+def fetch_weather_rows_from_open_meteo(max_rows=9, location=None):
+    location = location or validate_zip_code(ZIP_CODE)
+
+    print(f"Fetching weather data from Open-Meteo for ZIP {location.zip_code}...")
 
     params = {
-        "latitude": LATITUDE,
-        "longitude": LONGITUDE,
+        "latitude": location.latitude,
+        "longitude": location.longitude,
         "current": "temperature_2m,weather_code,is_day",
         "hourly": "temperature_2m,weather_code,precipitation_probability,is_day",
         "temperature_unit": "fahrenheit",
-        "timezone": TIMEZONE,
+        "timezone": location.timezone,
         "forecast_days": 2,
     }
 
@@ -482,19 +536,21 @@ def fetch_weather_rows_from_open_meteo(max_rows=9):
             )
         )
 
-    print(f"Loaded Open-Meteo weather rows: {len(rows)}")
+    print(f"Loaded Open-Meteo weather rows for {location.zip_code}: {len(rows)}")
 
     return rows
 
 
-def fetch_weather_rows(max_rows=9):
+def fetch_weather_rows(max_rows=9, zip_code=None):
+    location = validate_zip_code(zip_code or ZIP_CODE)
+
     try:
-        return fetch_weather_rows_from_nws(max_rows=max_rows)
+        return fetch_weather_rows_from_nws(max_rows=max_rows, location=location)
     except Exception as error:
         print(f"NWS weather failed, falling back to Open-Meteo: {error}")
 
     try:
-        return fetch_weather_rows_from_open_meteo(max_rows=max_rows)
+        return fetch_weather_rows_from_open_meteo(max_rows=max_rows, location=location)
     except Exception as error:
         print(f"Open-Meteo weather failed: {error}")
 
@@ -509,3 +565,54 @@ def fetch_weather_rows(max_rows=9):
         WeatherRow("--", "🌙", "7pm", "clear", True),
         WeatherRow("--", "🌙", "8pm", "clear", True),
     ][:max_rows]
+
+
+@dataclass
+class WeatherLocation:
+    zip_code: str
+    label: str
+    latitude: float
+    longitude: float
+    timezone: str = "America/New_York"
+
+    def validate_zip_code(zip_code):
+        cleaned_zip = "".join(ch for ch in str(zip_code or "") if ch.isdigit())
+
+        if len(cleaned_zip) != 5:
+            raise ValueError("Enter a valid 5-digit ZIP code.")
+
+        url = f"https://api.zippopotam.us/us/{cleaned_zip}"
+
+        try:
+            data = fetch_json(url, timeout=5)
+        except Exception:
+            raise ValueError(f"ZIP code {cleaned_zip} was not found.")
+
+        places = data.get("places", [])
+
+        if not places:
+            raise ValueError(f"ZIP code {cleaned_zip} was not found.")
+
+        place = places[0]
+
+        try:
+            latitude = float(place.get("latitude"))
+            longitude = float(place.get("longitude"))
+        except Exception:
+            raise ValueError(f"ZIP code {cleaned_zip} did not return a usable location.")
+
+        city = place.get("place name", "")
+        state = place.get("state abbreviation", "")
+
+        label = cleaned_zip
+
+        if city and state:
+            label = f"{cleaned_zip} — {city}, {state}"
+
+        return WeatherLocation(
+            zip_code=cleaned_zip,
+            label=label,
+            latitude=latitude,
+            longitude=longitude,
+            timezone=TIMEZONE,
+        )

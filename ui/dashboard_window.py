@@ -1,10 +1,12 @@
-from PySide6.QtCore import QObject, QThread, Signal, Qt, QSettings
+from PySide6.QtCore import QObject, QThread, Signal, Qt, QSettings, QEvent
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMainWindow,
+    QMessageBox,
     QPushButton,
     QSizePolicy,
     QStackedLayout,
@@ -16,7 +18,7 @@ from services.news_fetcher import NEWS_SOURCES, NEWS_SOURCE_OPTIONS, fetch_news_
 from services.sports_games_fetcher import fetch_current_sports_games
 from services.sports_news_fetcher import fetch_espn_sports_articles
 from services.stock_fetcher import fetch_market_data
-from services.weather_fetcher import fetch_weather_rows
+from services.weather_fetcher import fetch_weather_rows, validate_zip_code
 
 from ui.styles import APP_STYLE
 from ui.panels.date_card import DateCard
@@ -32,9 +34,13 @@ class WeatherFetchWorker(QObject):
     finished = Signal(object)
     failed = Signal(str)
 
+    def __init__(self, zip_code="44865"):
+        super().__init__()
+        self.zip_code = zip_code
+
     def run(self):
         try:
-            rows = fetch_weather_rows(max_rows=9)
+            rows = fetch_weather_rows(max_rows=9, zip_code=self.zip_code)
             self.finished.emit(rows)
         except Exception as error:
             self.failed.emit(str(error))
@@ -124,6 +130,10 @@ class DashboardWindow(QMainWindow):
             default_value="CNBC",
         )
 
+        self.weather_zip_code = self.load_saved_weather_zip()
+
+        self.weather_location_label = self.load_saved_weather_location_label()
+
         self.news_request_id = 0
 
         self.root = QWidget()
@@ -152,6 +162,8 @@ class DashboardWindow(QMainWindow):
         left_column.setContentsMargins(0, 0, 0, 0)
 
         self.date_card = DateCard()
+        self.install_date_card_location_label()
+
         self.weather_panel = WeatherPanel()
 
         left_column.addWidget(self.date_card, 22)
@@ -206,6 +218,7 @@ class DashboardWindow(QMainWindow):
     def valid_news_source_keys(self):
         return {source_key for source_key, _label in NEWS_SOURCE_OPTIONS}
 
+
     def load_saved_news_source(self, setting_name, default_value):
         saved_value = self.saved_settings.value(setting_name, default_value)
 
@@ -222,6 +235,108 @@ class DashboardWindow(QMainWindow):
         print(
             "Saved news settings -> "
             f"left: {self.left_news_source_key}, right: {self.right_news_source_key}"
+        )
+
+    def load_saved_weather_zip(self):
+        saved_zip = str(self.saved_settings.value("weather_zip_code", "44865") or "44865")
+        cleaned_zip = "".join(ch for ch in saved_zip if ch.isdigit())
+
+        if len(cleaned_zip) == 5:
+            return cleaned_zip
+
+        return "44865"
+
+    def load_saved_weather_location_label(self):
+        saved_label = str(
+            self.saved_settings.value("weather_location_label", "") or ""
+        ).strip()
+
+        # If we already saved a real city/state label, use it.
+        if saved_label and not saved_label.isdigit():
+            return saved_label
+
+        # Otherwise resolve the saved ZIP into city/state.
+        try:
+            location = validate_zip_code(self.weather_zip_code)
+            return self.city_name_from_weather_location(location)
+        except Exception as error:
+            print(f"Could not resolve saved weather ZIP location label: {error}")
+
+        return ""
+
+    def city_name_from_weather_location(self, location):
+        label = getattr(location, "label", "") or ""
+        zip_code = getattr(location, "zip_code", self.weather_zip_code)
+
+        # Expected label format: "44865 — North Fairfield, OH"
+        if "—" in label:
+            return label.split("—", 1)[1].strip()
+
+        if "-" in label:
+            return label.split("-", 1)[1].strip()
+
+        cleaned = label.replace(str(zip_code), "").strip()
+        cleaned = cleaned.strip("-").strip("—").strip()
+
+        return cleaned or ""
+
+    def install_date_card_location_label(self):
+        initial_text = self.weather_location_label or ""
+
+        self.date_location_label = QLabel(initial_text, self.date_card)
+        self.date_location_label.setObjectName("DateLocationLabel")
+        self.date_location_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.date_location_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.date_location_label.show()
+        self.sync_date_location_label_style()
+
+        self.date_card.installEventFilter(self)
+        self.position_date_location_label()
+
+    def position_date_location_label(self):
+        if not hasattr(self, "date_location_label"):
+            return
+
+        label_height = 18
+        left_margin = 16
+        bottom_margin = 2
+        width = max(80, self.date_card.width() - 32)
+
+        self.date_location_label.setGeometry(
+            left_margin,
+            max(0, self.date_card.height() - label_height - bottom_margin),
+            width,
+            label_height,
+        )
+
+        self.date_location_label.raise_()
+
+    def set_date_card_location_label(self, location_label):
+        if not hasattr(self, "date_location_label"):
+            return
+
+        text = str(location_label or "").strip()
+        self.date_location_label.setText(text)
+        self.position_date_location_label()
+
+    def eventFilter(self, watched, event):
+        if (
+                hasattr(self, "date_card")
+                and watched is self.date_card
+                and event.type() == QEvent.Resize
+        ):
+            self.position_date_location_label()
+
+        return super().eventFilter(watched, event)
+
+    def save_weather_zip_setting(self):
+        self.saved_settings.setValue("weather_zip_code", self.weather_zip_code)
+        self.saved_settings.setValue("weather_location_label", self.weather_location_label)
+        self.saved_settings.sync()
+
+        print(
+            f"Saved weather ZIP code -> {self.weather_zip_code} "
+            f"({self.weather_location_label})"
         )
 
     def build_top_row(self):
@@ -323,16 +438,28 @@ class DashboardWindow(QMainWindow):
         self.set_combo_to_source(self.left_news_combo, self.left_news_source_key)
         self.set_combo_to_source(self.right_news_combo, self.right_news_source_key)
 
+        weather_label = QLabel("WEATHER ZIP CODE")
+        weather_label.setObjectName("SettingsFieldLabel")
+
+        self.weather_zip_input = QLineEdit()
+        self.weather_zip_input.setObjectName("SettingsLineEdit")
+        self.weather_zip_input.setPlaceholderText("Enter 5-digit ZIP code")
+        self.weather_zip_input.setMaxLength(5)
+        self.weather_zip_input.setText(self.weather_zip_code)
+
         card_layout.addWidget(left_label)
         card_layout.addWidget(self.left_news_combo)
         card_layout.addWidget(right_label)
         card_layout.addWidget(self.right_news_combo)
+        card_layout.addWidget(weather_label)
+        card_layout.addWidget(self.weather_zip_input)
 
         button_row = QHBoxLayout()
         button_row.setContentsMargins(0, 8, 0, 0)
         button_row.setSpacing(12)
 
         self.settings_back_button = QPushButton("Back")
+
         self.settings_back_button.setObjectName("SettingsSecondaryButton")
         self.settings_back_button.setCursor(Qt.PointingHandCursor)
         self.settings_back_button.clicked.connect(self.show_dashboard_page)
@@ -341,7 +468,63 @@ class DashboardWindow(QMainWindow):
         self.settings_apply_button.setObjectName("SettingsPrimaryButton")
         self.settings_apply_button.setCursor(Qt.PointingHandCursor)
         self.settings_apply_button.clicked.connect(self.apply_news_settings)
+        settings_button_style = """
+        QPushButton {
+            background-color: #d8c7a4;
+            color: #2d2114;
+            border: 2px solid #8b6d3e;
+            border-radius: 12px;
+            padding: 10px 18px;
+            font-size: 15px;
+            font-weight: 900;
+        }
 
+        QPushButton:hover {
+            background-color: #eadab7;
+            color: #2d2114;
+        }
+
+        QPushButton:pressed {
+            background-color: #b79b6a;
+            color: #2d2114;
+        }
+
+        QPushButton:disabled {
+            background-color: #d8c7a4;
+            color: #2d2114;
+            border: 2px solid #8b6d3e;
+        }
+        """
+
+        apply_button_style = """
+        QPushButton {
+            background-color: #72542d;
+            color: #f7f0df;
+            border: 2px solid #4d351b;
+            border-radius: 12px;
+            padding: 10px 18px;
+            font-size: 15px;
+            font-weight: 900;
+        }
+
+        QPushButton:hover {
+            background-color: #846236;
+            color: #f7f0df;
+        }
+
+        QPushButton:pressed {
+            background-color: #5c4324;
+            color: #f7f0df;
+        }
+
+        QPushButton:disabled {
+            background-color: #72542d;
+            color: #f7f0df;
+            border: 2px solid #4d351b;
+        }
+        """
+        self.settings_back_button.setStyleSheet(settings_button_style)
+        self.settings_apply_button.setStyleSheet(apply_button_style)
         button_row.addWidget(self.settings_back_button)
         button_row.addWidget(self.settings_apply_button)
 
@@ -369,6 +552,7 @@ class DashboardWindow(QMainWindow):
     def show_settings_page(self):
         self.set_combo_to_source(self.left_news_combo, self.left_news_source_key)
         self.set_combo_to_source(self.right_news_combo, self.right_news_source_key)
+        self.weather_zip_input.setText(self.weather_zip_code)
         self.settings_button.hide()
         self.page_stack.setCurrentWidget(self.settings_page)
 
@@ -378,14 +562,40 @@ class DashboardWindow(QMainWindow):
         self.position_settings_button()
 
     def apply_news_settings(self):
+        requested_zip = "".join(
+            ch for ch in self.weather_zip_input.text().strip() if ch.isdigit()
+        )
+
+        try:
+            validated_location = validate_zip_code(requested_zip)
+        except Exception as error:
+            QMessageBox.warning(
+                self,
+                "Invalid ZIP Code",
+                str(error),
+            )
+            self.weather_zip_input.setFocus()
+            return
+
+        old_weather_zip = self.weather_zip_code
+
         self.left_news_source_key = self.left_news_combo.currentData() or "FOX"
         self.right_news_source_key = self.right_news_combo.currentData() or "CNBC"
+        self.weather_zip_code = validated_location.zip_code
+
+        self.weather_location_label = self.city_name_from_weather_location(validated_location)
+        self.set_date_card_location_label(self.weather_location_label)
 
         self.save_news_source_settings()
+        self.save_weather_zip_setting()
 
         self.refresh_news_card_placeholders()
         self.show_dashboard_page()
         self.start_news_fetch()
+
+        if self.weather_zip_code != old_weather_zip:
+            self.refresh_weather_placeholders()
+            self.start_weather_fetch()
 
     def refresh_news_card_placeholders(self):
         left_label = get_news_source_display(self.left_news_source_key)
@@ -402,6 +612,42 @@ class DashboardWindow(QMainWindow):
         self.cnbc_card.headline_label.setText(f"Loading latest {right_label} headline...")
         self.cnbc_card.read_label.setText("")
         self.cnbc_card.image.set_pixmap_from_data(b"")
+
+    def sync_date_location_label_style(self):
+        if not hasattr(self, "date_location_label"):
+            return
+
+        source_label = None
+
+        if hasattr(self.date_card, "current_weather_label"):
+            source_label = self.date_card.current_weather_label
+        elif hasattr(self.date_card, "current_temp_label"):
+            source_label = self.date_card.current_temp_label
+
+        if source_label is None:
+            return
+
+        source_palette = source_label.palette()
+        text_color = source_palette.color(source_label.foregroundRole()).name()
+
+        self.date_location_label.setStyleSheet(f"""
+            QLabel {{
+                color: {text_color};
+                background: transparent;
+                font-size: 12px;
+                font-weight: 900;
+                letter-spacing: 0.4px;
+            }}
+        """)
+
+    def refresh_weather_placeholders(self):
+        print(f"Refreshing weather placeholders for ZIP {self.weather_zip_code}")
+
+        if hasattr(self.weather_panel, "update_weather_rows"):
+            self.weather_panel.update_weather_rows([])
+
+        if hasattr(self.date_card, "current_weather_label"):
+            self.date_card.current_weather_label.setText("--°")
 
     def position_settings_button(self):
         if not hasattr(self, "settings_button"):
@@ -471,6 +717,15 @@ class DashboardWindow(QMainWindow):
                 "image.cnbcfm.com",
             ])
 
+        if source_key == "BLOOMBERG":
+            allowed_image_domains.extend([
+                "bwbx.io",
+                "assets.bwbx.io",
+                "images.bloomberg.com",
+                "assets.bloomberg.com",
+                "assets.bloombergmedia.com",
+            ])
+
         if article_image_url and not any(domain in article_image_url for domain in allowed_image_domains):
             print(
                 f"Removing wrong-domain image for {expected_source}: "
@@ -493,7 +748,7 @@ class DashboardWindow(QMainWindow):
 
     def start_weather_fetch(self):
         self.weather_thread = QThread()
-        self.weather_worker = WeatherFetchWorker()
+        self.weather_worker = WeatherFetchWorker(zip_code=self.weather_zip_code)
 
         self.weather_worker.moveToThread(self.weather_thread)
 
@@ -515,9 +770,14 @@ class DashboardWindow(QMainWindow):
         if hasattr(self.weather_panel, "update_weather_rows"):
             self.weather_panel.update_weather_rows(rows)
 
-        if rows and hasattr(self.date_card, "update_current_weather"):
+        if rows:
             self.date_card.update_current_weather(rows[0])
-            self.date_card.update_low_high_from_rows(rows)
+
+            if hasattr(self.date_card, "update_low_high_from_rows"):
+                self.date_card.update_low_high_from_rows(rows)
+
+        self.sync_date_location_label_style()
+        self.position_date_location_label()
 
     def on_weather_failed(self, message):
         print(f"Weather fetch failed: {message}")
