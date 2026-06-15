@@ -1452,7 +1452,7 @@ class DashboardWindow(QMainWindow):
         self.right_news_combo = QComboBox()
         self.right_news_combo.setObjectName("SettingsComboBox")
 
-        for source_key, label in NEWS_SOURCE_OPTIONS:
+        for source_key, label in sorted(NEWS_SOURCE_OPTIONS, key=lambda item: item[1].lower()):
             self.left_news_combo.addItem(label, source_key)
             self.right_news_combo.addItem(label, source_key)
 

@@ -170,17 +170,27 @@ class ReminderItem(QWidget):
         text_label.setObjectName("TodayReminderText" if today else "UpcomingReminderText")
 
         layout.addWidget(icon_label, 12 if today else 11)
-        layout.addWidget(text_label, 58 if today and show_reminder_button else 86)
 
-        if today and show_reminder_button:
+        if show_reminder_button:
+            layout.addWidget(text_label, 58 if today else 62)
+
             send_button = QPushButton("Send Reminder")
-            send_button.setObjectName("ReminderSendButton")
+            send_button.setObjectName("ReminderSendButton" if today else "UpcomingReminderSendButton")
             send_button.setCursor(Qt.PointingHandCursor)
-            send_button.setFixedWidth(92)
+
+            if today:
+                send_button.setFixedWidth(92)
+                send_button.setFixedHeight(28)
+            else:
+                send_button.setFixedWidth(74)
+                send_button.setFixedHeight(22)
+
             send_button.clicked.connect(self.open_reminder_time_popup)
 
             layout.addStretch(1)
             layout.addWidget(send_button, 0, Qt.AlignRight | Qt.AlignVCenter)
+        else:
+            layout.addWidget(text_label, 86)
 
     def open_reminder_time_popup(self):
         dialog = ReminderTimeDialog(self.reminder_text, self)
@@ -324,7 +334,17 @@ class RemindersPanel(QWidget):
         if upcoming_events:
             for event in upcoming_events[:5]:
                 text = f"{event.title} - {event.when_text}"
-                upcoming_widgets.append((ReminderItem("🗓️", text), 1))
+                upcoming_widgets.append(
+                    (
+                        ReminderItem(
+                            "🗓️",
+                            text,
+                            today=False,
+                            show_reminder_button=True,
+                        ),
+                        1,
+                    )
+                )
         else:
             upcoming_widgets.append((ReminderItem("🗓️", "No upcoming Apple Calendar events"), 1))
 

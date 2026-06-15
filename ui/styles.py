@@ -940,6 +940,27 @@ QLabel#DateSubtitleWeather {
     letter-spacing: 1px;
 }
 
+QPushButton#UpcomingReminderSendButton {
+    background-color: rgba(114, 84, 45, 0.54);
+    color: rgba(247, 240, 223, 0.88);
+    border: 1px solid rgba(77, 53, 27, 0.46);
+    border-radius: 7px;
+    padding: 1px 4px;
+    font-size: 8px;
+    font-weight: 900;
+}
+
+QPushButton#UpcomingReminderSendButton:hover {
+    background-color: rgba(114, 84, 45, 0.72);
+    color: rgba(247, 240, 223, 0.96);
+    border: 1px solid rgba(77, 53, 27, 0.62);
+}
+
+QPushButton#UpcomingReminderSendButton:pressed {
+    background-color: rgba(92, 67, 36, 0.82);
+    color: rgba(247, 240, 223, 1.0);
+}
+
 QPushButton#ReminderSendButton {
     background-color: rgba(92, 74, 52, 210);
     color: #fff8ec;
