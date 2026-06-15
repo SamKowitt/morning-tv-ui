@@ -30,44 +30,62 @@ class GameListing(QWidget):
         layout = QHBoxLayout()
         layout.setContentsMargins(
             6 if compact else 7,
-            3 if compact else 4,
+            5 if compact else 6,
             6 if compact else 7,
-            3 if compact else 4,
+            5 if compact else 6,
         )
         layout.setSpacing(5 if compact else 6)
         self.setLayout(layout)
 
-        time_label = AutoFitLabel(
-            time,
-            min_size=5 if compact else 6,
-            max_size=7 if compact else 8,
-            bold=True,
-            alignment=Qt.AlignCenter,
-            word_wrap=False,
-        )
+        time_label = QLabel(time)
         time_label.setObjectName("PaperGameTime")
-        time_label.setFixedWidth(46 if compact else 54)
+        time_label.setAlignment(Qt.AlignCenter)
+        time_label.setFixedWidth(54 if compact else 72)
+        time_label.setMinimumHeight(18 if compact else 24)
+        time_font_size = 11 if compact else 14
+
+        time_label.setStyleSheet(f"""
+            QLabel#PaperGameTime {{
+                color: #3b2a17;
+                background: transparent;
+                font-size: {time_font_size}px;
+                font-weight: 1000;
+                letter-spacing: 0.2px;
+            }}
+        """)
 
         info = QVBoxLayout()
         info.setContentsMargins(0, 0, 0, 0)
         info.setSpacing(0 if compact else 1)
 
-        matchup_label = AutoFitLabel(
-            matchup,
-            min_size=6 if compact else 7,
-            max_size=11 if compact else 14,
-            bold=True,
-            alignment=Qt.AlignLeft | Qt.AlignVCenter,
-            word_wrap=True,
-        )
+        matchup_label = QLabel(matchup)
         matchup_label.setObjectName("PaperGameMatchup")
-        info.addWidget(matchup_label, 2)
+        matchup_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        matchup_label.setWordWrap(False)
+        matchup_label.setMinimumHeight(18 if compact else 24)
+        is_no_games_placeholder = str(matchup or "").strip().lower() == "no games scheduled"
+
+        if is_no_games_placeholder:
+            matchup_font_size = 10 if compact else 11
+        else:
+            matchup_font_size = 13 if compact else 16
+
+        matchup_label.setStyleSheet(f"""
+            QLabel#PaperGameMatchup {{
+                color: #1f160d;
+                background: transparent;
+                font-size: {matchup_font_size}px;
+                font-weight: 1000;
+                letter-spacing: 0.5px;
+            }}
+        """)
+        info.addWidget(matchup_label, 3)
 
         if detail:
             detail_label = AutoFitLabel(
                 detail,
                 min_size=4 if compact else 5,
-                max_size=7 if compact else 8,
+                max_size=34 if compact else 8,
                 bold=False,
                 alignment=Qt.AlignLeft | Qt.AlignVCenter,
                 word_wrap=True,

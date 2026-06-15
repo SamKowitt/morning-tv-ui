@@ -3,6 +3,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QCompleter,
     QFrame,
+    QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -249,6 +250,12 @@ class DashboardWindow(QMainWindow):
         self.settings_button = QPushButton("⚙", self.root)
         self.settings_button.setObjectName("DashboardSettingsButton")
         self.settings_button.setCursor(Qt.PointingHandCursor)
+
+        self.settings_button_opacity = QGraphicsOpacityEffect(self.settings_button)
+        self.settings_button_opacity.setOpacity(0.25)
+        self.settings_button.setGraphicsEffect(self.settings_button_opacity)
+        self.settings_button.enterEvent = self.settings_button_enter_event
+        self.settings_button.leaveEvent = self.settings_button_leave_event
         self.settings_button.setFixedSize(30, 30)
         self.settings_button.clicked.connect(self.show_settings_page)
 
@@ -672,6 +679,20 @@ class DashboardWindow(QMainWindow):
         completer.setCompletionMode(QCompleter.PopupCompletion)
         input_box.setCompleter(completer)
 
+
+    def build_settings_divider(self):
+        divider = QFrame()
+        divider.setObjectName("SettingsSectionDivider")
+        divider.setFrameShape(QFrame.NoFrame)
+        divider.setFixedHeight(2)
+        divider.setStyleSheet("""
+            QFrame#SettingsSectionDivider {
+                background-color: rgba(83, 59, 33, 0.32);
+                border: none;
+            }
+        """)
+        return divider
+
     def build_stock_replace_row(self, section_key, slot_index, label_text, current_symbol):
         row_widget = QWidget()
         row_widget.setObjectName("StockSettingsRow")
@@ -690,7 +711,8 @@ class DashboardWindow(QMainWindow):
         input_box.setObjectName("StockSettingsLineEdit")
         input_box.setPlaceholderText(current_symbol)
         input_box.setText("")
-        input_box.setMinimumWidth(240)
+        input_box.setMinimumWidth(220)
+        input_box.setMaximumWidth(380)
 
         self.attach_stock_symbol_completer(input_box)
 
@@ -705,6 +727,17 @@ class DashboardWindow(QMainWindow):
         section_title = QLabel("MARKET TAPE")
         section_title.setObjectName("SettingsSectionTitle")
         section_title.setAlignment(Qt.AlignLeft)
+        section_title.setStyleSheet("""
+            QLabel {
+                color: #2d2114;
+                background: transparent;
+                font-size: 24px;
+                font-weight: 1000;
+                letter-spacing: 1.4px;
+                margin-bottom: 0px;
+                padding-bottom: 0px;
+            }
+        """)
 
         section_subtitle = QLabel("Enter replacement tickers, then click Apply to update the dashboard.")
         section_subtitle.setObjectName("SettingsSectionSubtitle")
@@ -712,6 +745,7 @@ class DashboardWindow(QMainWindow):
         section_subtitle.setWordWrap(True)
 
         card_layout.addWidget(section_title)
+        card_layout.addWidget(self.build_settings_divider())
         card_layout.addWidget(section_subtitle)
 
         indexes_label = QLabel("INDEXES")
@@ -835,6 +869,17 @@ class DashboardWindow(QMainWindow):
         return bool(self.apple_calendar_email and self.apple_calendar_password)
 
 
+
+    def resize_settings_card_to_window(self):
+        if not hasattr(self, "settings_card"):
+            return
+
+        target_width = int(self.width() * 0.86)
+        target_width = max(760, min(target_width, 1120))
+
+        self.settings_card.setFixedWidth(target_width)
+        print(f"Settings card width set to {target_width}")
+
     def build_settings_page(self):
         page = QWidget()
         page.setObjectName("SettingsPage")
@@ -847,25 +892,64 @@ class DashboardWindow(QMainWindow):
         page.setLayout(outer)
 
         card = QFrame()
+        self.settings_card = card
         card.setObjectName("SettingsCard")
-        card.setFixedWidth(560)
+        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
+        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
 
         card_layout = QVBoxLayout()
         card_layout.setContentsMargins(28, 24, 28, 24)
         card_layout.setSpacing(16)
         card.setLayout(card_layout)
 
+        section_title_style = """
+        QLabel {
+            color: #2d2114;
+            background: transparent;
+            font-size: 24px;
+            font-weight: 1000;
+            letter-spacing: 1.4px;
+            margin-bottom: 0px;
+            padding-bottom: 0px;
+        }
+        """
+
         title = QLabel("SETTINGS")
         title.setObjectName("SettingsTitle")
         title.setAlignment(Qt.AlignCenter)
 
-        subtitle = QLabel("Choose the news sources for the two article cards.")
-        subtitle.setObjectName("SettingsSubtitle")
-        subtitle.setAlignment(Qt.AlignCenter)
-        subtitle.setWordWrap(True)
-
         card_layout.addWidget(title)
-        card_layout.addWidget(subtitle)
+
+        settings_content_row = QHBoxLayout()
+        settings_content_row.setContentsMargins(0, 6, 0, 0)
+        settings_content_row.setSpacing(34)
+
+        left_settings_col = QVBoxLayout()
+        left_settings_col.setContentsMargins(0, 0, 0, 0)
+        left_settings_col.setSpacing(8)
+
+        right_settings_col = QVBoxLayout()
+        right_settings_col.setContentsMargins(0, 0, 0, 0)
+        right_settings_col.setSpacing(8)
+
+        settings_content_row.addLayout(left_settings_col, 1)
+        settings_content_row.addLayout(right_settings_col, 1)
+
+        card_layout.addLayout(settings_content_row)
+
+        news_sites_title = QLabel("NEWS SITES")
+        news_sites_title.setObjectName("SettingsSectionTitle")
+        news_sites_title.setAlignment(Qt.AlignLeft)
+        news_sites_title.setStyleSheet(section_title_style)
+
+        news_sites_subtitle = QLabel("Choose the news sources for the two article cards.")
+        news_sites_subtitle.setObjectName("SettingsSectionSubtitle")
+        news_sites_subtitle.setAlignment(Qt.AlignLeft)
+        news_sites_subtitle.setWordWrap(True)
+
+        left_settings_col.addWidget(news_sites_title)
+        left_settings_col.addWidget(self.build_settings_divider())
+        left_settings_col.addWidget(news_sites_subtitle)
 
         left_label = QLabel("LEFT ARTICLE")
         left_label.setObjectName("SettingsFieldLabel")
@@ -896,16 +980,17 @@ class DashboardWindow(QMainWindow):
         self.weather_zip_input.setText(self.weather_zip_code)
         self.refresh_stock_settings_inputs()
 
-        card_layout.addWidget(left_label)
-        card_layout.addWidget(self.left_news_combo)
-        card_layout.addWidget(right_label)
-        card_layout.addWidget(self.right_news_combo)
-        card_layout.addWidget(weather_label)
-        card_layout.addWidget(self.weather_zip_input)
+        left_settings_col.addWidget(left_label)
+        left_settings_col.addWidget(self.left_news_combo)
+        left_settings_col.addWidget(right_label)
+        left_settings_col.addWidget(self.right_news_combo)
+        left_settings_col.addWidget(weather_label)
+        left_settings_col.addWidget(self.weather_zip_input)
 
         apple_calendar_title = QLabel("APPLE CALENDAR")
         apple_calendar_title.setObjectName("SettingsSectionTitle")
         apple_calendar_title.setAlignment(Qt.AlignLeft)
+        apple_calendar_title.setStyleSheet(section_title_style)
 
         apple_calendar_subtitle = QLabel("Use your Apple ID email and an Apple app-specific password.")
         apple_calendar_subtitle.setObjectName("SettingsSectionSubtitle")
@@ -937,16 +1022,20 @@ class DashboardWindow(QMainWindow):
         self.apple_calendar_days_input.setPlaceholderText("14")
         self.apple_calendar_days_input.setText(str(self.apple_calendar_days_ahead))
 
-        card_layout.addWidget(apple_calendar_title)
-        card_layout.addWidget(apple_calendar_subtitle)
-        card_layout.addWidget(apple_email_label)
-        card_layout.addWidget(self.apple_calendar_email_input)
-        card_layout.addWidget(apple_password_label)
-        card_layout.addWidget(self.apple_calendar_password_input)
-        card_layout.addWidget(apple_days_label)
-        card_layout.addWidget(self.apple_calendar_days_input)
+        left_settings_col.addWidget(apple_calendar_title)
+        left_settings_col.addWidget(self.build_settings_divider())
+        left_settings_col.addWidget(apple_calendar_subtitle)
+        left_settings_col.addWidget(apple_email_label)
+        left_settings_col.addWidget(self.apple_calendar_email_input)
+        left_settings_col.addWidget(apple_password_label)
+        left_settings_col.addWidget(self.apple_calendar_password_input)
+        left_settings_col.addWidget(apple_days_label)
+        left_settings_col.addWidget(self.apple_calendar_days_input)
 
-        self.build_stock_settings_section(card_layout)
+        self.build_stock_settings_section(right_settings_col)
+
+        left_settings_col.addStretch(1)
+        right_settings_col.addStretch(1)
 
         button_row = QHBoxLayout()
         button_row.setContentsMargins(0, 8, 0, 0)
@@ -1059,6 +1148,7 @@ class DashboardWindow(QMainWindow):
         self.weather_zip_input.setText(self.weather_zip_code)
         self.settings_button.hide()
         self.page_stack.setCurrentWidget(self.settings_page)
+        self.resize_settings_card_to_window()
 
     def show_dashboard_page(self):
         self.page_stack.setCurrentWidget(self.dashboard_page)
@@ -1193,6 +1283,19 @@ class DashboardWindow(QMainWindow):
 
         if hasattr(self.date_card, "current_weather_label"):
             self.date_card.current_weather_label.setText("--°")
+
+
+    def settings_button_enter_event(self, event):
+        if hasattr(self, "settings_button_opacity"):
+            self.settings_button_opacity.setOpacity(1.0)
+
+        QPushButton.enterEvent(self.settings_button, event)
+
+    def settings_button_leave_event(self, event):
+        if hasattr(self, "settings_button_opacity"):
+            self.settings_button_opacity.setOpacity(0.25)
+
+        QPushButton.leaveEvent(self.settings_button, event)
 
     def position_settings_button(self):
         if not hasattr(self, "settings_button"):
@@ -1542,6 +1645,7 @@ class DashboardWindow(QMainWindow):
         super().resizeEvent(event)
         self.apply_forced_row_heights()
         self.position_settings_button()
+        self.resize_settings_card_to_window()
 
     def apply_forced_row_heights(self):
         available_height = (

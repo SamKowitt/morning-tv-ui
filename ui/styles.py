@@ -224,7 +224,7 @@ QLabel#PaperGameTime {
 }
 
 QLabel#PaperGameMatchup {
-    font-size: 14px;
+    font-size: 28px;
     font-weight: 900;
     color: #2b2621;
 }
@@ -274,7 +274,7 @@ QLabel#CleanGameTime {
 }
 
 QLabel#CleanGameMatchup {
-    font-size: 15px;
+    font-size: 28px;
     font-weight: 900;
     color: #2b2621;
 }
@@ -334,7 +334,7 @@ QLabel#GameDayTime {
 }
 
 QLabel#GameDayMatchup {
-    font-size: 13px;
+    font-size: 28px;
     font-weight: 900;
     color: #fff8e8;
 }
@@ -1176,7 +1176,7 @@ QLabel#LeagueTitle {
 }
 
 QLabel#GameText {
-    font-size: 13px;
+    font-size: 28px;
     font-weight: 800;
     color: #33424b;
 }
