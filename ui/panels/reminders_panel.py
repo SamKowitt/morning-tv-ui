@@ -174,7 +174,7 @@ class ReminderItem(QWidget):
         if show_reminder_button:
             layout.addWidget(text_label, 58 if today else 62)
 
-            send_button = QPushButton("Send Reminder")
+            send_button = QPushButton("Set Reminder")
             send_button.setObjectName("ReminderSendButton" if today else "UpcomingReminderSendButton")
             send_button.setCursor(Qt.PointingHandCursor)
 

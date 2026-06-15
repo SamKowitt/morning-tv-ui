@@ -459,7 +459,7 @@ def fetch_mlb_games(max_games_per_league=3, favorite_teams=None):
     filtered_games = filtered_games[:max_games_per_league]
 
     # Then display the chosen games by nearest game time.
-    filtered_games = sorted(filtered_games, key=mlb_sort_key)
+    filtered_games = sorted(filtered_games, key=mlb_base_sort_key)
 
     games = []
 
@@ -764,7 +764,7 @@ def fetch_espn_games(league, max_games_per_league=3, favorite_teams=None):
     # Then display the chosen games by nearest game time.
     usable_events = sorted(
         usable_events,
-        key=lambda event: espn_sort_key(event, league),
+        key=espn_base_sort_key,
     )
 
     games = []
