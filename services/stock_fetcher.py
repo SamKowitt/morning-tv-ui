@@ -36,11 +36,20 @@ SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 FMP_API_KEY_ENV_NAME = "FMP_API_KEY"
 FMP_BASE_URL = "https://financialmodelingprep.com/stable"
 
+FINNHUB_API_KEY_ENV_NAME = "FINNHUB_API_KEY"
+FINNHUB_BASE_URL = "https://finnhub.io/api/v1"
+
 INDEX_SYMBOLS = [
     ("S&P", "^GSPC"),
     ("DOW", "^DJI"),
     ("NAS", "^IXIC"),
 ]
+
+INDEX_PROXY_SYMBOLS = {
+    "^GSPC": "SPY",
+    "^DJI": "DIA",
+    "^IXIC": "QQQ",
+}
 
 STOCK_SYMBOLS = [
     "VRT",
@@ -107,6 +116,106 @@ def fmp_url(path, params):
     params["apikey"] = get_fmp_api_key()
 
     return f"{FMP_BASE_URL}/{path}?{urllib.parse.urlencode(params)}"
+
+
+def get_finnhub_api_key():
+    api_key = os.getenv(FINNHUB_API_KEY_ENV_NAME, "").strip()
+
+    if not api_key or api_key in {"paste_your_finnhub_key_here", "YOUR_REAL_FINNHUB_KEY_HERE"}:
+        raise RuntimeError(
+            f"Missing real {FINNHUB_API_KEY_ENV_NAME}. Run: export {FINNHUB_API_KEY_ENV_NAME}='your_real_finnhub_key'"
+        )
+
+    return api_key
+
+
+def has_finnhub_api_key():
+    try:
+        get_finnhub_api_key()
+        return True
+    except Exception:
+        return False
+
+
+def finnhub_url(path, params):
+    params = dict(params)
+    params["token"] = get_finnhub_api_key()
+
+    return f"{FINNHUB_BASE_URL}/{path}?{urllib.parse.urlencode(params)}"
+
+
+def fetch_finnhub_quote(symbol):
+    url = finnhub_url(
+        "quote",
+        {
+            "symbol": symbol,
+        },
+    )
+
+    payload = fetch_json(url)
+    price = parse_float(payload.get("c"))
+
+    if price is None or price <= 0:
+        raise RuntimeError(f"No Finnhub quote returned for {symbol}: {payload}")
+
+    return payload
+
+
+def get_price_from_finnhub_quote(item):
+    return item.get("c")
+
+
+def get_change_from_finnhub_quote(item):
+    change = parse_float(item.get("d"))
+
+    if change is not None:
+        return change
+
+    current = parse_float(item.get("c"))
+    previous_close = parse_float(item.get("pc"))
+
+    if current is not None and previous_close is not None:
+        return current - previous_close
+
+    return None
+
+
+def fetch_finnhub_history(symbol):
+    now = datetime.now()
+    start = now - timedelta(days=130)
+
+    url = finnhub_url(
+        "stock/candle",
+        {
+            "symbol": symbol,
+            "resolution": "D",
+            "from": int(start.timestamp()),
+            "to": int(now.timestamp()),
+        },
+    )
+
+    payload = fetch_json(url)
+    status = str(payload.get("s", "")).lower()
+
+    if status != "ok":
+        raise RuntimeError(f"No Finnhub candle history returned for {symbol}: {payload}")
+
+    close_values = payload.get("c", []) or []
+    values = []
+
+    for value in close_values:
+        parsed = parse_float(value)
+
+        if parsed is not None:
+            values.append(parsed)
+
+    if len(values) < 2:
+        raise RuntimeError(
+            f"Not enough Finnhub history returned for {symbol}. "
+            f"Only found {len(values)} close value(s)."
+        )
+
+    return values[-65:]
 
 
 def parse_float(value):
@@ -445,16 +554,37 @@ def placeholder_history_from_price(price):
 
 
 def fetch_index_quote(display_name, symbol):
-    item = fetch_fmp_quote(symbol)
-    price = get_price_from_fmp_quote(item)
+    quote_symbol = symbol
+    proxy_symbol = INDEX_PROXY_SYMBOLS.get(symbol, symbol)
+
+    try:
+        item = fetch_finnhub_quote(quote_symbol)
+        price = get_price_from_finnhub_quote(item)
+        history_symbol = quote_symbol
+
+        print(f"Loaded Finnhub direct index quote {display_name}/{quote_symbol}: {format_index_price(price)}")
+
+    except Exception as error:
+        print(f"Finnhub direct index quote failed for {display_name}/{symbol}: {error}")
+
+        if proxy_symbol == symbol:
+            print(f"No Finnhub proxy configured for {display_name}/{symbol}, trying FMP.")
+            item = fetch_fmp_quote(symbol)
+            price = get_price_from_fmp_quote(item)
+            history_symbol = symbol
+        else:
+            print(f"Trying Finnhub ETF proxy for {display_name}: {proxy_symbol}")
+            item = fetch_finnhub_quote(proxy_symbol)
+            price = get_price_from_finnhub_quote(item)
+            history_symbol = proxy_symbol
 
     history = placeholder_history_from_price(price)
 
     try:
-        history = fetch_fmp_history(symbol)
-        print(f"Loaded index history {display_name}/{symbol}: {len(history)} points")
+        history = fetch_stock_history(history_symbol, price)
+        print(f"Loaded index/proxy history {display_name}/{history_symbol}: {len(history)} points")
     except Exception as error:
-        print(f"Index history unavailable for {display_name}/{symbol}: {error}")
+        print(f"Index/proxy history unavailable for {display_name}/{history_symbol}: {error}")
         print(f"Keeping quote price for {display_name} and using flat placeholder chart.")
 
     return IndexQuote(
@@ -465,6 +595,25 @@ def fetch_index_quote(display_name, symbol):
 
 
 def fetch_stock_quote(symbol):
+    try:
+        item = fetch_finnhub_quote(symbol)
+
+        price = get_price_from_finnhub_quote(item)
+        change = get_change_from_finnhub_quote(item)
+
+        stock = StockQuote(
+            ticker=symbol,
+            price=format_price(price),
+            ah_change=format_change(change),
+            history=placeholder_history_from_price(price),
+        )
+
+        print(f"Loaded Finnhub stock quote {symbol}: {stock.price} DAY {stock.ah_change}")
+        return stock
+
+    except Exception as error:
+        print(f"Finnhub stock quote failed for {symbol}, trying FMP: {error}")
+
     try:
         item = fetch_fmp_quote(symbol)
 
@@ -493,10 +642,19 @@ def fetch_stock_quote(symbol):
         history=placeholder_history_from_price(price),
     )
 
+    print(f"Loaded Nasdaq stock quote {symbol}: {stock.price} DAY {stock.ah_change}")
     return stock
 
 
 def fetch_stock_history(symbol, current_price):
+    try:
+        history = fetch_finnhub_history(symbol)
+        print(f"Loaded Finnhub history {symbol}: {len(history)} points")
+        return history
+
+    except Exception as error:
+        print(f"Finnhub history unavailable for {symbol}, trying FMP: {error}")
+
     try:
         history = fetch_fmp_history(symbol)
         print(f"Loaded FMP history {symbol}: {len(history)} points")
@@ -533,13 +691,15 @@ def fallback_market_data():
 
 
 def fetch_market_data():
-    print("Fetching stock data from FMP with Nasdaq fallback...")
+    print("Fetching stock data from Finnhub with FMP/Nasdaq fallback...")
+
+    if not has_finnhub_api_key():
+        print(f"Finnhub setup warning: missing {FINNHUB_API_KEY_ENV_NAME}. FMP/Nasdaq fallbacks will be used.")
 
     try:
         get_fmp_api_key()
     except Exception as error:
-        print(f"FMP setup error: {error}")
-        return fallback_market_data()
+        print(f"FMP setup warning: {error}")
 
     indexes = []
 
@@ -592,19 +752,18 @@ def fallback_market_data_for_symbols(index_symbols=None, stock_symbols=None):
 
 
 def fetch_market_data_for_symbols(index_symbols=None, stock_symbols=None):
-    print("Fetching configurable stock data from FMP with Nasdaq fallback...")
+    print("Fetching configurable stock data from Finnhub with FMP/Nasdaq fallback...")
 
     index_symbols = index_symbols or INDEX_SYMBOLS
     stock_symbols = stock_symbols or STOCK_SYMBOLS
 
+    if not has_finnhub_api_key():
+        print(f"Finnhub setup warning: missing {FINNHUB_API_KEY_ENV_NAME}. FMP/Nasdaq fallbacks will be used.")
+
     try:
         get_fmp_api_key()
     except Exception as error:
-        print(f"FMP setup error: {error}")
-        return fallback_market_data_for_symbols(
-            index_symbols=index_symbols,
-            stock_symbols=stock_symbols,
-        )
+        print(f"FMP setup warning: {error}")
 
     indexes = []
 
