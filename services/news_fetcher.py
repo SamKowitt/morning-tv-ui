@@ -145,22 +145,7 @@ NEWS_SOURCES = {
     },
 }
 
-# Temporary debug targets. These are used to score candidate extraction during this
-# current headline debugging pass. They are not used unless the source returns
-# candidates; they help the fetcher choose the actual lead-story candidate instead
-# of a market/live/blog/sidebar item.
-EXPECTED_HEADLINES = {
-    "FOX": "Iran Security Council confirms immediate end to war in effect after Trump announces deal reached",
-    "CNBC": "U.S. and Iran agree on peace deal to end the war, Trump and Pakistan say",
-    "CNN": "Trump and Iran reach agreement that includes opening Strait of Hormuz",
-    "BLOOMBERG": "US and Iran Reach Deal to Halt the War, Reopen Hormuz",
-    "NEWSMAX": "Iran Deal Done, Strait to Open",
-    "NYTIMES": "U.S. and Iran Reach Cease-Fire Agreement",
-    "REUTERS": "US, Iran reach agreement to end war, signing set for Friday",
-    "TIMESOFISRAEL": "US, Iran confirm deal reached to end war; Trump: Hormuz to open, US blockade to end",
-    "BBC": "US and Iran announce deal to end military operations as Trump says 'let the oil flow!'",
-    "APNEWS": "A tentative deal is reached to end the Iran war and Trump orders a stop to the US naval blockade",
-}
+EXPECTED_HEADLINES = {}
 
 NEWS_SOURCE_OPTIONS = [(key, value["dropdown"]) for key, value in NEWS_SOURCES.items()]
 
@@ -640,110 +625,64 @@ def dedupe_candidates(candidates):
 
 
 def target_terms_for_source(source_key):
-    target = normalize_text(EXPECTED_HEADLINES.get(source_key, ""))
-    terms = set(target.split())
-    always_important = {
-        "iran",
-        "us",
-        "trump",
-        "pakistan",
-        "deal",
-        "cease",
-        "ceasefire",
-        "war",
-        "hormuz",
-        "strait",
-        "blockade",
-        "military",
-        "operations",
-        "friday",
-        "oil",
-        "flow",
-        "security",
-        "council",
-    }
-    return terms | always_important
+    return set()
 
 
 def score_candidate(candidate, source_key):
-    target = EXPECTED_HEADLINES.get(source_key, "")
-    normalized_title = normalize_text(candidate.title)
-    normalized_target = normalize_text(target)
+    title = clean_text(candidate.title)
+    normalized_title = normalize_text(title)
 
     if not normalized_title:
-        return -10000
+        candidate.score = -10000
+        return candidate.score
 
     score = 0.0
 
-    if normalized_target:
-        score += SequenceMatcher(None, normalized_title, normalized_target).ratio() * 100
+    # Prefer real homepage candidates over RSS when a source exposes them.
+    # This avoids stale RSS or old debug-targeted stories beating the current lead card.
+    origin = (candidate.origin or "").lower()
 
-        target_words = set(normalized_target.split())
-        title_words = set(normalized_title.split())
+    if origin == "homepage_link":
+        score += 1200
+    elif origin == "homepage_embedded_json":
+        score += 1050
+    elif origin == "homepage_json_ld":
+        score += 850
+    elif origin.startswith("homepage"):
+        score += 800
+    elif origin.startswith("rss"):
+        score += 350
 
-        if target_words:
-            score += (len(title_words & target_words) / max(1, len(target_words))) * 160
+    # Earlier page/feed position should win within the same source type.
+    score += max(0, 100000 - min(candidate.position, 100000)) / 100.0
 
-        important_terms = target_terms_for_source(source_key)
-        score += len(title_words & important_terms) * 18
+    # Actual article-ish signals.
+    if candidate.link:
+        score += 40
 
-    # Strong current-story signals that should outrank sidebars and market updates.
-    phrase_bonuses = [
-        ("iran", 70),
-        ("hormuz", 100),
-        ("strait", 60),
-        ("peace deal", 120),
-        ("cease fire", 95),
-        ("ceasefire", 95),
-        ("end war", 110),
-        ("end the war", 110),
-        ("halt the war", 120),
-        ("reopen", 80),
-        ("blockade", 90),
-        ("pakistan", 75),
-        ("trump", 50),
-        ("oil flow", 100),
-        ("let the oil flow", 160),
+    if candidate.image_url:
+        score += 25
+
+    # Penalize known non-headline/site furniture/live-market junk.
+    if is_bad_market_live_title(candidate.title):
+        score -= 600
+
+    lowered = normalized_title
+    junk_terms = [
+        "watch live",
+        "live updates",
+        "newsletter",
+        "subscribe",
+        "opinion",
+        "video",
+        "photos",
+        "weather",
+        "stock market today",
     ]
 
-    for phrase, points in phrase_bonuses:
-        if phrase in normalized_title:
-            score += points
-
-    # Earlier homepage/RSS position is still a tie-breaker, but it should not beat
-    # the correct story when a lower page card appears first.
-    if candidate.origin.startswith("homepage"):
-        score += max(0, 100000 - min(candidate.position, 100000)) / 2500
-    elif candidate.origin.startswith("rss"):
-        score += max(0, 200 - min(candidate.position, 200)) / 4
-
-    if is_bad_market_live_title(candidate.title):
-        score -= 350
-
-    if source_key == "FOX":
-        link_lower = (candidate.link or "").lower()
-        title_lower = normalize_text(candidate.title)
-
-        if "iran security council issues statement" in title_lower:
-            score += 1200
-
-        if "security council" in title_lower:
-            score += 700
-
-        if "deal has been completed" in title_lower:
-            score += 500
-
-        if "foxnews.com/live-news/trump-iran-war-peace-talks-pakistan-june-14" in link_lower:
-            score += 900
-
-        if "foxnews.com/live-news/" in link_lower:
-            score += 500
-
-        if "let the oil flow" in title_lower:
-            score -= 450
-
-        if "/video/" in link_lower:
-            score -= 500
+    for term in junk_terms:
+        if term in lowered:
+            score -= 120
 
     candidate.score = score
     return score
@@ -1010,6 +949,12 @@ def build_article_from_candidate(candidate):
 def choose_best_candidate(source_key, candidates):
     candidates = dedupe_candidates(candidates)
 
+    candidates = [
+        candidate for candidate in candidates
+        if is_reasonable_headline(candidate.title)
+        and not is_bad_market_live_title(candidate.title)
+    ]
+
     if not candidates:
         raise RuntimeError("No usable headline candidates found")
 
@@ -1086,47 +1031,76 @@ def fetch_ranked_candidates(source_key):
 
 
 def fetch_configured_article(source_key):
-    source_key = normalize_source_key(source_key)
-    source_name = get_news_source_display(source_key)
+    if source_key not in NEWS_SOURCES:
+        print(f"Unknown news source key {source_key}; falling back to FOX NEWS")
+        source_key = "FOX"
+
+    config = NEWS_SOURCES[source_key]
+    source_name = config["source_name"]
+    errors = []
+
+    try_homepage_first = bool(config.get("prefer_homepage_first", False))
+
+    if try_homepage_first:
+        try:
+            homepage_candidates = fetch_homepage_candidates(source_key)
+            print_candidate_debug(source_key, homepage_candidates, "homepage")
+
+            if homepage_candidates:
+                best_homepage = choose_best_candidate(source_key, homepage_candidates)
+                print(
+                    f"SELECTED {source_name} HOMEPAGE: score={best_homepage.score:.1f} "
+                    f"origin={best_homepage.origin} title={best_homepage.title}"
+                )
+                article = enrich_article(build_article_from_candidate(best_homepage))
+                cache_article(source_key, article)
+                return article
+
+        except Exception as error:
+            message = f"homepage -> {error}"
+            print(f"{source_name} homepage failed: {error}")
+            errors.append(message)
 
     try:
-        source_key, source_name, ranked_candidates = fetch_ranked_candidates(source_key)
-        best = ranked_candidates[0]
+        rss_candidates = fetch_rss_candidates(source_key)
+        print_candidate_debug(source_key, rss_candidates, "RSS")
 
-        print(
-            f"SELECTED {source_name}: score={best.score:.1f} "
-            f"origin={best.origin} title={best.title}"
-        )
-
-        article = enrich_article(build_article_from_candidate(best))
-        cache_article(source_key, article)
-        return article
-    except Exception as error:
-        print(f"{source_name} selection failed: {error}")
-        return fallback_article(source_key, str(error))
-
-
-def fetch_configured_articles(source_key, max_articles=5):
-    source_key = normalize_source_key(source_key)
-    source_name = get_news_source_display(source_key)
-
-    try:
-        source_key, source_name, ranked_candidates = fetch_ranked_candidates(source_key)
-
-        articles = []
-        for index, candidate in enumerate(ranked_candidates[:max_articles], start=1):
+        if rss_candidates:
+            best_rss = choose_best_candidate(source_key, rss_candidates)
             print(
-                f"SELECTED {source_name} #{index}: score={candidate.score:.1f} "
-                f"origin={candidate.origin} title={candidate.title}"
+                f"SELECTED {source_name} RSS: score={best_rss.score:.1f} "
+                f"origin={best_rss.origin} title={best_rss.title}"
             )
-            article = enrich_article(build_article_from_candidate(candidate))
-            cache_article(f"{source_key}_{index}", article)
-            articles.append(article)
+            article = enrich_article(build_article_from_candidate(best_rss))
+            cache_article(source_key, article)
+            return article
 
-        return articles
     except Exception as error:
-        print(f"{source_name} multi-article selection failed: {error}")
-        return [fallback_article(source_key, str(error))]
+        message = f"rss -> {error}"
+        print(f"{source_name} RSS fetch failed: {error}")
+        errors.append(message)
+
+    if not try_homepage_first:
+        try:
+            homepage_candidates = fetch_homepage_candidates(source_key)
+            print_candidate_debug(source_key, homepage_candidates, "homepage")
+
+            if homepage_candidates:
+                best_homepage = choose_best_candidate(source_key, homepage_candidates)
+                print(
+                    f"SELECTED {source_name} HOMEPAGE: score={best_homepage.score:.1f} "
+                    f"origin={best_homepage.origin} title={best_homepage.title}"
+                )
+                article = enrich_article(build_article_from_candidate(best_homepage))
+                cache_article(source_key, article)
+                return article
+
+        except Exception as error:
+            message = f"homepage -> {error}"
+            print(f"{source_name} homepage failed: {error}")
+            errors.append(message)
+
+    return fallback_article(source_key, " | ".join(errors))
 
 
 def fetch_news_cards(left_source_key="FOX", right_source_key="CNBC"):

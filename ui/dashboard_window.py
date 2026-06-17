@@ -551,14 +551,14 @@ class DashboardWindow(QMainWindow):
 
         self.fox_card = NewsCard(
             headline=f"Loading latest {get_news_source_display(self.left_news_source_key)} headline...",
-            source=get_news_source_display(self.left_news_source_key),
+            source="BUSINESS",
             image_label="LOADING",
             variant="fox",
         )
 
         self.cnbc_card = NewsCard(
             headline=f"Loading latest {get_news_source_display(self.right_news_source_key)} headline...",
-            source=get_news_source_display(self.right_news_source_key),
+            source="HEADLINES",
             image_label="LOADING",
             variant="cnbc",
         )

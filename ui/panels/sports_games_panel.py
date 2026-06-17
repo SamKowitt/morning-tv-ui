@@ -1,294 +1,35 @@
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
-
-from ui.auto_fit_label import AutoFitLabel
-
-
-class GamesPaperDivider(QFrame):
-    def __init__(self):
-        super().__init__()
-        self.setFrameShape(QFrame.HLine)
-        self.setFrameShadow(QFrame.Plain)
-        self.setFixedHeight(1)
-        self.setStyleSheet("background-color: rgba(90, 78, 63, 120); border: none;")
+from PySide6.QtCore import QRectF, Qt
+from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPen
+from PySide6.QtWidgets import QWidget
 
 
-class BlankGameSlot(QWidget):
-    def __init__(self):
-        super().__init__()
-        self.setObjectName("PaperGameBlankSlot")
-        self.setAttribute(Qt.WA_StyledBackground, True)
-
-
-class GameListing(QWidget):
-    def __init__(self, matchup, time, detail="", compact=False):
-        super().__init__()
-
-        self.setObjectName("PaperGameListing")
-        self.setAttribute(Qt.WA_StyledBackground, True)
-
-        layout = QHBoxLayout()
-        layout.setContentsMargins(
-            6 if compact else 7,
-            5 if compact else 6,
-            6 if compact else 7,
-            5 if compact else 6,
-        )
-        layout.setSpacing(5 if compact else 6)
-        self.setLayout(layout)
-
-        time_label = QLabel(time)
-        time_label.setObjectName("PaperGameTime")
-        time_label.setAlignment(Qt.AlignCenter)
-        time_label.setFixedWidth(54 if compact else 72)
-        time_label.setMinimumHeight(18 if compact else 24)
-        time_font_size = 11 if compact else 14
-
-        time_label.setStyleSheet(f"""
-            QLabel#PaperGameTime {{
-                color: #3b2a17;
-                background: transparent;
-                font-size: {time_font_size}px;
-                font-weight: 1000;
-                letter-spacing: 0.2px;
-            }}
-        """)
-
-        info = QVBoxLayout()
-        info.setContentsMargins(0, 0, 0, 0)
-        info.setSpacing(1 if compact else 2)
-
-        matchup_label = QLabel(matchup)
-        matchup_label.setObjectName("PaperGameMatchup")
-        matchup_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        matchup_label.setWordWrap(False)
-        matchup_label.setMinimumHeight(18 if compact else 24)
-        is_no_games_placeholder = str(matchup or "").strip().lower() == "no games scheduled"
-
-        if is_no_games_placeholder:
-            matchup_font_size = 10 if compact else 11
-        else:
-            # Compact mode is used when a league has three games displayed.
-            # Make MLB-style matchup text like "MIN @ TEX" slightly smaller
-            # so pitcher/detail text has more room in each game bubble.
-            matchup_font_size = 12 if compact else 16
-
-        matchup_label.setStyleSheet(f"""
-            QLabel#PaperGameMatchup {{
-                color: #1f160d;
-                background: transparent;
-                font-size: {matchup_font_size}px;
-                font-weight: 1000;
-                letter-spacing: 0.5px;
-            }}
-        """)
-        info.addWidget(matchup_label, 2)
-
-        if detail:
-            info.addStretch(1)
-
-            detail_label = AutoFitLabel(
-                detail,
-                min_size=4 if compact else 5,
-                max_size=34 if compact else 8,
-                bold=False,
-                alignment=Qt.AlignLeft | Qt.AlignBottom,
-                word_wrap=True,
-            )
-            detail_label.setObjectName("PaperGameDetail")
-            detail_label.setMinimumHeight(9 if compact else 12)
-            info.addWidget(detail_label, 0)
-
-        layout.addWidget(time_label)
-        layout.addLayout(info, 1)
-
-
-class LeagueColumn(QWidget):
-    def __init__(self, emoji, league, games):
-        super().__init__()
-
-        self.setObjectName("PaperLeagueColumn")
-        self.setAttribute(Qt.WA_StyledBackground, True)
-
-        layout = QVBoxLayout()
-        layout.setContentsMargins(7, 4, 7, 5)
-        layout.setSpacing(4)
-        self.setLayout(layout)
-
-        league_row = QHBoxLayout()
-        league_row.setContentsMargins(0, 0, 0, 0)
-        league_row.setSpacing(4)
-
-        emoji_label = QLabel(emoji)
-        emoji_label.setObjectName("PaperLeagueEmoji")
-        emoji_label.setAlignment(Qt.AlignCenter)
-        emoji_label.setFixedWidth(22)
-
-        league_label = QLabel(league)
-        league_label.setObjectName("PaperLeagueTitle")
-        league_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-
-        league_row.addWidget(emoji_label)
-        league_row.addWidget(league_label, 1)
-
-        layout.addLayout(league_row)
-        layout.addWidget(GamesPaperDivider())
-
-        real_games = games[:3]
-        compact = len(real_games) >= 3
-
-        slots = real_games[:]
-
-        while len(slots) < 2:
-            slots.append(None)
-
-        for game in slots:
-            if game is None:
-                layout.addWidget(BlankGameSlot(), 1)
-            else:
-                matchup, time, detail = game
-                layout.addWidget(
-                    GameListing(
-                        matchup=matchup,
-                        time=time,
-                        detail=detail,
-                        compact=compact,
-                    ),
-                    1,
-                )
-
-
-class EmptyGamesMessage(QWidget):
-    def __init__(self, message):
-        super().__init__()
-
-        self.setObjectName("PaperLeagueColumn")
-        self.setAttribute(Qt.WA_StyledBackground, True)
-
-        layout = QVBoxLayout()
-        layout.setContentsMargins(12, 8, 12, 8)
-        layout.setSpacing(4)
-        self.setLayout(layout)
-
-        title = AutoFitLabel(
-            "NO CURRENT GAMES",
-            min_size=10,
-            max_size=20,
-            bold=True,
-            alignment=Qt.AlignCenter,
-            word_wrap=False,
-        )
-        title.setObjectName("PaperLeagueTitle")
-
-        body = AutoFitLabel(
-            message,
-            min_size=8,
-            max_size=14,
-            bold=True,
-            alignment=Qt.AlignCenter,
-            word_wrap=True,
-        )
-        body.setObjectName("PaperGameDetail")
-
-        layout.addStretch(1)
-        layout.addWidget(title)
-        layout.addWidget(GamesPaperDivider())
-        layout.addWidget(body)
-        layout.addStretch(1)
+from ui.newspaper_chrome import draw_stacked_newspaper_panel
 
 
 class SportsGamesPanel(QWidget):
     def __init__(self):
         super().__init__()
 
-        self.setObjectName("NewspaperSportsCard")
-        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setObjectName("NewspaperGamesCard")
+        self.setAttribute(Qt.WA_StyledBackground, False)
 
-        main = QVBoxLayout()
-        main.setContentsMargins(12, 6, 12, 6)
-        main.setSpacing(3)
-        self.setLayout(main)
+        self.leagues = []
+        self.edition_text = "Loading live schedules"
+        self.message = "Checking MLB, NFL, and NBA schedules..."
 
-        header = QHBoxLayout()
-        header.setSpacing(8)
-
-        masthead = AutoFitLabel(
-            "Game Times:",
-            min_size=14,
-            max_size=27,
-            bold=True,
-            alignment=Qt.AlignLeft | Qt.AlignVCenter,
-            word_wrap=False,
-        )
-        masthead.setObjectName("PaperMasthead")
-
-        self.edition = AutoFitLabel(
-            "Today's Games",
-            min_size=6,
-            max_size=10,
-            bold=True,
-            alignment=Qt.AlignRight | Qt.AlignVCenter,
-            word_wrap=False,
-        )
-        self.edition.setObjectName("PaperEditionLine")
-
-        header.addWidget(masthead, 35)
-        header.addWidget(self.edition, 65)
-
-        main.addLayout(header, 14)
-        main.addWidget(GamesPaperDivider())
-
-        self.columns = QHBoxLayout()
-        self.columns.setSpacing(6)
-        self.columns.setContentsMargins(0, 0, 0, 0)
-
-        main.addLayout(self.columns, 74)
-
-        footer = QHBoxLayout()
-        footer.setContentsMargins(0, 0, 0, 0)
-        footer.setSpacing(8)
-
-        footer_left = QLabel("SCHEDULE BOARD")
-        footer_left.setObjectName("PaperFooterLeft")
-
-        footer_page = QLabel("PAGE 2")
-        footer_page.setObjectName("PaperFooterPage")
-        footer_page.setAlignment(Qt.AlignRight)
-
-        footer.addWidget(footer_left, 1)
-        footer.addWidget(footer_page)
-
-        main.addWidget(GamesPaperDivider())
-        main.addLayout(footer, 6)
-
-        self.set_loading()
-
-    def clear_columns(self):
-        while self.columns.count():
-            item = self.columns.takeAt(0)
-            widget = item.widget()
-
-            if widget is not None:
-                widget.setParent(None)
-                widget.deleteLater()
+        self.setMinimumHeight(120)
 
     def set_loading(self):
-        self.edition.setText("Loading live schedules")
-        self.clear_columns()
-
-        self.columns.addWidget(
-            EmptyGamesMessage("Checking MLB, NFL, and NBA schedules..."),
-            1,
-        )
+        self.edition_text = "LOADING LIVE SCHEDULES"
+        self.leagues = []
+        self.message = "Checking MLB, NFL, and NBA schedules..."
+        self.update()
 
     def set_error(self, message="Unable to load live games."):
-        self.edition.setText("Schedule unavailable")
-        self.clear_columns()
-
-        self.columns.addWidget(
-            EmptyGamesMessage(message),
-            1,
-        )
+        self.edition_text = "SCHEDULE UNAVAILABLE"
+        self.leagues = []
+        self.message = message
+        self.update()
 
     def normalize_game(self, game):
         if isinstance(game, dict):
@@ -333,45 +74,224 @@ class SportsGamesPanel(QWidget):
     def update_leagues(self, leagues):
         print("SportsGamesPanel received leagues:", leagues)
 
-        self.clear_columns()
-
         active_leagues = []
 
         for league_data in leagues or []:
             emoji, league, games = self.normalize_league(league_data)
-
             print(f"Normalized league {league}: {len(games)} game(s)")
 
             if league:
-                active_leagues.append((emoji, league, games))
+                if not games:
+                    games = [
+                        ("No games scheduled", "—", "No games found today")
+                    ]
+
+                active_leagues.append((emoji, league, games[:3]))
 
         if not active_leagues:
-            self.edition.setText("No active leagues")
-            self.columns.addWidget(
-                EmptyGamesMessage("No MLB, NFL, or NBA leagues are currently in season."),
-                1,
-            )
+            self.edition_text = "NO ACTIVE LEAGUES"
+            self.leagues = []
+            self.message = "No MLB, NFL, or NBA leagues are currently in season."
+            self.update()
             return
 
         league_names = " / ".join([league for _, league, _ in active_leagues])
-        self.edition.setText(f"In Season: {league_names}")
-
-        for emoji, league, games in active_leagues:
-            display_games = games
-
-            if not display_games:
-                display_games = [
-                    ("No games scheduled", "—", "No games found in the next 3 days")
-                ]
-
-            self.columns.addWidget(
-                LeagueColumn(
-                    emoji=emoji,
-                    league=league,
-                    games=display_games,
-                ),
-                1,
-            )
+        self.edition_text = f"IN SEASON: {league_names}"
+        self.leagues = active_leagues
+        self.message = ""
+        self.update()
 
     def update_games_data(self, leagues):
         self.update_leagues(leagues)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        rect = self.rect().adjusted(1, 1, -1, -1)
+        draw_stacked_newspaper_panel(painter, rect)
+
+        inner = rect.adjusted(17, 15, -17, -15)
+
+        self.draw_header(painter, inner)
+
+        top_rule_y = inner.top() + 39
+        bottom_rule_y = inner.bottom() - 15
+
+        self.draw_rule(painter, inner.left(), top_rule_y, inner.right())
+        self.draw_rule(painter, inner.left(), bottom_rule_y, inner.right())
+
+        footer_font = QFont("Times New Roman", 7)
+        footer_font.setBold(True)
+        painter.setFont(footer_font)
+        painter.setPen(QColor("#5a442b"))
+        painter.drawText(
+            QRectF(inner.left(), bottom_rule_y + 2, inner.width() / 2, 12),
+            Qt.AlignLeft | Qt.AlignVCenter,
+            "SCHEDULE BOARD",
+        )
+        painter.drawText(
+            QRectF(inner.center().x(), bottom_rule_y + 2, inner.width() / 2, 12),
+            Qt.AlignRight | Qt.AlignVCenter,
+            "PAGE 2",
+        )
+
+        body = QRectF(
+            inner.left(),
+            top_rule_y + 5,
+            inner.width(),
+            bottom_rule_y - top_rule_y - 8,
+        )
+
+        if not self.leagues:
+            self.draw_empty_state(painter, body)
+            return
+
+        self.draw_leagues(painter, body)
+
+    def draw_header(self, painter, inner):
+        title_font = QFont("Rockwell", 27)
+        title_font.setBold(True)
+        title_font.setLetterSpacing(QFont.PercentageSpacing, 106)
+
+        painter.setFont(title_font)
+        painter.setPen(QColor("#241a10"))
+        painter.drawText(
+            QRectF(inner.left(), inner.top() + 5, inner.width() * 0.72, 30),
+            Qt.AlignLeft | Qt.AlignVCenter,
+            "GAME TIMES",
+        )
+
+        edition_font = QFont("Georgia", 7)
+        edition_font.setBold(True)
+        edition_font.setLetterSpacing(QFont.PercentageSpacing, 108)
+
+        painter.setFont(edition_font)
+        painter.setPen(QColor("#5a442b"))
+        painter.drawText(
+            QRectF(inner.left() + inner.width() * 0.42, inner.top() + 2, inner.width() * 0.58, 22),
+            Qt.AlignRight | Qt.AlignVCenter,
+            self.edition_text.upper(),
+        )
+
+    def draw_leagues(self, painter, body):
+        column_count = max(1, len(self.leagues))
+        column_width = body.width() / column_count
+
+        for index, (emoji, league, games) in enumerate(self.leagues):
+            left = body.left() + index * column_width
+            col = QRectF(left, body.top(), column_width, body.height())
+
+            if index > 0:
+                painter.setPen(QPen(QColor(55, 42, 25, 125), 1))
+                painter.drawLine(int(col.left()), int(col.top()), int(col.left()), int(col.bottom()))
+
+            padded = col.adjusted(7, 0, -7, 0)
+            self.draw_league_column(painter, padded, emoji, league, games)
+
+    def draw_league_column(self, painter, rect, emoji, league, games):
+        heading_height = 23
+
+        emoji_font = QFont("Arial", 15)
+        painter.setFont(emoji_font)
+        painter.setPen(QColor("#21170d"))
+        painter.drawText(
+            QRectF(rect.left(), rect.top(), 24, heading_height),
+            Qt.AlignCenter,
+            emoji,
+        )
+
+        league_font = QFont("Georgia", 17)
+        league_font.setBold(True)
+        painter.setFont(league_font)
+        painter.setPen(QColor("#21170d"))
+        painter.drawText(
+            QRectF(rect.left() + 28, rect.top(), rect.width() - 28, heading_height),
+            Qt.AlignLeft | Qt.AlignVCenter,
+            league,
+        )
+
+        self.draw_rule(painter, rect.left(), rect.top() + heading_height, rect.right())
+
+        rows_top = rect.top() + heading_height + 3
+        rows_height = rect.height() - heading_height - 3
+        row_count = max(2, len(games))
+        row_height = rows_height / row_count
+
+        for i in range(row_count):
+            row = QRectF(
+                rect.left(),
+                rows_top + i * row_height,
+                rect.width(),
+                row_height,
+            )
+
+            if i < len(games):
+                matchup, time, detail = games[i]
+                self.draw_game_row(painter, row, matchup, time, detail, compact=len(games) >= 3)
+
+            if i < row_count - 1:
+                self.draw_rule(painter, row.left(), row.bottom(), row.right())
+
+    def draw_game_row(self, painter, row, matchup, time, detail, compact=False):
+        time_width = 58 if compact else 66
+
+        time_font = QFont("Times New Roman", 10)
+        time_font.setBold(True)
+
+        painter.setFont(time_font)
+        painter.setPen(QColor("#25190d"))
+        painter.drawText(
+            QRectF(row.left(), row.top() + 2, time_width, row.height() - 4),
+            Qt.AlignLeft | Qt.AlignTop,
+            time,
+        )
+
+        matchup_font = QFont("Georgia", 12 if compact else 14)
+        matchup_font.setBold(True)
+
+        painter.setFont(matchup_font)
+        painter.setPen(QColor("#17100a"))
+        painter.drawText(
+            QRectF(row.left() + time_width, row.top() + 1, row.width() - time_width, row.height() * 0.45),
+            Qt.AlignLeft | Qt.AlignVCenter,
+            matchup,
+        )
+
+        if detail:
+            detail_font = QFont("Times New Roman", 7)
+            detail_font.setBold(False)
+
+            painter.setFont(detail_font)
+            painter.setPen(QColor("#4f3c25"))
+            painter.drawText(
+                QRectF(
+                    row.left() + time_width,
+                    row.top() + row.height() * 0.42,
+                    row.width() - time_width,
+                    row.height() * 0.56,
+                ),
+                Qt.AlignLeft | Qt.AlignTop | Qt.TextWordWrap,
+                detail,
+            )
+
+    def draw_empty_state(self, painter, rect):
+        dash_font = QFont("Georgia", 28)
+        dash_font.setBold(True)
+        painter.setFont(dash_font)
+        painter.setPen(QColor("#21170d"))
+        painter.drawText(rect.adjusted(0, 4, 0, -34), Qt.AlignCenter, "—")
+
+        title_font = QFont("Georgia", 15)
+        title_font.setBold(True)
+        painter.setFont(title_font)
+        painter.drawText(rect.adjusted(0, 26, 0, -12), Qt.AlignCenter, "No games scheduled")
+
+        body_font = QFont("Times New Roman", 9)
+        painter.setFont(body_font)
+        painter.setPen(QColor("#4f3c25"))
+        painter.drawText(rect.adjusted(12, 54, -12, 0), Qt.AlignCenter | Qt.TextWordWrap, self.message)
+
+    def draw_rule(self, painter, x1, y, x2):
+        painter.setPen(QPen(QColor(55, 42, 25, 150), 1))
+        painter.drawLine(int(x1), int(y), int(x2), int(y))

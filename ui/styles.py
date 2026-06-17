@@ -1546,4 +1546,857 @@ QLabel#SettingsSectionSubtitle {
     margin-bottom: 2px;
 }
 
+
+
+/* FAT NEWSPAPER TYPOGRAPHY PASS */
+
+/* Mastheads */
+QLabel#PaperMasthead,
+QLabel#OldNewsTopMasthead,
+QLabel#RemindersTitle {
+    font-family: "Georgia", "Times New Roman", serif;
+    font-size: 26px;
+    font-weight: 1000;
+    color: #241a10;
+    background: transparent;
+    border: none;
+    letter-spacing: 1.8px;
+}
+
+/* Small edition/page labels */
+QLabel#PaperEditionLine,
+QLabel#PaperFooterPage,
+QLabel#OldNewsEditionSmall,
+QLabel#OldNewsPageNumber {
+    font-family: "Times New Roman", "Georgia", serif;
+    font-size: 8px;
+    font-weight: 1000;
+    color: #5f4a30;
+    background: transparent;
+    border: none;
+    letter-spacing: 1.1px;
+}
+
+/* Kicker labels */
+QLabel#PaperKicker,
+QLabel#PaperKickerFeatured,
+QLabel#OldNewsKicker,
+QLabel#TodayReminderGroupTitle,
+QLabel#UpcomingReminderGroupTitle {
+    font-family: "Times New Roman", "Georgia", serif;
+    font-size: 8px;
+    font-weight: 1000;
+    color: #9c6424;
+    background: transparent;
+    border: none;
+    letter-spacing: 1.3px;
+}
+
+/* Main article/news headlines */
+QLabel#PaperHeadlineFeatured,
+QLabel#OldNewsHeadline {
+    font-family: "Georgia", "Times New Roman", serif;
+    font-size: 23px;
+    font-weight: 1000;
+    color: #15100b;
+    background: transparent;
+    border: none;
+}
+
+/* Supporting headlines */
+QLabel#PaperHeadline,
+QLabel#Page2HeadlineText {
+    font-family: "Georgia", "Times New Roman", serif;
+    font-size: 13px;
+    font-weight: 900;
+    color: #20170f;
+    background: transparent;
+    border: none;
+}
+
+/* Game text */
+QLabel#PaperGameMatchup,
+QLabel#PaperLeagueTitle {
+    font-family: "Georgia", "Times New Roman", serif;
+    font-size: 16px;
+    font-weight: 1000;
+    color: #23190f;
+    background: transparent;
+    border: none;
+}
+
+QLabel#PaperGameTime,
+QLabel#PaperGameDetail,
+QLabel#PaperFooterLeft,
+QLabel#OldNewsReadLink {
+    font-family: "Times New Roman", "Georgia", serif;
+    font-size: 9px;
+    font-weight: 900;
+    color: #4f3d27;
+    background: transparent;
+    border: none;
+}
+
+/* Remove inner app-card/bubble feeling */
+QWidget#PaperStory,
+QWidget#PaperFeaturedStory,
+QWidget#NewsPaperStoryPanel,
+QWidget#Page2HeadlineBox {
+    background: transparent;
+    border: none;
+    border-radius: 0px;
+}
+
+QWidget#NewsPaperPhotoBox {
+    background-color: #d6c3a0;
+    border: 1px solid rgba(48, 36, 22, 190);
+    border-radius: 0px;
+}
+
+QWidget#TodayReminderRow {
+    background-color: rgba(239, 213, 154, 0.72);
+    border: 1px solid rgba(151, 111, 46, 145);
+    border-radius: 0px;
+}
+
+QWidget#UpcomingReminderRow {
+    background: transparent;
+    border: none;
+    border-top: 1px solid rgba(55, 42, 25, 110);
+    border-radius: 0px;
+}
+
+QLabel#TodayReminderText {
+    font-family: "Georgia", "Times New Roman", serif;
+    font-size: 14px;
+    font-weight: 1000;
+    color: #1d150d;
+}
+
+QLabel#UpcomingReminderText {
+    font-family: "Times New Roman", "Georgia", serif;
+    font-size: 10px;
+    font-weight: 800;
+    color: #3f3020;
+}
+
+QPushButton#ReminderSendButton,
+QPushButton#UpcomingReminderSendButton {
+    font-family: "Times New Roman", "Georgia", serif;
+    font-size: 9px;
+    font-weight: 1000;
+    color: #2b1e10;
+    background-color: #ead39a;
+    border: 1px solid rgba(73, 53, 29, 170);
+    border-radius: 0px;
+    padding: 2px 8px;
+}
+
+QPushButton#ReminderSendButton:hover,
+QPushButton#UpcomingReminderSendButton:hover {
+    background-color: #f0ddb2;
+}
+
+/* END FAT NEWSPAPER TYPOGRAPHY PASS */
+
+
+/* FOLDED BROADSHEET TUNING */
+
+/* Main newspaper mastheads */
+QLabel#PaperMasthead,
+QLabel#OldNewsTopMasthead,
+QLabel#RemindersTitle {
+    font-family: "Georgia", "Times New Roman", serif;
+    font-size: 25px;
+    font-weight: 900;
+    letter-spacing: 1px;
+    color: #23180f;
+    background: transparent;
+    border: none;
+}
+
+/* Small labels / page numbers / business-politics tags */
+QLabel#PaperEditionLine,
+QLabel#PaperFooterPage,
+QLabel#OldNewsEditionSmall,
+QLabel#OldNewsPageNumber,
+QLabel#PaperFooterLeft,
+QLabel#OldNewsReadLink {
+    font-family: "Times New Roman", "Georgia", serif;
+    font-size: 8px;
+    font-weight: 900;
+    letter-spacing: 1px;
+    color: #5e4529;
+    background: transparent;
+    border: none;
+}
+
+/* Kicker lines */
+QLabel#PaperKicker,
+QLabel#PaperKickerFeatured,
+QLabel#OldNewsKicker,
+QLabel#TodayReminderGroupTitle,
+QLabel#UpcomingReminderGroupTitle {
+    font-family: "Times New Roman", "Georgia", serif;
+    font-size: 8px;
+    font-weight: 900;
+    letter-spacing: 1.2px;
+    color: #a3661e;
+    background: transparent;
+    border: none;
+}
+
+/* Main headlines */
+QLabel#PaperHeadlineFeatured,
+QLabel#OldNewsHeadline {
+    font-family: "Georgia", "Times New Roman", serif;
+    font-size: 22px;
+    font-weight: 900;
+    color: #17110b;
+    background: transparent;
+    border: none;
+}
+
+/* Secondary headlines */
+QLabel#PaperHeadline,
+QLabel#Page2HeadlineText {
+    font-family: "Georgia", "Times New Roman", serif;
+    font-size: 12px;
+    font-weight: 800;
+    color: #221811;
+    background: transparent;
+    border: none;
+}
+
+/* Game section labels */
+QLabel#PaperGameMatchup,
+QLabel#PaperLeagueTitle {
+    font-family: "Georgia", "Times New Roman", serif;
+    font-size: 16px;
+    font-weight: 900;
+    color: #241a11;
+    background: transparent;
+    border: none;
+}
+
+QLabel#PaperGameTime,
+QLabel#PaperGameDetail {
+    font-family: "Times New Roman", "Georgia", serif;
+    font-size: 9px;
+    font-weight: 800;
+    color: #4e3923;
+    background: transparent;
+    border: none;
+}
+
+/* Remove the app-card feeling inside newspaper panels */
+QWidget#PaperStory,
+QWidget#PaperFeaturedStory,
+QWidget#NewsPaperStoryPanel,
+QWidget#Page2HeadlineBox {
+    background: transparent;
+    border: none;
+    border-radius: 0px;
+}
+
+/* News photo area still gets a printed frame */
+QWidget#NewsPaperPhotoBox {
+    background-color: rgba(213, 188, 145, 0.58);
+    border: 1px solid rgba(73, 55, 29, 180);
+    border-radius: 0px;
+}
+
+/* Reminder rows */
+QWidget#TodayReminderRow {
+    background-color: rgba(236, 210, 150, 0.48);
+    border: 1px solid rgba(134, 101, 48, 120);
+    border-radius: 0px;
+}
+
+QWidget#UpcomingReminderRow {
+    background: transparent;
+    border: none;
+    border-top: 1px solid rgba(70, 52, 31, 85);
+    border-radius: 0px;
+}
+
+QLabel#TodayReminderText {
+    font-family: "Georgia", "Times New Roman", serif;
+    font-size: 14px;
+    font-weight: 900;
+    color: #1d140d;
+    background: transparent;
+    border: none;
+}
+
+QLabel#UpcomingReminderText {
+    font-family: "Times New Roman", "Georgia", serif;
+    font-size: 10px;
+    font-weight: 700;
+    color: #423122;
+    background: transparent;
+    border: none;
+}
+
+QPushButton#ReminderSendButton,
+QPushButton#UpcomingReminderSendButton {
+    font-family: "Times New Roman", "Georgia", serif;
+    font-size: 9px;
+    font-weight: 900;
+    color: #2d1e10;
+    background-color: rgba(245, 225, 181, 0.82);
+    border: 1px solid rgba(76, 57, 31, 150);
+    border-radius: 0px;
+    padding: 2px 9px;
+}
+
+QPushButton#ReminderSendButton:hover,
+QPushButton#UpcomingReminderSendButton:hover {
+    background-color: rgba(249, 234, 198, 0.94);
+}
+
+/* END FOLDED BROADSHEET TUNING */
+
+
+/* REFERENCE NEWSPAPER CARD STYLE */
+
+/* Masthead like the reference */
+QLabel#OldNewsTopMasthead,
+QLabel#PaperMasthead,
+QLabel#RemindersTitle {
+    font-family: "Georgia", "Times New Roman", serif;
+    font-size: 25px;
+    font-weight: 1000;
+    color: #241a10;
+    background: transparent;
+    border: none;
+    letter-spacing: 2.4px;
+}
+
+/* The thin small right-side section/page text */
+QLabel#OldNewsEditionSmall,
+QLabel#PaperEditionLine,
+QLabel#PaperFooterPage,
+QLabel#OldNewsPageNumber,
+QLabel#PaperFooterLeft {
+    font-family: "Times New Roman", "Georgia", serif;
+    font-size: 8px;
+    font-weight: 1000;
+    color: #574128;
+    background: transparent;
+    border: none;
+    letter-spacing: 1.2px;
+}
+
+/* Orange newspaper kicker */
+QLabel#OldNewsKicker,
+QLabel#PaperKicker,
+QLabel#PaperKickerFeatured,
+QLabel#TodayReminderGroupTitle,
+QLabel#UpcomingReminderGroupTitle {
+    font-family: "Times New Roman", "Georgia", serif;
+    font-size: 8px;
+    font-weight: 1000;
+    color: #a05f18;
+    background: transparent;
+    border: none;
+    letter-spacing: 1.4px;
+}
+
+/* Big article headline */
+QLabel#OldNewsHeadline {
+    font-family: "Georgia", "Times New Roman", serif;
+    font-size: 31px;
+    font-weight: 1000;
+    color: #17100a;
+    background: transparent;
+    border: none;
+    letter-spacing: -0.6px;
+}
+
+/* Sports lead headline */
+QLabel#PaperHeadlineFeatured {
+    font-family: "Georgia", "Times New Roman", serif;
+    font-size: 22px;
+    font-weight: 1000;
+    color: #17100a;
+    background: transparent;
+    border: none;
+}
+
+/* Smaller newspaper headlines */
+QLabel#PaperHeadline,
+QLabel#Page2HeadlineText {
+    font-family: "Georgia", "Times New Roman", serif;
+    font-size: 12px;
+    font-weight: 900;
+    color: #22170f;
+    background: transparent;
+    border: none;
+}
+
+/* Read more footer */
+QLabel#OldNewsReadLink {
+    font-family: "Times New Roman", "Georgia", serif;
+    font-size: 9px;
+    font-weight: 1000;
+    color: #5a4024;
+    background: transparent;
+    border: none;
+    letter-spacing: 1.1px;
+}
+
+/* Remove app-box feeling inside the article cards */
+QWidget#NewsPaperStoryPanel,
+QWidget#Page2Container,
+QWidget#Page2HeadlineBox,
+QWidget#PaperStory,
+QWidget#PaperFeaturedStory {
+    background: transparent;
+    border: none;
+    border-radius: 0px;
+}
+
+/* Image frame like a printed newspaper photo */
+QWidget#NewsPaperPhotoBox {
+    background-color: #d6c3a0;
+    border: 1px solid rgba(43, 31, 16, 190);
+    border-radius: 0px;
+}
+
+/* Reminders reference style */
+QWidget#TodayReminderRow {
+    background-color: rgba(237, 209, 143, 0.62);
+    border: 1px solid rgba(135, 97, 39, 130);
+    border-radius: 0px;
+}
+
+QWidget#UpcomingReminderRow {
+    background: transparent;
+    border: none;
+    border-top: 1px solid rgba(73, 53, 29, 90);
+    border-radius: 0px;
+}
+
+QLabel#TodayReminderText {
+    font-family: "Georgia", "Times New Roman", serif;
+    font-size: 15px;
+    font-weight: 1000;
+    color: #1d140c;
+    background: transparent;
+    border: none;
+}
+
+QLabel#UpcomingReminderText {
+    font-family: "Times New Roman", "Georgia", serif;
+    font-size: 10px;
+    font-weight: 800;
+    color: #40301f;
+    background: transparent;
+    border: none;
+}
+
+QPushButton#ReminderSendButton,
+QPushButton#UpcomingReminderSendButton {
+    font-family: "Times New Roman", "Georgia", serif;
+    font-size: 9px;
+    font-weight: 1000;
+    color: #2d1e10;
+    background-color: rgba(245, 225, 181, 0.88);
+    border: 1px solid rgba(76, 57, 31, 160);
+    border-radius: 0px;
+    padding: 2px 10px;
+}
+
+QPushButton#ReminderSendButton:hover,
+QPushButton#UpcomingReminderSendButton:hover {
+    background-color: rgba(249, 234, 198, 0.96);
+}
+
+/* END REFERENCE NEWSPAPER CARD STYLE */
+
+
+
+/* NEWSPAPER TITLE FONT REFINEMENT */
+
+/* Big newspaper section mastheads: BUSINESS, HEADLINES, REMINDERS */
+QLabel#OldNewsTopMasthead,
+QLabel#RemindersTitle {
+    font-family: "Bodoni 72 Smallcaps", "Bodoni 72", "Georgia", "Times New Roman", serif;
+    font-size: 31px;
+    font-weight: 1000;
+    color: #24170c;
+    background: transparent;
+    border: none;
+    letter-spacing: 3px;
+}
+
+/* Sports/Game Times mastheads if any QLabel versions still exist */
+QLabel#PaperMasthead {
+    font-family: "Bodoni 72 Smallcaps", "Bodoni 72", "Georgia", "Times New Roman", serif;
+    font-size: 30px;
+    font-weight: 1000;
+    color: #24170c;
+    background: transparent;
+    border: none;
+    letter-spacing: 2.6px;
+}
+
+/* Small top-right tags like P. 1, BUSINESS, POLITICS */
+QLabel#OldNewsEditionSmall,
+QLabel#PaperEditionLine,
+QLabel#PaperFooterPage,
+QLabel#OldNewsPageNumber {
+    font-family: "Georgia", "Times New Roman", serif;
+    font-size: 8px;
+    font-weight: 1000;
+    color: #5a3f22;
+    background: transparent;
+    border: none;
+    letter-spacing: 1.4px;
+}
+
+/* Reference-style orange section kicker */
+QLabel#OldNewsKicker,
+QLabel#PaperKicker,
+QLabel#PaperKickerFeatured,
+QLabel#TodayReminderGroupTitle,
+QLabel#UpcomingReminderGroupTitle {
+    font-family: "Times New Roman", "Georgia", serif;
+    font-size: 8px;
+    font-weight: 1000;
+    color: #a05f18;
+    background: transparent;
+    border: none;
+    letter-spacing: 1.4px;
+}
+
+/* Large article headline closer to reference */
+QLabel#OldNewsHeadline {
+    font-family: "Georgia", "Times New Roman", serif;
+    font-size: 30px;
+    font-weight: 1000;
+    color: #15100a;
+    background: transparent;
+    border: none;
+    letter-spacing: -0.7px;
+}
+
+/* END NEWSPAPER TITLE FONT REFINEMENT */
+
+
+/* NEWSPAPER_SHAPE_STYLE_START */
+
+/* shared newspaper section shells */
+QWidget#NewspaperSportsCard,
+QWidget#PaperGameTimesPanel,
+QWidget#OldNewsCard,
+QWidget#RemindersPanel {
+    background: transparent;
+    border: none;
+}
+
+/* strong old-paper mastheads */
+QLabel#PaperMasthead,
+QLabel#OldNewsTopMasthead,
+QLabel#RemindersTitle {
+    font-family: "Georgia", "Times New Roman", serif;
+    font-size: 29px;
+    font-weight: 900;
+    color: #2b1a0f;
+    background: transparent;
+    border: none;
+    letter-spacing: 1px;
+}
+
+/* section micros / page numbers */
+QLabel#PaperEditionLine,
+QLabel#OldNewsEditionSmall,
+QLabel#OldNewsPageNumber,
+QLabel#PaperFooterPage,
+QLabel#PaperFooterLeft {
+    font-family: "Times New Roman", "Georgia", serif;
+    font-size: 8px;
+    font-weight: 700;
+    color: #6b4d2a;
+    background: transparent;
+    border: none;
+    letter-spacing: 1px;
+}
+
+/* orange kicker text */
+QLabel#PaperKicker,
+QLabel#PaperKickerFeatured,
+QLabel#OldNewsKicker,
+QLabel#TodayReminderGroupTitle,
+QLabel#UpcomingReminderGroupTitle {
+    font-family: "Times New Roman", "Georgia", serif;
+    font-size: 9px;
+    font-weight: 800;
+    color: #b06a1b;
+    background: transparent;
+    border: none;
+    letter-spacing: 1px;
+}
+
+/* sports lead */
+QLabel#PaperHeadlineFeatured {
+    font-family: "Georgia", "Times New Roman", serif;
+    font-size: 24px;
+    font-weight: 900;
+    color: #1b120c;
+    background: transparent;
+    border: none;
+}
+
+/* article headlines */
+QLabel#OldNewsHeadline {
+    font-family: "Georgia", "Times New Roman", serif;
+    font-size: 27px;
+    font-weight: 900;
+    color: #1a110b;
+    background: transparent;
+    border: none;
+}
+
+/* body / lower story text */
+QLabel#PaperHeadline,
+QLabel#OldNewsSubheadline,
+QLabel#OldNewsSummary,
+QLabel#ReminderPrimaryText,
+QLabel#ReminderSecondaryText {
+    font-family: "Georgia", "Times New Roman", serif;
+    color: #2a1c12;
+    background: transparent;
+    border: none;
+}
+
+/* inner story boxes should stop looking like app cards */
+QWidget#PaperStory,
+QWidget#PaperFeaturedStory,
+QWidget#NewsPaperStoryPanel,
+QWidget#Page2Container,
+QWidget#Page2HeadlineBox {
+    background: transparent;
+    border: none;
+    border-radius: 0px;
+}
+
+/* image frame */
+QWidget#NewsPaperPhotoBox {
+    background-color: rgba(218, 195, 157, 0.65);
+    border: 1px solid rgba(79, 56, 31, 145);
+    border-radius: 0px;
+}
+
+/* reminder rows */
+QWidget#TodayReminderRow {
+    background-color: rgba(235, 208, 149, 0.45);
+    border: 1px solid rgba(138, 101, 48, 110);
+    border-radius: 0px;
+}
+
+QWidget#UpcomingReminderRow {
+    background: transparent;
+    border: none;
+    border-top: 1px solid rgba(97, 70, 36, 90);
+    border-radius: 0px;
+}
+
+/* reminder buttons */
+QPushButton#ReminderSendButton,
+QPushButton#UpcomingReminderSendButton {
+    font-family: "Times New Roman", "Georgia", serif;
+    font-size: 9px;
+    font-weight: 800;
+    color: #2b1a10;
+    background-color: rgba(244, 227, 190, 0.9);
+    border: 1px solid rgba(88, 65, 39, 145);
+    border-radius: 2px;
+    padding: 3px 10px;
+}
+
+/* NEWSPAPER_SHAPE_STYLE_END */
+
+
+
+/* OLD TOWN NEWSPAPER FONT PASS */
+
+/* Old-town mastheads: strong but not colliding with borders */
+QLabel#OldNewsTopMasthead,
+QLabel#PaperMasthead,
+QLabel#RemindersTitle {
+    font-family: "Rockwell", "Georgia", "Times New Roman", serif;
+    font-size: 27px;
+    font-weight: 1000;
+    color: #2b1a0f;
+    background: transparent;
+    border: none;
+    letter-spacing: 1.2px;
+}
+
+/* Page numbers and section markers */
+QLabel#OldNewsEditionSmall,
+QLabel#OldNewsPageNumber,
+QLabel#PaperEditionLine,
+QLabel#PaperFooterPage,
+QLabel#PaperFooterLeft {
+    font-family: "Times New Roman", "Georgia", serif;
+    font-size: 8px;
+    font-weight: 1000;
+    color: #684a27;
+    background: transparent;
+    border: none;
+    letter-spacing: 1px;
+}
+
+/* Orange/brown newspaper kicker */
+QLabel#OldNewsKicker,
+QLabel#PaperKicker,
+QLabel#PaperKickerFeatured,
+QLabel#TodayReminderGroupTitle,
+QLabel#UpcomingReminderGroupTitle {
+    font-family: "Times New Roman", "Georgia", serif;
+    font-size: 8px;
+    font-weight: 1000;
+    color: #9b5914;
+    background: transparent;
+    border: none;
+    letter-spacing: 1.2px;
+}
+
+/* Lead story headline */
+QLabel#OldNewsHeadline {
+    font-family: "Georgia", "Times New Roman", serif;
+    font-size: 27px;
+    font-weight: 1000;
+    color: #170f08;
+    background: transparent;
+    border: none;
+    letter-spacing: -0.4px;
+}
+
+/* Sports lead headline */
+QLabel#PaperHeadlineFeatured {
+    font-family: "Georgia", "Times New Roman", serif;
+    font-size: 22px;
+    font-weight: 1000;
+    color: #170f08;
+    background: transparent;
+    border: none;
+}
+
+/* Remove digital box feel */
+QWidget#NewsPaperStoryPanel,
+QWidget#Page2Container,
+QWidget#Page2HeadlineBox,
+QWidget#PaperStory,
+QWidget#PaperFeaturedStory {
+    background: transparent;
+    border: none;
+    border-radius: 0px;
+}
+
+/* Printed photo frame */
+QWidget#NewsPaperPhotoBox {
+    background-color: #d7c098;
+    border: 1px solid rgba(58, 38, 18, 175);
+    border-radius: 0px;
+}
+
+/* Reminder rows */
+QWidget#TodayReminderRow {
+    background-color: rgba(234, 204, 136, 0.62);
+    border: 1px solid rgba(120, 82, 34, 130);
+    border-radius: 0px;
+}
+
+QWidget#UpcomingReminderRow {
+    background: transparent;
+    border: none;
+    border-top: 1px solid rgba(73, 49, 23, 90);
+    border-radius: 0px;
+}
+
+QPushButton#ReminderSendButton,
+QPushButton#UpcomingReminderSendButton {
+    font-family: "Times New Roman", "Georgia", serif;
+    font-size: 9px;
+    font-weight: 1000;
+    color: #28190d;
+    background-color: rgba(238, 215, 171, 0.9);
+    border: 1px solid rgba(76, 52, 27, 155);
+    border-radius: 0px;
+    padding: 2px 10px;
+}
+
+/* END OLD TOWN NEWSPAPER FONT PASS */
+
+
+
+/* MATCH NEWS REMINDER HEADERS TO SPORTS FONT */
+QLabel#OldNewsTopMasthead,
+QLabel#RemindersTitle {
+    font-family: "Rockwell", "Georgia", "Times New Roman", serif;
+    font-size: 25px;
+    font-weight: 1000;
+    color: #2b1a0f;
+    background: transparent;
+    border: none;
+    letter-spacing: 1.4px;
+}
+/* END MATCH NEWS REMINDER HEADERS TO SPORTS FONT */
+
+
+
+
+
+
+/* MATCH NEWS HEADERS TO SPORTS MASTHEAD */
+
+/* Make BUSINESS, HEADLINES, and REMINDERS use the same family/style as GAME TIMES and SPORTS DESK */
+QLabel#OldNewsTopMasthead,
+QLabel#RemindersTitle,
+QLabel#PaperMasthead {
+    font-family: "Rockwell", "Georgia", "Times New Roman", serif;
+    font-size: 25px;
+    font-weight: 1000;
+    color: #2b1a0f;
+    background: transparent;
+    border: none;
+    letter-spacing: 1.4px;
+}
+
+/* Keep the little right-side labels small like a newspaper page marker */
+QLabel#OldNewsEditionSmall,
+QLabel#OldNewsPageNumber,
+QLabel#PaperEditionLine,
+QLabel#PaperFooterPage,
+QLabel#PaperFooterLeft {
+    font-family: "Times New Roman", "Georgia", serif;
+    font-size: 8px;
+    font-weight: 1000;
+    color: #684a27;
+    background: transparent;
+    border: none;
+    letter-spacing: 1px;
+}
+
+/* Kicker labels */
+QLabel#OldNewsKicker,
+QLabel#PaperKicker,
+QLabel#PaperKickerFeatured,
+QLabel#TodayReminderGroupTitle,
+QLabel#UpcomingReminderGroupTitle {
+    font-family: "Times New Roman", "Georgia", serif;
+    font-size: 8px;
+    font-weight: 1000;
+    color: #9b5914;
+    background: transparent;
+    border: none;
+    letter-spacing: 1.2px;
+}
+
+/* END MATCH NEWS HEADERS TO SPORTS MASTHEAD */
+
 """

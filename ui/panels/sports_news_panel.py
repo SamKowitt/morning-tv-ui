@@ -1,79 +1,9 @@
-from PySide6.QtCore import Qt, QUrl
-from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
-
-from ui.auto_fit_label import AutoFitLabel
+from PySide6.QtCore import QRectF, Qt, QUrl
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QLinearGradient, QPainter, QPen
+from PySide6.QtWidgets import QWidget
 
 
-class NewspaperDivider(QFrame):
-    def __init__(self):
-        super().__init__()
-        self.setFrameShape(QFrame.HLine)
-        self.setFrameShadow(QFrame.Plain)
-        self.setFixedHeight(1)
-        self.setStyleSheet("background-color: rgba(90, 78, 63, 120); border: none;")
-
-
-class CompactPaperStory(QWidget):
-    def __init__(self, headline, kicker="", featured=False, link=""):
-        super().__init__()
-
-        self.article_url = link
-        self.featured = featured
-
-        self.setObjectName("PaperFeaturedStory" if featured else "PaperStory")
-        self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setCursor(Qt.PointingHandCursor)
-
-        layout = QVBoxLayout()
-
-        if featured:
-            layout.setContentsMargins(9, 5, 9, 5)
-            layout.setSpacing(2)
-        else:
-            layout.setContentsMargins(7, 3, 7, 3)
-            layout.setSpacing(1)
-
-        self.setLayout(layout)
-
-        self.kicker_label = QLabel(kicker)
-        self.kicker_label.setObjectName("PaperKickerFeatured" if featured else "PaperKicker")
-        self.kicker_label.setAlignment(Qt.AlignLeft)
-        self.kicker_label.setCursor(Qt.PointingHandCursor)
-        layout.addWidget(self.kicker_label)
-
-        self.headline_label = AutoFitLabel(
-            headline,
-            min_size=10 if featured else 6,
-            max_size=22 if featured else 10,
-            bold=True,
-            alignment=Qt.AlignLeft | Qt.AlignVCenter,
-            word_wrap=True,
-        )
-        self.headline_label.setObjectName("PaperHeadlineFeatured" if featured else "PaperHeadline")
-        self.headline_label.setCursor(Qt.PointingHandCursor)
-        layout.addWidget(self.headline_label, 1)
-
-    def update_story(self, headline, kicker="ESPN", link=""):
-        self.article_url = link or ""
-
-        self.kicker_label.setText(kicker or "ESPN")
-        self.headline_label.setText(headline)
-
-        if self.article_url:
-            self.setCursor(Qt.PointingHandCursor)
-            self.kicker_label.setCursor(Qt.PointingHandCursor)
-            self.headline_label.setCursor(Qt.PointingHandCursor)
-        else:
-            self.setCursor(Qt.ArrowCursor)
-            self.kicker_label.setCursor(Qt.ArrowCursor)
-            self.headline_label.setCursor(Qt.ArrowCursor)
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton and self.article_url:
-            QDesktopServices.openUrl(QUrl(self.article_url))
-
-        super().mousePressEvent(event)
+from ui.newspaper_chrome import draw_stacked_newspaper_panel
 
 
 class SportsNewsPanel(QWidget):
@@ -81,98 +11,243 @@ class SportsNewsPanel(QWidget):
         super().__init__()
 
         self.setObjectName("NewspaperSportsCard")
-        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setAttribute(Qt.WA_StyledBackground, False)
+        self.setCursor(Qt.PointingHandCursor)
 
-        self.story_widgets = []
+        self.articles = []
+        self.click_zones = []
 
-        main = QVBoxLayout()
-        main.setContentsMargins(12, 6, 12, 6)
-        main.setSpacing(3)
-        self.setLayout(main)
-
-        header = QHBoxLayout()
-        header.setSpacing(8)
-
-        masthead = AutoFitLabel(
-            "ESPN",
-            min_size=14,
-            max_size=27,
-            bold=True,
-            alignment=Qt.AlignLeft | Qt.AlignVCenter,
-            word_wrap=False,
-        )
-        masthead.setObjectName("PaperMasthead")
-
-        edition = AutoFitLabel(
-            "Top ESPN Stories",
-            min_size=6,
-            max_size=10,
-            bold=True,
-            alignment=Qt.AlignRight | Qt.AlignVCenter,
-            word_wrap=False,
-        )
-        edition.setObjectName("PaperEditionLine")
-
-        header.addWidget(masthead, 35)
-        header.addWidget(edition, 65)
-
-        main.addLayout(header, 13)
-        main.addWidget(NewspaperDivider())
-
-        lead_story = CompactPaperStory(
-            "Loading latest ESPN sports headline...",
-            kicker="LEAD STORY",
-            featured=True,
-        )
-        self.story_widgets.append(lead_story)
-        main.addWidget(lead_story, 28)
-
-        lower_row = QHBoxLayout()
-        lower_row.setSpacing(6)
-        lower_row.setContentsMargins(0, 0, 0, 0)
-
-        for _ in range(3):
-            story = CompactPaperStory(
-                "Loading ESPN sports story...",
-                kicker="ESPN",
-            )
-            self.story_widgets.append(story)
-            lower_row.addWidget(story, 1)
-
-        main.addLayout(lower_row, 37)
-
-        footer = QHBoxLayout()
-        footer.setContentsMargins(0, 0, 0, 0)
-        footer.setSpacing(8)
-
-        footer_left = QLabel("SPORTS DESK")
-        footer_left.setObjectName("PaperFooterLeft")
-
-        footer_page = QLabel("PAGE 1")
-        footer_page.setObjectName("PaperFooterPage")
-        footer_page.setAlignment(Qt.AlignRight)
-
-        footer.addWidget(footer_left, 1)
-        footer.addWidget(footer_page)
-
-        main.addWidget(NewspaperDivider())
-        main.addLayout(footer, 6)
+        self.setMinimumHeight(120)
 
     def update_articles(self, articles):
-        for index, story_widget in enumerate(self.story_widgets):
+        self.articles = list(articles or [])[:4]
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        rect = self.rect().adjusted(1, 1, -1, -1)
+        draw_stacked_newspaper_panel(painter, rect)
+
+        inner = rect.adjusted(17, 15, -17, -15)
+        self.click_zones = []
+
+        self.draw_header(painter, inner)
+
+        top_rule_y = inner.top() + 39
+        footer_rule_y = inner.bottom() - 15
+
+        self.draw_rule(painter, inner.left(), top_rule_y, inner.right())
+        self.draw_rule(painter, inner.left(), footer_rule_y, inner.right())
+
+        footer_font = QFont("Times New Roman", 7)
+        footer_font.setBold(True)
+        painter.setFont(footer_font)
+        painter.setPen(QColor("#5a442b"))
+
+        painter.drawText(
+            QRectF(inner.left(), footer_rule_y + 2, inner.width() / 2, 12),
+            Qt.AlignLeft | Qt.AlignVCenter,
+            "SPORTS DESK",
+        )
+        painter.drawText(
+            QRectF(inner.center().x(), footer_rule_y + 2, inner.width() / 2, 12),
+            Qt.AlignRight | Qt.AlignVCenter,
+            "PAGE 1",
+        )
+
+        body = QRectF(
+            inner.left(),
+            top_rule_y + 5,
+            inner.width(),
+            footer_rule_y - top_rule_y - 9,
+        )
+
+        self.draw_body(painter, body)
+
+    def draw_header(self, painter, inner):
+        title_font = QFont("Rockwell", 27)
+        title_font.setBold(True)
+        title_font.setLetterSpacing(QFont.PercentageSpacing, 106)
+
+        painter.setFont(title_font)
+        painter.setPen(QColor("#241a10"))
+        painter.drawText(
+            QRectF(inner.left(), inner.top() + 5, inner.width() * 0.72, 30),
+            Qt.AlignLeft | Qt.AlignVCenter,
+            "SPORTS DESK",
+        )
+
+        page_font = QFont("Georgia", 8)
+        page_font.setBold(True)
+        page_font.setLetterSpacing(QFont.PercentageSpacing, 108)
+
+        painter.setFont(page_font)
+        painter.setPen(QColor("#5a442b"))
+        painter.drawText(
+            QRectF(inner.left() + inner.width() * 0.72, inner.top() + 2, inner.width() * 0.28, 22),
+            Qt.AlignRight | Qt.AlignVCenter,
+            "P. 1",
+        )
+
+    def draw_body(self, painter, body):
+        if not self.articles:
+            self.draw_loading(painter, body)
+            return
+
+        lead = self.articles[0]
+        small_articles = self.articles[1:4]
+
+        lead_rect = QRectF(
+            body.left(),
+            body.top(),
+            body.width(),
+            body.height() * 0.56,
+        )
+
+        lower_top = lead_rect.bottom() + 5
+        lower_rect = QRectF(
+            body.left(),
+            lower_top,
+            body.width(),
+            body.bottom() - lower_top,
+        )
+
+        self.draw_lead_story(painter, lead_rect, lead)
+        self.draw_rule(painter, body.left(), lead_rect.bottom() + 2, body.right())
+        self.draw_small_stories(painter, lower_rect, small_articles)
+
+    def draw_loading(self, painter, rect):
+        kicker_font = QFont("Times New Roman", 9)
+        kicker_font.setBold(True)
+
+        painter.setFont(kicker_font)
+        painter.setPen(QColor("#9c6424"))
+        painter.drawText(
+            QRectF(rect.left(), rect.top(), rect.width(), 16),
+            Qt.AlignLeft | Qt.AlignVCenter,
+            "TOP STORIES",
+        )
+
+        headline_font = QFont("Georgia", 18)
+        headline_font.setBold(True)
+
+        painter.setFont(headline_font)
+        painter.setPen(QColor("#17100a"))
+        painter.drawText(
+            rect.adjusted(0, 16, 0, 0),
+            Qt.AlignLeft | Qt.AlignVCenter | Qt.TextWordWrap,
+            "Loading latest sports headlines...",
+        )
+
+    def draw_lead_story(self, painter, rect, article):
+        kicker_font = QFont("Times New Roman", 9)
+        kicker_font.setBold(True)
+
+        painter.setFont(kicker_font)
+        painter.setPen(QColor("#9c6424"))
+        painter.drawText(
+            QRectF(rect.left(), rect.top(), rect.width(), 15),
+            Qt.AlignLeft | Qt.AlignVCenter,
+            "TOP STORIES",
+        )
+
+        headline_font = QFont("Georgia", 22)
+        headline_font.setBold(True)
+
+        painter.setFont(headline_font)
+        painter.setPen(QColor("#15100b"))
+
+        headline_rect = rect.adjusted(0, 16, 0, 0)
+        painter.drawText(
+            headline_rect,
+            Qt.AlignLeft | Qt.AlignTop | Qt.TextWordWrap,
+            self.clean_title(getattr(article, "title", "")),
+        )
+
+        self.add_click_zone(headline_rect, getattr(article, "link", ""))
+
+    def draw_small_stories(self, painter, rect, articles):
+        count = 3
+        column_width = rect.width() / count
+
+        for index in range(count):
+            left = rect.left() + index * column_width
+            col = QRectF(left, rect.top(), column_width, rect.height())
+
+            if index > 0:
+                painter.setPen(QPen(QColor(55, 42, 25, 115), 1))
+                painter.drawLine(int(col.left()), int(col.top() + 2), int(col.left()), int(col.bottom() - 2))
+
+            padded = col.adjusted(7 if index > 0 else 0, 0, -7, 0)
+
             if index >= len(articles):
-                story_widget.update_story("", "ESPN", "")
                 continue
 
             article = articles[index]
+            category = getattr(article, "category", "") or "SPORTS DESK"
 
-            if index == 0:
-                kicker = "LEAD STORY"
-            else:
-                kicker = article.category or "ESPN"
+            kicker_font = QFont("Times New Roman", 7)
+            kicker_font.setBold(True)
 
-            story_widget.update_story(
-                headline=article.title,
-                kicker=kicker,
-                link=article.link,
+            painter.setFont(kicker_font)
+            painter.setPen(QColor("#9c6424"))
+            painter.drawText(
+                QRectF(padded.left(), padded.top(), padded.width(), 12),
+                Qt.AlignLeft | Qt.AlignVCenter,
+                category.upper()[:18],
             )
+
+            headline_font = QFont("Georgia", 10)
+            headline_font.setBold(True)
+
+            painter.setFont(headline_font)
+            painter.setPen(QColor("#21180f"))
+
+            headline_rect = padded.adjusted(0, 13, 0, -11)
+            painter.drawText(
+                headline_rect,
+                Qt.AlignLeft | Qt.AlignTop | Qt.TextWordWrap,
+                self.clean_title(getattr(article, "title", "")),
+            )
+
+            page_font = QFont("Times New Roman", 7)
+            page_font.setBold(True)
+
+            painter.setFont(page_font)
+            painter.setPen(QColor("#5a442b"))
+            painter.drawText(
+                QRectF(padded.left(), padded.bottom() - 10, padded.width(), 10),
+                Qt.AlignLeft | Qt.AlignVCenter,
+                f"P. {index + 1}",
+            )
+
+            self.add_click_zone(padded, getattr(article, "link", ""))
+
+    def add_click_zone(self, rect, link):
+        if link:
+            self.click_zones.append((QRectF(rect), link))
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            position = event.position()
+
+            for rect, link in self.click_zones:
+                if rect.contains(position):
+                    QDesktopServices.openUrl(QUrl(link))
+                    return
+
+        super().mousePressEvent(event)
+
+    def draw_rule(self, painter, x1, y, x2):
+        painter.setPen(QPen(QColor(55, 42, 25, 150), 1))
+        painter.drawLine(int(x1), int(y), int(x2), int(y))
+
+    def clean_title(self, title):
+        text = str(title or "").strip()
+
+        if not text:
+            return "Story unavailable"
+
+        return text

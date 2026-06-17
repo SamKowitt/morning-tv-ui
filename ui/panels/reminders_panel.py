@@ -1,6 +1,8 @@
+import random
 from datetime import datetime, timedelta
 
-from PySide6.QtCore import Qt, QTime, QTimer
+from PySide6.QtCore import Qt, QTime, QTimer, QRectF
+from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPen
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -15,6 +17,7 @@ from PySide6.QtWidgets import (
 
 from services.pushover_notifier import send_pushover_notification
 from ui.auto_fit_label import AutoFitLabel
+from ui.newspaper_chrome import draw_stacked_newspaper_panel
 
 
 class ReminderTimeDialog(QDialog):
@@ -145,14 +148,73 @@ class ReminderItem(QWidget):
         self.setObjectName("TodayReminderRow" if today else "UpcomingReminderRow")
         self.setAttribute(Qt.WA_StyledBackground, True)
 
+        self.setStyleSheet("""
+            QWidget#TodayReminderRow {
+                background-color: qlineargradient(
+                    x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #efd59a,
+                    stop:1 #f7e8bd
+                );
+                border: 1px solid rgba(151, 111, 46, 125);
+                border-radius: 2px;
+            }
+
+            QWidget#UpcomingReminderRow {
+                background-color: transparent;
+                border: none;
+                border-top: 1px solid rgba(55, 42, 25, 110);
+                border-radius: 0px;
+            }
+
+            QLabel#TodayReminderIcon,
+            QLabel#UpcomingReminderIcon {
+                background: transparent;
+                color: #2b1e10;
+                font-size: 13px;
+            }
+
+            QLabel#TodayReminderText {
+                background: transparent;
+                font-family: "Georgia";
+                font-size: 15px;
+                font-weight: 1000;
+                color: #1d150d;
+            }
+
+            QLabel#UpcomingReminderText {
+                background: transparent;
+                font-family: "Times New Roman";
+                font-size: 10px;
+                font-weight: 700;
+                color: #3f3020;
+            }
+
+            QPushButton#ReminderSendButton,
+            QPushButton#UpcomingReminderSendButton {
+                background-color: #f0dfb7;
+                color: #2b1e10;
+                border: 1px solid rgba(73, 53, 29, 170);
+                border-radius: 2px;
+                padding: 2px 8px;
+                font-family: "Times New Roman";
+                font-size: 9px;
+                font-weight: 1000;
+            }
+
+            QPushButton#ReminderSendButton:hover,
+            QPushButton#UpcomingReminderSendButton:hover {
+                background-color: #e4ca90;
+            }
+        """)
+
         layout = QHBoxLayout()
         layout.setContentsMargins(
-            10 if today else 8,
-            5 if today else 3,
-            10 if today else 8,
-            5 if today else 3,
+            8 if today else 6,
+            4 if today else 2,
+            8 if today else 6,
+            4 if today else 2,
         )
-        layout.setSpacing(8 if today else 6)
+        layout.setSpacing(7 if today else 5)
         self.setLayout(layout)
 
         icon_label = QLabel(icon)
@@ -179,11 +241,11 @@ class ReminderItem(QWidget):
             send_button.setCursor(Qt.PointingHandCursor)
 
             if today:
-                send_button.setFixedWidth(92)
-                send_button.setFixedHeight(28)
+                send_button.setFixedWidth(98)
+                send_button.setFixedHeight(24)
             else:
-                send_button.setFixedWidth(74)
-                send_button.setFixedHeight(22)
+                send_button.setFixedWidth(86)
+                send_button.setFixedHeight(20)
 
             send_button.clicked.connect(self.open_reminder_time_popup)
 
@@ -282,13 +344,52 @@ class RemindersPanel(QWidget):
         super().__init__()
 
         self.setObjectName("RemindersCard")
-        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setAttribute(Qt.WA_StyledBackground, False)
+
+        self.setStyleSheet("""
+            QWidget#RemindersCard {
+                background-color: qlineargradient(
+                    x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #fff5df,
+                    stop:0.52 #f0e3c8,
+                    stop:1 #d8c39b
+                );
+                border: 1px solid rgba(55, 42, 25, 225);
+                border-radius: 2px;
+            }
+
+            QWidget#RemindersCard QLabel {
+                background: transparent;
+            }
+
+            QLabel#RemindersTitle {
+                font-family: "Georgia";
+                font-size: 21px;
+                font-weight: 1000;
+                color: #241a10;
+                letter-spacing: 2px;
+            }
+
+            QLabel#TodayReminderGroupTitle,
+            QLabel#UpcomingReminderGroupTitle {
+                font-family: "Times New Roman";
+                font-size: 8px;
+                font-weight: 1000;
+                color: #9c6424;
+                letter-spacing: 1.4px;
+            }
+
+            QWidget#ReminderSpacer {
+                background: transparent;
+                border: none;
+            }
+        """)
 
         self.dynamic_widgets = []
 
         self.main_layout = QVBoxLayout()
-        self.main_layout.setContentsMargins(14, 7, 14, 8)
-        self.main_layout.setSpacing(5)
+        self.main_layout.setContentsMargins(12, 7, 12, 8)
+        self.main_layout.setSpacing(4)
         self.setLayout(self.main_layout)
 
         title_row = QHBoxLayout()
@@ -307,6 +408,13 @@ class RemindersPanel(QWidget):
         self.main_layout.addWidget(self.today_title)
 
         self.set_calendar_error("Connect Apple Calendar in Settings")
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+        rect = self.rect().adjusted(1, 1, -1, -1)
+        draw_stacked_newspaper_panel(painter, rect, seed=44)
 
     def clear_dynamic_widgets(self):
         for widget in self.dynamic_widgets:

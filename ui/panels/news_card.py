@@ -1,8 +1,10 @@
-from PySide6.QtCore import Qt, QRectF, QUrl, QSize, QEvent
-from PySide6.QtGui import QColor, QDesktopServices, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap
+import random
+from PySide6.QtCore import Qt, QRectF, QUrl, QSize, QEvent, QPointF
+from PySide6.QtGui import QColor, QDesktopServices, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import QSizePolicy, QLabel, QVBoxLayout, QWidget, QHBoxLayout, QFrame
 
 from ui.auto_fit_label import AutoFitLabel
+from ui.newspaper_chrome import draw_stacked_newspaper_panel
 
 
 class PaperRule(QFrame):
@@ -24,7 +26,7 @@ class NewspaperImagePanel(QWidget):
         self.original_pixmap = None
 
         self.setObjectName("NewsPaperPhotoBox")
-        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setAttribute(Qt.WA_StyledBackground, False)
         self.setMinimumHeight(150)
 
     def set_label_text(self, text):
@@ -62,7 +64,7 @@ class NewspaperImagePanel(QWidget):
         rect = self.rect().adjusted(1, 1, -1, -1)
 
         path = QPainterPath()
-        path.addRoundedRect(QRectF(rect), 10, 10)
+        path.addRect(QRectF(rect))
         painter.setClipPath(path)
 
         if self.original_pixmap:
@@ -73,7 +75,7 @@ class NewspaperImagePanel(QWidget):
 
             scaled = self.original_pixmap.scaled(
                 target_size,
-                Qt.KeepAspectRatio,
+                Qt.KeepAspectRatioByExpanding,
                 Qt.SmoothTransformation,
             )
 
@@ -92,7 +94,7 @@ class NewspaperImagePanel(QWidget):
         painter.setClipping(False)
 
         painter.setPen(QPen(QColor(96, 78, 55, 130), 1))
-        painter.drawPath(path)
+        painter.drawRect(rect)
 
 
     def draw_fallback_art(self, painter, rect):
@@ -134,7 +136,7 @@ class NewspaperImagePanel(QWidget):
 
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor(38, 32, 27, 170))
-        painter.drawRoundedRect(caption_rect, 6, 6)
+        painter.drawRect(caption_rect)
 
         painter.setPen(QColor(255, 248, 236, 235))
         font = painter.font()
@@ -162,13 +164,83 @@ class NewsCard(QWidget):
         self.page2_widget_urls = {}
 
         self.setObjectName("NewspaperNewsCard")
-        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setAttribute(Qt.WA_StyledBackground, False)
         self.setCursor(Qt.PointingHandCursor)
+
+        self.setStyleSheet("""
+            QWidget#NewspaperNewsCard {
+                background-color: qlineargradient(
+                    x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #fff5df,
+                    stop:0.52 #f0e3c8,
+                    stop:1 #d8c39b
+                );
+                border: 1px solid rgba(48, 36, 22, 210);
+                border-radius: 2px;
+            }
+
+            QWidget#NewspaperNewsCard QLabel {
+                background: transparent;
+            }
+
+            QWidget#NewsPaperPhotoBox {
+                background-color: #d6c3a0;
+                border: 1px solid rgba(48, 36, 22, 190);
+                border-radius: 0px;
+            }
+
+            QWidget#NewsPaperStoryPanel {
+                background-color: transparent;
+                border: none;
+                border-radius: 0px;
+            }
+
+            QLabel#OldNewsTopMasthead {
+                font-family: "Georgia";
+                font-size: 23px;
+                font-weight: 1000;
+                color: #241a10;
+                letter-spacing: 2.2px;
+            }
+
+            QLabel#OldNewsEditionSmall {
+                font-family: "Times New Roman";
+                font-size: 8px;
+                font-weight: 1000;
+                color: #5a442b;
+                letter-spacing: 1.1px;
+            }
+
+            QLabel#OldNewsKicker {
+                font-family: "Times New Roman";
+                font-size: 8px;
+                font-weight: 1000;
+                color: #9c6424;
+                letter-spacing: 1.4px;
+            }
+
+            QLabel#OldNewsHeadline {
+                font-family: "Georgia";
+                font-size: 24px;
+                font-weight: 1000;
+                color: #15100b;
+                letter-spacing: -0.4px;
+            }
+
+            QLabel#OldNewsReadLink,
+            QLabel#OldNewsPageNumber {
+                font-family: "Times New Roman";
+                font-size: 8px;
+                font-weight: 1000;
+                color: #4c3721;
+                letter-spacing: 1px;
+            }
+        """)
 
         self.outer_layout = QVBoxLayout()
         outer = self.outer_layout
-        outer.setContentsMargins(12, 4, 12, 8)
-        outer.setSpacing(3)
+        outer.setContentsMargins(14, 9, 14, 11)
+        outer.setSpacing(6)
         self.setLayout(outer)
 
         top_row = QHBoxLayout()
@@ -204,8 +276,8 @@ class NewsCard(QWidget):
 
         self.text_layout = QVBoxLayout()
         text_layout = self.text_layout
-        text_layout.setContentsMargins(12, 5, 12, 5)
-        text_layout.setSpacing(2)
+        text_layout.setContentsMargins(4, 6, 4, 4)
+        text_layout.setSpacing(3)
         self.text_panel.setLayout(text_layout)
 
         self.kicker_label = QLabel("TOP STORY" if variant == "fox" else "MARKETS & BUSINESS")
@@ -227,11 +299,11 @@ class NewsCard(QWidget):
         bottom_row.setContentsMargins(0, 0, 0, 0)
         bottom_row.setSpacing(8)
 
-        self.read_label = QLabel("READ ARTICLE")
+        self.read_label = QLabel("READ MORE  ›")
         self.read_label.setObjectName("OldNewsReadLink")
         self.read_label.setAlignment(Qt.AlignLeft)
 
-        self.page_label = QLabel("PAGE 1")
+        self.page_label = QLabel("P. 1")
         self.page_label.setObjectName("OldNewsPageNumber")
         self.page_label.setAlignment(Qt.AlignRight)
 
@@ -243,8 +315,15 @@ class NewsCard(QWidget):
         text_layout.addWidget(self.headline_label, 1)
         text_layout.addLayout(bottom_row)
 
-        outer.addWidget(self.image, 80)
-        outer.addWidget(self.text_panel, 20)
+        outer.addWidget(self.image, 62)
+        outer.addWidget(self.text_panel, 38)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+        rect = self.rect().adjusted(1, 1, -1, -1)
+        draw_stacked_newspaper_panel(painter, rect, seed=32 if self.variant == "fox" else 33)
 
     def clear_page2_widgets(self):
         for widget in getattr(self, "page2_widgets", []):
@@ -259,33 +338,34 @@ class NewsCard(QWidget):
 
     def update_article(self, article):
         self.clear_page2_widgets()
-        self.outer_layout.setStretchFactor(self.image, 80)
-        self.outer_layout.setStretchFactor(self.text_panel, 20)
+        self.outer_layout.setStretchFactor(self.image, 66)
+        self.outer_layout.setStretchFactor(self.text_panel, 34)
         self.source = article.source
         self.article_url = getattr(article, "link", "") or ""
 
-        self.top_source_label.setText(article.source)
-        self.image.set_source_text(article.source)
+        visible_section = "BUSINESS" if self.variant == "fox" else "HEADLINES"
+        self.top_source_label.setText(visible_section)
+        self.image.set_source_text(visible_section)
         self.headline_label.setText(article.title)
 
         if article.source == "FOX NEWS":
             self.image.set_label_text("LIVE UPDATES")
             self.edition_label.setText("POLITICS")
             self.kicker_label.setText("TOP STORY")
-            self.page_label.setText("PAGE 1")
+            self.page_label.setText("P. 1")
         elif article.source == "CNBC":
             self.image.set_label_text("BUSINESS")
             self.edition_label.setText("BUSINESS")
             self.kicker_label.setText("BUSINESS")
-            self.page_label.setText("PAGE 1")
+            self.page_label.setText("P. 1")
         else:
             self.image.set_label_text("LATEST")
             self.edition_label.setText("POLITICS")
             self.kicker_label.setText("LATEST")
-            self.page_label.setText("PAGE 1")
+            self.page_label.setText("P. 1")
 
         if self.article_url:
-            self.read_label.setText("READ ARTICLE")
+            self.read_label.setText("READ MORE  ›")
             self.setCursor(Qt.PointingHandCursor)
             self.text_panel.setCursor(Qt.PointingHandCursor)
             self.headline_label.setCursor(Qt.PointingHandCursor)
@@ -314,8 +394,9 @@ class NewsCard(QWidget):
 
         if articles:
             self.source = articles[0].source
-            self.top_source_label.setText(articles[0].source)
-            self.image.set_source_text(articles[0].source)
+            visible_section = "BUSINESS" if self.variant == "fox" else "HEADLINES"
+            self.top_source_label.setText(visible_section)
+            self.image.set_source_text(visible_section)
 
         self.article_url = ""
         self.edition_label.setText("CONTINUED")
@@ -371,25 +452,28 @@ class NewsCard(QWidget):
 
             row.setStyleSheet("""
                 QWidget#Page2HeadlineBox {
-                    background: rgba(255, 248, 236, 0.70);
-                    border: 1px solid rgba(83, 59, 33, 0.32);
-                    border-radius: 6px;
+                    background: transparent;
+                    border: none;
+                    border-top: 1px solid rgba(55, 42, 25, 0.42);
+                    border-radius: 0px;
                 }
                 QWidget#Page2HeadlineBox:hover {
-                    background: rgba(255, 248, 236, 0.92);
-                    border: 1px solid rgba(83, 59, 33, 0.55);
+                    background: rgba(255, 248, 236, 0.28);
+                    border-top: 1px solid rgba(55, 42, 25, 0.62);
                 }
                 QLabel#Page2HeadlineSection {
-                    color: rgba(83, 59, 33, 0.76);
+                    color: rgba(126, 81, 31, 0.90);
                     background: transparent;
+                    font-family: "Times New Roman";
                     font-size: 8px;
-                    font-weight: 900;
-                    letter-spacing: 1px;
+                    font-weight: 1000;
+                    letter-spacing: 1.2px;
                 }
                 QLabel#Page2HeadlineText {
-                    color: #2d2114;
+                    color: #17100a;
                     background: transparent;
-                    font-weight: 900;
+                    font-family: "Georgia";
+                    font-weight: 1000;
                 }
             """)
 
