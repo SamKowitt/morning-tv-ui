@@ -1031,6 +1031,18 @@ def fetch_ranked_candidates(source_key):
 
 
 def fetch_configured_article(source_key):
+    if source_key == "CNN":
+        try:
+            return fetch_cnn_homepage_lead_article(source_key)
+        except Exception as error:
+            print(f"CNN direct homepage resolver failed: {error}; falling back to generic logic")
+
+    if source_key == "CNBC":
+        try:
+            return fetch_cnbc_homepage_lead_article(source_key)
+        except Exception as error:
+            print(f"CNBC direct homepage resolver failed: {error}; falling back to generic logic")
+
     if source_key not in NEWS_SOURCES:
         print(f"Unknown news source key {source_key}; falling back to FOX NEWS")
         source_key = "FOX"
@@ -1142,3 +1154,1029 @@ def debug_all_news_sources():
 
 if __name__ == "__main__":
     debug_all_news_sources()
+
+
+# --- CNBC homepage lead override ---
+# CNBC's first article in the raw page is often the marketsBanner article.
+# That is not the editorial homepage lead. This parser reads window.__s_data
+# and skips banner/market/rail/video/pro modules before selecting normal homepage articles.
+def extract_cnbc_candidates_from_embedded_json(page_html, base_url):
+    import json
+    import re
+    import urllib.parse
+
+    candidates = []
+
+    def _clean_title(value):
+        try:
+            return clean_text(value or "")
+        except Exception:
+            return str(value or "").replace("\n", " ").strip()
+
+    def _make_candidate(title, url, image_url, origin, position):
+        title = _clean_title(title)
+        url = urllib.parse.urljoin(base_url, url or "")
+
+        if not title or not url:
+            return None
+
+        candidate_class = (
+            globals().get("NewsCandidate")
+            or globals().get("HeadlineCandidate")
+            or globals().get("ArticleCandidate")
+            or globals().get("Candidate")
+        )
+
+        if candidate_class:
+            attempts = [
+                dict(
+                    title=title,
+                    link=url,
+                    image_url=image_url or "",
+                    source_name="CNBC",
+                    origin=origin,
+                    position=position,
+                    score=0.0,
+                ),
+                dict(
+                    title=title,
+                    link=url,
+                    image_url=image_url or "",
+                    source="CNBC",
+                    origin=origin,
+                    position=position,
+                    score=0.0,
+                ),
+                dict(
+                    title=title,
+                    url=url,
+                    image_url=image_url or "",
+                    source_name="CNBC",
+                    origin=origin,
+                    position=position,
+                    score=0.0,
+                ),
+                dict(title, url, image_url or "", "CNBC", origin, position, 0.0),
+                dict(title, url, image_url or "", origin, position, 0.0),
+            ]
+
+            for kwargs in attempts[:3]:
+                try:
+                    return candidate_class(**kwargs)
+                except Exception:
+                    pass
+
+            for args in attempts[3:]:
+                try:
+                    return candidate_class(*args)
+                except Exception:
+                    pass
+
+        return {
+            "title": title,
+            "link": url,
+            "image_url": image_url or "",
+            "source_name": "CNBC",
+            "origin": origin,
+            "position": position,
+            "score": 0.0,
+        }
+
+    def _walk(obj):
+        if isinstance(obj, dict):
+            yield obj
+            for value in obj.values():
+                yield from _walk(value)
+        elif isinstance(obj, list):
+            for item in obj:
+                yield from _walk(item)
+
+    def _extract_balanced_object(source, start_index):
+        open_index = source.find("{", start_index)
+        if open_index < 0:
+            return None
+
+        depth = 0
+        in_string = False
+        escape = False
+
+        for index in range(open_index, len(source)):
+            char = source[index]
+
+            if in_string:
+                if escape:
+                    escape = False
+                elif char == "\\":
+                    escape = True
+                elif char == '"':
+                    in_string = False
+                continue
+
+            if char == '"':
+                in_string = True
+            elif char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    return source[open_index:index + 1]
+
+        return None
+
+    marker = "window.__s_data="
+    marker_index = page_html.find(marker)
+    if marker_index < 0:
+        return candidates
+
+    raw_json = _extract_balanced_object(page_html, marker_index + len(marker))
+    if not raw_json:
+        return candidates
+
+    try:
+        data = json.loads(raw_json)
+    except Exception:
+        return candidates
+
+    layouts = (
+        data.get("page", {})
+            .get("page", {})
+            .get("layout", [])
+    )
+
+    skipped_module_names = {
+        "marketsBanner",
+        "marketsModule",
+        "quickLinks",
+        "legacyPlayerContainer",
+        "latestNews",
+        "watchLiveRightRail",
+        "adBoxRail",
+        "adBoxInline",
+        "portfolioBannerAd",
+        "videoBreakerFeatured",
+        "videoBreaker",
+        "liveTV",
+    }
+
+    skipped_section_bits = [
+        "/markets/",
+        "/investing/",
+        "/pro/",
+        "cnbc-pro",
+        "chart investing pro",
+        "options investing pro",
+        "analyst calls",
+        "playbooks",
+    ]
+
+    position = 0
+
+    for layout in layouts:
+        for column in layout.get("columns", []) or []:
+            for module in column.get("modules", []) or []:
+                module_name = module.get("name", "")
+
+                if module_name in skipped_module_names:
+                    continue
+
+                module_data = module.get("data", {})
+
+                for node in _walk(module_data):
+                    url = node.get("url") or node.get("liveURL") or node.get("href")
+                    title = (
+                        node.get("headline")
+                        or node.get("title")
+                        or node.get("shorterHeadline")
+                        or node.get("linkHeadline")
+                    )
+
+                    if not title or not url:
+                        continue
+
+                    url = urllib.parse.urljoin(base_url, url)
+
+                    if "cnbc.com/202" not in url or not url.endswith(".html"):
+                        continue
+
+                    section = node.get("section") or {}
+                    section_text = " ".join([
+                        str(section.get("url", "")),
+                        str(section.get("liveURL", "")),
+                        str(section.get("title", "")),
+                        str(node.get("type", "")),
+                        str(node.get("brand", "")),
+                    ]).lower()
+
+                    if node.get("premium") is True:
+                        continue
+
+                    if any(bit in url.lower() or bit in section_text for bit in skipped_section_bits):
+                        continue
+
+                    image_url = ""
+                    promo_image = node.get("promoImage")
+                    if isinstance(promo_image, dict):
+                        image_url = promo_image.get("url", "") or ""
+
+                    position += 1
+                    candidate = _make_candidate(
+                        title=title,
+                        url=url,
+                        image_url=image_url,
+                        origin=f"homepage_cnbc_sdata:{module_name}",
+                        position=position,
+                    )
+
+                    if candidate:
+                        candidates.append(candidate)
+
+    if candidates:
+        return dedupe_candidates(candidates) if "dedupe_candidates" in globals() else candidates
+
+    return candidates
+
+
+# --- CNBC final homepage/live-story resolver ---
+def fetch_cnbc_homepage_lead_article(source_key="CNBC"):
+    import json
+    import re
+    import ssl
+    import urllib.request
+    from html import unescape
+
+    config = NEWS_SOURCES[source_key]
+    homepage_url = config.get("homepage_url") or config.get("homepage") or "https://www.cnbc.com/"
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/125.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+
+    def _fetch_url(url):
+        try:
+            return fetch_url_text(url, timeout=20)
+        except Exception:
+            req = urllib.request.Request(url, headers=headers)
+            ctx = ssl._create_unverified_context()
+            with urllib.request.urlopen(req, timeout=20, context=ctx) as resp:
+                return resp.read().decode("utf-8", errors="replace")
+
+    def _clean(value):
+        value = unescape(str(value or ""))
+        try:
+            value = value.encode("utf-8").decode("unicode_escape", errors="ignore")
+        except Exception:
+            pass
+        value = re.sub(r"<[^>]+>", " ", value)
+        value = re.sub(r"\s+", " ", value)
+        try:
+            return clean_text(value)
+        except Exception:
+            return value.strip()
+
+    def _extract_balanced_object(source, start_index):
+        open_index = source.find("{", start_index)
+        if open_index < 0:
+            return None
+
+        depth = 0
+        in_string = False
+        escape = False
+
+        for index in range(open_index, len(source)):
+            char = source[index]
+
+            if in_string:
+                if escape:
+                    escape = False
+                elif char == "\\":
+                    escape = True
+                elif char == '"':
+                    in_string = False
+                continue
+
+            if char == '"':
+                in_string = True
+            elif char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    return source[open_index:index + 1]
+
+        return None
+
+    def _load_s_data(html):
+        marker = "window.__s_data="
+        marker_index = html.find(marker)
+
+        if marker_index < 0:
+            raise RuntimeError("CNBC window.__s_data not found")
+
+        raw_json = _extract_balanced_object(html, marker_index + len(marker))
+
+        if not raw_json:
+            raise RuntimeError("Could not extract CNBC window.__s_data JSON")
+
+        return json.loads(raw_json)
+
+    def _walk(obj):
+        if isinstance(obj, dict):
+            yield obj
+            for value in obj.values():
+                yield from _walk(value)
+        elif isinstance(obj, list):
+            for item in obj:
+                yield from _walk(item)
+
+    def _best_title(node):
+        return _clean(
+            node.get("headline")
+            or node.get("title")
+            or node.get("shorterHeadline")
+            or node.get("linkHeadline")
+            or node.get("promoTitle")
+            or node.get("name")
+            or node.get("text")
+            or ""
+        )
+
+    def _best_url(node):
+        url = node.get("url") or node.get("href") or node.get("liveURL") or ""
+        url = str(url or "")
+
+        if url.startswith("/"):
+            url = "https://www.cnbc.com" + url
+
+        return url.replace("\\/", "/")
+
+    def _is_article_url(url):
+        return bool(re.search(r"https://www\.cnbc\.com/20\d{2}/\d{2}/\d{2}/.+\.html$", url))
+
+    def _node_type_text(node):
+        return " ".join(
+            _clean(node.get(k, ""))
+            for k in ["__typename", "type", "contentType", "subType", "moduleName"]
+        ).lower()
+
+    def _should_skip_homepage_candidate(module_name, node, title, url):
+        module_l = (module_name or "").lower()
+        url_l = (url or "").lower()
+        title_l = (title or "").lower()
+
+        section = node.get("section") or {}
+        section_text = " ".join([
+            str(section.get("url", "")),
+            str(section.get("liveURL", "")),
+            str(section.get("title", "")),
+            str(node.get("type", "")),
+            str(node.get("brand", "")),
+            str(node.get("__typename", "")),
+        ]).lower()
+
+        if not title or len(title) < 20:
+            return True
+
+        skipped_modules = {
+            "marketsbanner",
+            "marketsmodule",
+            "quicklinks",
+            "latestnews",
+            "watchliverightrail",
+            "adboxrail",
+            "adboxinline",
+            "portfoliobannerad",
+            "legacyplayercontainer",
+            "videobreakerfeatured",
+            "videobreaker",
+            "livetv",
+            "watchlive",
+            "newsletter",
+        }
+
+        if module_l in skipped_modules:
+            return True
+
+        if "stock-market-today-live-updates" in url_l:
+            return True
+
+        if node.get("premium") is True:
+            return True
+
+        if "/pro/" in url_l or "cnbc-pro" in section_text:
+            return True
+
+        if "investing club" in section_text:
+            return True
+
+        if title_l.startswith("pro:"):
+            return True
+
+        return False
+
+    def _select_homepage_featured_story(data):
+        layouts = (
+            data.get("page", {})
+            .get("page", {})
+            .get("layout", [])
+        )
+
+        seen = set()
+
+        for layout in layouts:
+            for column in layout.get("columns", []) or []:
+                for module in column.get("modules", []) or []:
+                    module_name = module.get("name", "")
+                    module_data = module.get("data", {})
+
+                    for node in _walk(module_data):
+                        url = _best_url(node)
+                        title = _best_title(node)
+
+                        if not _is_article_url(url):
+                            continue
+
+                        key = (url, title)
+                        if key in seen:
+                            continue
+
+                        seen.add(key)
+
+                        if _should_skip_homepage_candidate(module_name, node, title, url):
+                            continue
+
+                        return {
+                            "title": title,
+                            "url": url,
+                            "type": str(node.get("type", "") or node.get("__typename", "")),
+                            "module": module_name,
+                            "image_url": (
+                                node.get("promoImage", {}).get("url", "")
+                                if isinstance(node.get("promoImage"), dict)
+                                else ""
+                            ),
+                        }
+
+        raise RuntimeError("No usable CNBC homepage featured story found")
+
+    def _extract_live_update_headline(article_html):
+        objects = []
+
+        for marker in ["window.__s_data=", "__NEXT_DATA__"]:
+            marker_index = article_html.find(marker)
+            if marker_index >= 0:
+                raw = _extract_balanced_object(article_html, marker_index + len(marker))
+                if raw:
+                    try:
+                        objects.append(json.loads(raw))
+                    except Exception:
+                        pass
+
+        for match in re.finditer(
+            r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+            article_html,
+            flags=re.S | re.I,
+        ):
+            try:
+                objects.append(json.loads(match.group(1).strip()))
+            except Exception:
+                pass
+
+        candidates = []
+        seen = set()
+
+        for root in objects:
+            for node in _walk(root):
+                if not isinstance(node, dict):
+                    continue
+
+                title = _best_title(node)
+                if not title or len(title) < 20:
+                    continue
+
+                title_l = title.lower()
+                type_l = _node_type_text(node)
+
+                bad_bits = [
+                    "cnbc",
+                    "subscribe",
+                    "newsletter",
+                    "watch:",
+                    "squawk",
+                    "what to watch ahead",
+                    "fed meeting live updates",
+                    "top news and analysis",
+                    "stock market today",
+                    "legacyplayercontainer",
+                    "adbox",
+                ]
+
+                if any(bit in title_l for bit in bad_bits):
+                    continue
+
+                key = (title, type_l)
+                if key in seen:
+                    continue
+
+                seen.add(key)
+
+                live_weight = 0
+                if any(good in type_l for good in ["live", "update", "blog"]):
+                    live_weight += 100
+
+                candidates.append((live_weight, title))
+
+        if not candidates:
+            return ""
+
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        return candidates[0][1]
+
+    homepage_html = _fetch_url(homepage_url)
+    homepage_data = _load_s_data(homepage_html)
+    homepage_story = _select_homepage_featured_story(homepage_data)
+
+    final_title = homepage_story["title"]
+    final_url = homepage_story["url"]
+    final_image = homepage_story.get("image_url", "")
+
+    if homepage_story["type"].lower() == "live_story" or "live" in final_url.lower():
+        try:
+            live_html = _fetch_url(final_url)
+            live_title = _extract_live_update_headline(live_html)
+            if live_title:
+                final_title = live_title
+        except Exception as error:
+            print(f"CNBC live story page headline fallback failed: {error}")
+
+    class SimpleCandidate:
+        pass
+
+    candidate = SimpleCandidate()
+    candidate.title = final_title
+    candidate.link = final_url
+    candidate.image_url = final_image
+    candidate.source_name = "CNBC"
+    candidate.source = "CNBC"
+    candidate.origin = "cnbc_featured_homepage_live_story"
+    candidate.position = 1
+    candidate.score = 999999.0
+
+    article = enrich_article(build_article_from_candidate(candidate))
+    cache_article(source_key, article)
+
+    print(f'SELECTED CNBC FINAL: "{final_title}"')
+    return article
+
+
+# --- CNN homepage lead resolver ---
+def fetch_cnn_homepage_lead_article(source_key="CNN"):
+    import re
+    import ssl
+    import urllib.request
+    from html import unescape
+    from html.parser import HTMLParser
+    from urllib.parse import urljoin
+
+    config = NEWS_SOURCES[source_key]
+    homepage_url = config.get("homepage_url") or config.get("homepage") or "https://www.cnn.com/"
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/125.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+
+    def _fetch_url(url):
+        try:
+            return fetch_url_text(url, timeout=20)
+        except Exception:
+            req = urllib.request.Request(url, headers=headers)
+            ctx = ssl._create_unverified_context()
+            with urllib.request.urlopen(req, timeout=20, context=ctx) as resp:
+                return resp.read().decode("utf-8", errors="replace")
+
+    def _clean(value):
+        value = unescape(str(value or ""))
+
+        replacements = {
+            "Ã¢Â€Â™": "'",
+            "Ã¢Â€Â˜": "'",
+            "Ã¢Â€Âœ": '"',
+            "Ã¢Â€Â": '"',
+            "Ã¢Â€Â�": '"',
+            "Ã¢Â�Â�": '"',
+            "Ã¢Â�Â¢": "•",
+            "Ã¢Â€Â¢": "•",
+        }
+
+        for bad, good in replacements.items():
+            value = value.replace(bad, good)
+
+        value = re.sub(r"<[^>]+>", " ", value)
+        value = re.sub(r"\s+", " ", value).strip()
+        value = re.sub(r"\s+Show\s+all\s*$", "", value, flags=re.I).strip()
+        value = re.sub(r"^•\s*", "", value).strip()
+        value = re.sub(r"^(Breaking News|Analysis|Video|CNN Exclusive|For Subscribers)\s+", "", value, flags=re.I).strip()
+
+        try:
+            return clean_text(value)
+        except Exception:
+            return value
+
+    class _CNNAnchorParser(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.links = []
+            self.current = None
+
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+
+            if tag == "a" and attrs.get("href"):
+                self.current = {
+                    "href": attrs.get("href", ""),
+                    "text_parts": [],
+                    "class": attrs.get("class", ""),
+                    "aria": attrs.get("aria-label", ""),
+                    "data": " ".join(f"{k}={v}" for k, v in attrs.items() if k.startswith("data-")),
+                }
+
+        def handle_data(self, data):
+            if self.current is not None:
+                self.current["text_parts"].append(data)
+
+        def handle_endtag(self, tag):
+            if tag == "a" and self.current is not None:
+                raw_text = " ".join(self.current["text_parts"])
+                self.current["raw_text"] = raw_text
+                self.current["text"] = _clean(raw_text)
+                self.current["aria"] = _clean(self.current["aria"])
+                self.links.append(self.current)
+                self.current = None
+
+    def _is_cnn_article_url(url):
+        low = url.lower()
+
+        if "cnn.com/202" not in low:
+            return False
+
+        bad_bits = [
+            "/videos/",
+            "/audio/",
+            "/podcasts/",
+            "/cnn-underscored/",
+            "/style/",
+            "/travel/",
+            "/entertainment/",
+            "/weather/",
+            "/interactive/",
+            "/live-news/",
+        ]
+
+        return not any(bit in low for bit in bad_bits)
+
+    def _should_skip_title(title, url, raw_text="", meta_text=""):
+        title_l = title.lower()
+        url_l = url.lower()
+        raw_l = raw_text.lower()
+        meta_l = meta_text.lower()
+
+        if not title or len(title) < 20:
+            return True, "blank/too-short title"
+
+        if title_l in {"trending primary results", "obtained from social media"}:
+            return True, "navigation/UI text"
+
+        bad_title_bits = [
+            "all there is with anderson cooper",
+            "chasing life with dr. sanjay gupta",
+            "the assignment with audie cornish",
+            "cnn underscored",
+            "newsletter",
+            "subscribe",
+            "sign up",
+            "listen to",
+            "watch:",
+            "video ",
+            "video:",
+            "photos:",
+            "for subscribers",
+            "paid content",
+            "advertisement",
+            "getty images",
+            "afp/getty",
+            "ap photo",
+            "reuters",
+            "bloomberg/getty",
+            "/ap",
+            "/getty",
+            "read the whole",
+        ]
+
+        if any(bit in title_l for bit in bad_title_bits):
+            return True, "bad title/caption/UI pattern"
+
+        credit_patterns = [
+            r"^[A-Z][A-Za-z .'-]+/[A-Z]{2,}$",
+            r"^[A-Z][A-Za-z .'-]+/(AP|Reuters|Getty Images|AFP|Bloomberg)(/Getty Images)?$",
+            r"^[A-Z][A-Za-z .'-]+\s*/\s*(AP|Reuters|Getty Images|AFP|Bloomberg)",
+        ]
+
+        for pattern in credit_patterns:
+            if re.search(pattern, title, flags=re.I):
+                return True, "image credit/caption text"
+
+        if any(bit in raw_l for bit in ["getty images", "afp/getty", "ap photo", "reuters", "bloomberg/getty"]):
+            if "/" in title or len(title.split()) <= 5:
+                return True, "raw caption/source text"
+
+        bad_meta_bits = [
+            "podcast",
+            "audio",
+            "cnn underscored",
+            "paid content",
+            "sponsored",
+            "newsletter",
+        ]
+
+        if any(bit in meta_l for bit in bad_meta_bits):
+            return True, "bad module/meta context"
+
+        if any(bit in url_l for bit in ["/audio/", "/podcasts/", "/cnn-underscored/", "/videos/"]):
+            return True, "bad URL type"
+
+        return False, "candidate"
+
+    def _score_candidate(candidate):
+        score = 0
+        raw_l = candidate["raw_text"].lower()
+        title_l = candidate["title"].lower()
+        meta_l = candidate["meta"].lower()
+
+        # Structural homepage lead-package signals.
+        if "show all" in raw_l:
+            score += 1000
+        if "breaking news" in raw_l:
+            score += 600
+        if "container__headline" in meta_l or "headline" in meta_l:
+            score += 200
+
+        if 25 <= len(candidate["title"]) <= 95:
+            score += 100
+
+        if title_l.startswith(("trump ", "video ", "analysis ", "cnn poll ")):
+            score -= 50
+
+        score -= candidate["position"] * 0.01
+        return score
+
+    def _find_homepage_image_for_candidate(html, selected):
+        def _norm(value):
+            value = str(value or "")
+            value = value.replace("\\/", "/")
+            value = value.replace("&amp;", "&")
+            return value
+
+        def _find_all_positions(needle):
+            positions = []
+            if not needle:
+                return positions
+
+            pos = 0
+            while True:
+                idx = html.find(needle, pos)
+                if idx < 0:
+                    break
+                positions.append(idx)
+                pos = idx + len(needle)
+
+            return positions
+
+        url = selected.get("url", "")
+        title = selected.get("title", "")
+
+        url_needles = [
+            url,
+            url.replace("https://www.cnn.com", ""),
+            url.replace("https://cnn.com", ""),
+            url.replace("/", "\\/"),
+            url.replace("https://www.cnn.com", "").replace("/", "\\/"),
+        ]
+
+        title_needles = [
+            title,
+            f"{title} Show all",
+        ]
+
+        title_positions = []
+        for needle in title_needles:
+            title_positions.extend(_find_all_positions(needle))
+
+        url_positions = []
+        for needle in url_needles:
+            url_positions.extend(_find_all_positions(needle))
+
+        anchors = sorted(set(title_positions + url_positions))
+        if not anchors:
+            return ""
+
+        # Use the first real occurrence of the selected front-page card.
+        anchor_pos = anchors[0]
+
+        # Tight front-page package window. Start slightly before the headline to keep same-card picture tags,
+        # but score images after the headline/URL much higher so previous-card images lose.
+        window_start = max(0, anchor_pos - 1200)
+        window_end = min(len(html), anchor_pos + 14000)
+        block = html[window_start:window_end]
+
+        image_patterns = [
+            r'https?:\\?/\\?/media\.cnn\.com/api/v1/images/stellar/prod/[^"\'<>\s,]+',
+            r'https?:\\?/\\?/media\.cnn\.com/[^"\'<>\s,]+\.(?:jpg|jpeg|png|webp)(?:\?[^"\'<>\s,]+)?',
+            r'https?:\\?/\\?/cdn\.cnn\.com/[^"\'<>\s,]+\.(?:jpg|jpeg|png|webp)(?:\?[^"\'<>\s,]+)?',
+            r'"uri"\s*:\s*"([^"]+)"',
+            r'"url"\s*:\s*"([^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"',
+        ]
+
+        images = []
+
+        for pattern in image_patterns:
+            for match in re.finditer(pattern, block, flags=re.I):
+                raw = match.group(1) if match.groups() else match.group(0)
+                image_url = _norm(raw)
+                absolute_pos = window_start + match.start()
+
+                if image_url.startswith("//"):
+                    image_url = "https:" + image_url
+
+                if image_url.startswith("/"):
+                    image_url = "https://www.cnn.com" + image_url
+
+                low = image_url.lower()
+
+                if not any(host in low for host in ["media.cnn.com", "cdn.cnn.com"]):
+                    continue
+
+                if any(bad in low for bad in [
+                    "logo",
+                    "favicon",
+                    "icon",
+                    "sprite",
+                    "placeholder",
+                    "avatar",
+                    "loader",
+                ]):
+                    continue
+
+                images.append({
+                    "url": image_url,
+                    "pos": absolute_pos,
+                })
+
+        deduped = []
+        seen = set()
+        for item in images:
+            if item["url"] in seen:
+                continue
+            seen.add(item["url"])
+            deduped.append(item)
+
+        if not deduped:
+            return ""
+
+        def _score_image(item):
+            image_url = item["url"]
+            low = image_url.lower()
+            pos = item["pos"]
+
+            score = 0
+
+            # Main fix: previous story images are before the selected headline/url.
+            # Same-card CNN lead image appears after the selected lead link/title block.
+            if pos >= anchor_pos:
+                score += 100000
+            else:
+                score -= 50000
+
+            # Prefer closer images after the selected card anchor.
+            score -= abs(pos - anchor_pos) * 0.01
+
+            # Prefer canonical/original CNN image variant over resized crop URLs.
+            if "c=original" in low:
+                score += 5000
+            elif "16x9" in low:
+                score += 1000
+
+            if "media.cnn.com/api/v1/images/stellar/prod" in low:
+                score += 500
+
+            return score
+
+        deduped.sort(key=_score_image, reverse=True)
+        return deduped[0]["url"]
+
+
+    def _force_article_homepage_image(article, image_url):
+        if not image_url:
+            return article
+
+        if isinstance(article, dict):
+            article["image_url"] = image_url
+            article["image"] = image_url
+            article["thumbnail_url"] = image_url
+            return article
+
+        for attr in ("image_url", "image", "thumbnail_url"):
+            try:
+                setattr(article, attr, image_url)
+            except Exception:
+                pass
+
+        return article
+
+
+    def _anchor_candidates(html):
+        parser = _CNNAnchorParser()
+        parser.feed(html)
+
+        candidates = []
+        seen = set()
+        position = 0
+
+        for link in parser.links:
+            url = urljoin(homepage_url, link["href"]).split("?")[0].split("#")[0]
+
+            if not _is_cnn_article_url(url):
+                continue
+
+            raw_text = link.get("raw_text", "")
+            title = _clean(link["aria"] or link["text"])
+
+            key = (url, title)
+            if key in seen:
+                continue
+            seen.add(key)
+
+            position += 1
+
+            meta = " ".join([link.get("class", ""), link.get("data", "")])
+            skip, reason = _should_skip_title(title, url, raw_text, meta)
+
+            candidate = {
+                "position": position,
+                "title": title,
+                "url": url,
+                "skip": skip,
+                "reason": reason,
+                "meta": meta,
+                "raw_text": raw_text,
+                "score": 0,
+            }
+
+            if not skip:
+                candidate["score"] = _score_candidate(candidate)
+
+            candidates.append(candidate)
+
+        return candidates
+
+    html = _fetch_url(homepage_url)
+    candidates = _anchor_candidates(html)
+    keepers = [candidate for candidate in candidates if not candidate["skip"]]
+
+    if not keepers:
+        raise RuntimeError("No usable CNN homepage candidate found")
+
+    selected = max(keepers, key=lambda candidate: candidate["score"])
+    final_image = _find_homepage_image_for_candidate(html, selected)
+
+    class SimpleCandidate:
+        pass
+
+    candidate = SimpleCandidate()
+    candidate.title = selected["title"]
+    candidate.link = selected["url"]
+    candidate.image_url = final_image
+    candidate.source_name = "CNN"
+    candidate.source = "CNN"
+    candidate.origin = "cnn_homepage_anchor_lead"
+    candidate.position = selected["position"]
+    candidate.score = selected["score"]
+
+    article = enrich_article(build_article_from_candidate(candidate))
+    article = _force_article_homepage_image(article, final_image)
+    cache_article(source_key, article)
+
+    print(f'SELECTED CNN FINAL: "{selected["title"]}"')
+    print(f'SELECTED CNN HOMEPAGE IMAGE: "{final_image}"')
+    return article
+
