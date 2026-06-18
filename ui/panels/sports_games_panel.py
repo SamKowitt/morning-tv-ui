@@ -115,7 +115,7 @@ class SportsGamesPanel(QWidget):
 
         self.draw_header(painter, inner)
 
-        top_rule_y = inner.top() + 28
+        top_rule_y = inner.top() + 24
         bottom_rule_y = inner.bottom() - 15
 
         self.draw_rule(painter, inner.left(), top_rule_y, inner.right())
@@ -138,9 +138,9 @@ class SportsGamesPanel(QWidget):
 
         body = QRectF(
             inner.left(),
-            top_rule_y + 3,
+            top_rule_y + 2,
             inner.width(),
-            bottom_rule_y - top_rule_y - 5,
+            bottom_rule_y - top_rule_y - 3,
         )
 
         if not self.leagues:
@@ -157,7 +157,7 @@ class SportsGamesPanel(QWidget):
         painter.setFont(title_font)
         painter.setPen(QColor("#241a10"))
         painter.drawText(
-            QRectF(inner.left(), inner.top() - 1, inner.width() * 0.72, 24),
+            QRectF(inner.left(), inner.top() + 2, inner.width() * 0.72, 23),
             Qt.AlignLeft | Qt.AlignVCenter,
             "GAME TIMES",
         )
@@ -169,7 +169,7 @@ class SportsGamesPanel(QWidget):
         painter.setFont(edition_font)
         painter.setPen(QColor("#5a442b"))
         painter.drawText(
-            QRectF(inner.left() + inner.width() * 0.42, inner.top() - 1, inner.width() * 0.58, 19),
+            QRectF(inner.left() + inner.width() * 0.42, inner.top() + 2, inner.width() * 0.58, 18),
             Qt.AlignRight | Qt.AlignVCenter,
             self.edition_text.upper(),
         )
@@ -283,16 +283,16 @@ class SportsGamesPanel(QWidget):
                 )
 
             if detail_text:
-                detail_font = QFont("Times New Roman", 9 if compact else 10)
+                detail_font = QFont("Times New Roman", 13 if compact else 15)
                 detail_font.setBold(False)
 
                 painter.setFont(detail_font)
                 painter.setPen(QColor("#4f3c25"))
 
-                detail_height = 13 if compact else 15
+                detail_height = 18 if compact else 21
                 detail_rect = QRectF(
                     left,
-                    row.bottom() - detail_height - 1,
+                    row.bottom() - detail_height - 5,
                     width,
                     detail_height,
                 )
@@ -323,16 +323,16 @@ class SportsGamesPanel(QWidget):
 
         if detail_text:
             # Bigger and lower pitcher/detail text for normal game rows.
-            detail_font = QFont("Times New Roman", 9 if compact else 10)
+            detail_font = QFont("Times New Roman", 13 if compact else 15)
             detail_font.setBold(False)
 
             painter.setFont(detail_font)
             painter.setPen(QColor("#4f3c25"))
 
-            detail_height = 14 if compact else 16
+            detail_height = 18 if compact else 21
             detail_rect = QRectF(
                 left,
-                row.bottom() - detail_height - 1,
+                row.bottom() - detail_height - 5,
                 width,
                 detail_height,
             )

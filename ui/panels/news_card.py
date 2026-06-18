@@ -17,7 +17,7 @@ class PaperRule(QFrame):
 
 
 class NewspaperImagePanel(QWidget):
-    def __init__(self, label_text="", source_text="", variant="fox"):
+    def __init__(self, label_text="", source_text="", variant="FOX"):
         super().__init__()
 
         self.variant = variant
@@ -114,7 +114,7 @@ class NewspaperImagePanel(QWidget):
     def draw_fallback_art(self, painter, rect):
         gradient = QLinearGradient(rect.topLeft(), rect.bottomRight())
 
-        if self.variant == "fox":
+        if self.variant == "FOX":
             gradient.setColorAt(0.0, QColor("#d9c8a8"))
             gradient.setColorAt(0.55, QColor("#8e9b8e"))
             gradient.setColorAt(1.0, QColor("#7b4f43"))
@@ -173,7 +173,7 @@ class NewsCard(QWidget):
         normalized = source.upper()
 
         if normalized == "FOX NEWS":
-            return "Fox News"
+            return "FOX News"
         if normalized == "CNN":
             return "CNN"
         if normalized == "CNBC":
@@ -181,7 +181,7 @@ class NewsCard(QWidget):
 
         return source.title() if source else ""
 
-    def __init__(self, headline, source, image_label="", variant="fox"):
+    def __init__(self, headline, source, image_label="", variant="FOX"):
         super().__init__()
 
         self.variant = variant
@@ -260,16 +260,16 @@ class NewsCard(QWidget):
             QLabel#OldNewsReadLink,
             QLabel#OldNewsPageNumber {
                 font-family: "Times New Roman";
-                font-size: 8px;
+                font-size: 7px;
                 font-weight: 1000;
                 color: #4c3721;
-                letter-spacing: 1px;
+                letter-spacing: 0.5px;
             }
         """)
 
         self.outer_layout = QVBoxLayout()
         outer = self.outer_layout
-        outer.setContentsMargins(14, 6, 13, 6)
+        outer.setContentsMargins(14, 6, 13, 10)
         outer.setSpacing(0)
         self.setLayout(outer)
 
@@ -321,7 +321,7 @@ class NewsCard(QWidget):
         text_layout.setSpacing(1)
         self.text_panel.setLayout(text_layout)
 
-        self.kicker_label = QLabel("TOP STORY" if variant == "fox" else "MARKETS & BUSINESS")
+        self.kicker_label = QLabel("TOP STORY" if variant == "FOX" else "MARKETS & BUSINESS")
         self.kicker_label.setObjectName("OldNewsKicker")
         self.kicker_label.setAlignment(Qt.AlignLeft)
 
@@ -337,14 +337,14 @@ class NewsCard(QWidget):
         self.headline_label.setCursor(Qt.PointingHandCursor)
 
         bottom_row = QHBoxLayout()
-        bottom_row.setContentsMargins(0, 0, 0, 0)
+        bottom_row.setContentsMargins(0, 1, 0, 4)
         bottom_row.setSpacing(8)
 
-        self.read_label = QLabel("READ MORE  ›")
+        self.read_label = QLabel("")
         self.read_label.setObjectName("OldNewsReadLink")
         self.read_label.setAlignment(Qt.AlignLeft)
 
-        self.page_label = QLabel("P. 1")
+        self.page_label = QLabel("PAGE 1")
         self.page_label.setObjectName("OldNewsPageNumber")
         self.page_label.setAlignment(Qt.AlignRight)
 
@@ -356,16 +356,23 @@ class NewsCard(QWidget):
         text_layout.addWidget(self.headline_label, 1)
 
         # Newspaper layout: headline above image, footer below image.
-        outer.addWidget(self.text_panel, 17)
-        outer.addWidget(self.image, 81)
-        outer.addLayout(bottom_row, 2)
+        outer.addWidget(self.text_panel, 16)
+        outer.addWidget(self.image, 72)
+
+        # Paper gap between the bottom of the article image and the newspaper footer.
+        outer.addSpacing(5)
+
+        # Small bottom border/rule for the news article section.
+        outer.addWidget(PaperRule())
+
+        outer.addLayout(bottom_row, 4)
 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
         rect = self.rect().adjusted(1, 1, -1, -1)
-        draw_stacked_newspaper_panel(painter, rect, seed=32 if self.variant == "fox" else 33)
+        draw_stacked_newspaper_panel(painter, rect, seed=32 if self.variant == "FOX" else 33)
 
         # Draw the news-site masthead the same way Sports Desk / Game Times do:
         # fixed newspaper coordinates, not QLabel layout guessing.
@@ -397,13 +404,13 @@ class NewsCard(QWidget):
 
     def update_article(self, article):
         self.clear_page2_widgets()
-        self.outer_layout.setStretchFactor(self.text_panel, 17)
-        self.outer_layout.setStretchFactor(self.image, 81)
+        self.outer_layout.setStretchFactor(self.text_panel, 16)
+        self.outer_layout.setStretchFactor(self.image, 72)
         self.source = article.source
         self.article_url = getattr(article, "link", "") or ""
 
         source_name = (getattr(article, "source", "") or self.source or "").strip()
-        visible_section = self.plain_source_name(source_name) or ("Fox News" if self.variant == "fox" else "CNN")
+        visible_section = self.plain_source_name(source_name) or ("FOX News" if self.variant == "FOX" else "CNN")
 
         self.header_display_source = visible_section
         self.top_source_label.setText("")
@@ -415,20 +422,20 @@ class NewsCard(QWidget):
             self.image.set_label_text("LIVE UPDATES")
             self.edition_label.setText("POLITICS")
             self.kicker_label.setText("TOP STORY")
-            self.page_label.setText("P. 1")
+            self.page_label.setText("PAGE 1")
         elif article.source == "CNBC":
             self.image.set_label_text("BUSINESS")
             self.edition_label.setText("BUSINESS")
             self.kicker_label.setText("BUSINESS")
-            self.page_label.setText("P. 1")
+            self.page_label.setText("PAGE 1")
         else:
             self.image.set_label_text("LATEST")
             self.edition_label.setText("POLITICS")
             self.kicker_label.setText("LATEST")
-            self.page_label.setText("P. 1")
+            self.page_label.setText("PAGE 1")
 
         if self.article_url:
-            self.read_label.setText("READ MORE  ›")
+            self.read_label.setText("")
             self.setCursor(Qt.PointingHandCursor)
             self.text_panel.setCursor(Qt.PointingHandCursor)
             self.headline_label.setCursor(Qt.PointingHandCursor)
@@ -458,7 +465,7 @@ class NewsCard(QWidget):
         if articles:
             self.source = articles[0].source
             source_name = (getattr(articles[0], "source", "") or self.source or "").strip()
-            visible_section = self.plain_source_name(source_name) or ("Fox News" if self.variant == "fox" else "CNN")
+            visible_section = self.plain_source_name(source_name) or ("FOX News" if self.variant == "FOX" else "CNN")
 
             self.header_display_source = visible_section
             self.top_source_label.setText("")
