@@ -111,11 +111,11 @@ class SportsGamesPanel(QWidget):
         rect = self.rect().adjusted(1, 1, -1, -1)
         draw_stacked_newspaper_panel(painter, rect)
 
-        inner = rect.adjusted(17, 15, -17, -15)
+        inner = rect.adjusted(17, 9, -17, -13)
 
         self.draw_header(painter, inner)
 
-        top_rule_y = inner.top() + 39
+        top_rule_y = inner.top() + 28
         bottom_rule_y = inner.bottom() - 15
 
         self.draw_rule(painter, inner.left(), top_rule_y, inner.right())
@@ -138,9 +138,9 @@ class SportsGamesPanel(QWidget):
 
         body = QRectF(
             inner.left(),
-            top_rule_y + 5,
+            top_rule_y + 3,
             inner.width(),
-            bottom_rule_y - top_rule_y - 8,
+            bottom_rule_y - top_rule_y - 5,
         )
 
         if not self.leagues:
@@ -150,14 +150,14 @@ class SportsGamesPanel(QWidget):
         self.draw_leagues(painter, body)
 
     def draw_header(self, painter, inner):
-        title_font = QFont("Rockwell", 27)
+        title_font = QFont("Rockwell", 22)
         title_font.setBold(True)
         title_font.setLetterSpacing(QFont.PercentageSpacing, 106)
 
         painter.setFont(title_font)
         painter.setPen(QColor("#241a10"))
         painter.drawText(
-            QRectF(inner.left(), inner.top() + 5, inner.width() * 0.72, 30),
+            QRectF(inner.left(), inner.top() - 1, inner.width() * 0.72, 24),
             Qt.AlignLeft | Qt.AlignVCenter,
             "GAME TIMES",
         )
@@ -169,7 +169,7 @@ class SportsGamesPanel(QWidget):
         painter.setFont(edition_font)
         painter.setPen(QColor("#5a442b"))
         painter.drawText(
-            QRectF(inner.left() + inner.width() * 0.42, inner.top() + 2, inner.width() * 0.58, 22),
+            QRectF(inner.left() + inner.width() * 0.42, inner.top() - 1, inner.width() * 0.58, 19),
             Qt.AlignRight | Qt.AlignVCenter,
             self.edition_text.upper(),
         )
@@ -247,32 +247,100 @@ class SportsGamesPanel(QWidget):
             time,
         )
 
+        matchup_text = str(matchup or "").strip()
+        detail_text = str(detail or "").strip()
+        is_final_row = str(time or "").strip().upper() == "FINAL"
+        is_multiline_score = "\n" in matchup_text or "\r" in matchup_text
+
+        left = row.left() + time_width
+        width = row.width() - time_width
+
+        if is_final_row or is_multiline_score:
+            # Final score rows are special: draw each score line manually so
+            # "LAD 5 / TB 4" cannot get clipped by a tight text rectangle.
+            score_lines = [line.strip() for line in matchup_text.replace("\r", "\n").split("\n") if line.strip()]
+            if not score_lines:
+                score_lines = [matchup_text]
+
+            score_font = QFont("Georgia", 9 if compact else 10)
+            score_font.setBold(True)
+            painter.setFont(score_font)
+            painter.setPen(QColor("#17100a"))
+
+            score_top = row.top() + 1
+            line_height = 11 if compact else 12
+
+            for index, line in enumerate(score_lines[:2]):
+                painter.drawText(
+                    QRectF(
+                        left,
+                        score_top + index * line_height,
+                        width,
+                        line_height + 2,
+                    ),
+                    Qt.AlignLeft | Qt.AlignVCenter,
+                    line,
+                )
+
+            if detail_text:
+                detail_font = QFont("Times New Roman", 9 if compact else 10)
+                detail_font.setBold(False)
+
+                painter.setFont(detail_font)
+                painter.setPen(QColor("#4f3c25"))
+
+                detail_height = 13 if compact else 15
+                detail_rect = QRectF(
+                    left,
+                    row.bottom() - detail_height - 1,
+                    width,
+                    detail_height,
+                )
+
+                painter.drawText(
+                    detail_rect,
+                    Qt.AlignLeft | Qt.AlignBottom,
+                    detail_text,
+                )
+
+            return
+
         matchup_font = QFont("Georgia", 12 if compact else 14)
         matchup_font.setBold(True)
 
         painter.setFont(matchup_font)
         painter.setPen(QColor("#17100a"))
         painter.drawText(
-            QRectF(row.left() + time_width, row.top() + 1, row.width() - time_width, row.height() * 0.45),
+            QRectF(
+                left,
+                row.top() + 1,
+                width,
+                row.height() * 0.42,
+            ),
             Qt.AlignLeft | Qt.AlignVCenter,
-            matchup,
+            matchup_text,
         )
 
-        if detail:
-            detail_font = QFont("Times New Roman", 7)
+        if detail_text:
+            # Bigger and lower pitcher/detail text for normal game rows.
+            detail_font = QFont("Times New Roman", 9 if compact else 10)
             detail_font.setBold(False)
 
             painter.setFont(detail_font)
             painter.setPen(QColor("#4f3c25"))
+
+            detail_height = 14 if compact else 16
+            detail_rect = QRectF(
+                left,
+                row.bottom() - detail_height - 1,
+                width,
+                detail_height,
+            )
+
             painter.drawText(
-                QRectF(
-                    row.left() + time_width,
-                    row.top() + row.height() * 0.42,
-                    row.width() - time_width,
-                    row.height() * 0.56,
-                ),
-                Qt.AlignLeft | Qt.AlignTop | Qt.TextWordWrap,
-                detail,
+                detail_rect,
+                Qt.AlignLeft | Qt.AlignBottom,
+                detail_text,
             )
 
     def draw_empty_state(self, painter, rect):

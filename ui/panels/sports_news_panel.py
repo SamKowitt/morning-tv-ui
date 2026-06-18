@@ -30,12 +30,12 @@ class SportsNewsPanel(QWidget):
         rect = self.rect().adjusted(1, 1, -1, -1)
         draw_stacked_newspaper_panel(painter, rect)
 
-        inner = rect.adjusted(17, 15, -17, -15)
+        inner = rect.adjusted(17, 9, -17, -13)
         self.click_zones = []
 
         self.draw_header(painter, inner)
 
-        top_rule_y = inner.top() + 39
+        top_rule_y = inner.top() + 28
         footer_rule_y = inner.bottom() - 15
 
         self.draw_rule(painter, inner.left(), top_rule_y, inner.right())
@@ -59,22 +59,22 @@ class SportsNewsPanel(QWidget):
 
         body = QRectF(
             inner.left(),
-            top_rule_y + 5,
+            top_rule_y + 3,
             inner.width(),
-            footer_rule_y - top_rule_y - 9,
+            footer_rule_y - top_rule_y - 5,
         )
 
         self.draw_body(painter, body)
 
     def draw_header(self, painter, inner):
-        title_font = QFont("Rockwell", 27)
+        title_font = QFont("Rockwell", 22)
         title_font.setBold(True)
         title_font.setLetterSpacing(QFont.PercentageSpacing, 106)
 
         painter.setFont(title_font)
         painter.setPen(QColor("#241a10"))
         painter.drawText(
-            QRectF(inner.left(), inner.top() + 5, inner.width() * 0.72, 30),
+            QRectF(inner.left(), inner.top() - 1, inner.width() * 0.72, 24),
             Qt.AlignLeft | Qt.AlignVCenter,
             "SPORTS DESK",
         )
@@ -86,7 +86,7 @@ class SportsNewsPanel(QWidget):
         painter.setFont(page_font)
         painter.setPen(QColor("#5a442b"))
         painter.drawText(
-            QRectF(inner.left() + inner.width() * 0.72, inner.top() + 2, inner.width() * 0.28, 22),
+            QRectF(inner.left() + inner.width() * 0.72, inner.top() - 1, inner.width() * 0.28, 19),
             Qt.AlignRight | Qt.AlignVCenter,
             "P. 1",
         )

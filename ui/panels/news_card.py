@@ -1,6 +1,6 @@
 import random
 from PySide6.QtCore import Qt, QRectF, QUrl, QSize, QEvent, QPointF
-from PySide6.QtGui import QColor, QDesktopServices, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QFontDatabase, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import QSizePolicy, QLabel, QVBoxLayout, QWidget, QHBoxLayout, QFrame
 
 from ui.auto_fit_label import AutoFitLabel
@@ -57,11 +57,22 @@ class NewspaperImagePanel(QWidget):
         super().resizeEvent(event)
         self.update()
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+
+        # Keep the headline image from getting pushed too low or too short.
+        # It should always occupy at least half of the newspaper card height.
+        if hasattr(self, "image") and self.image is not None:
+            self.image.setMinimumHeight(max(135, int(self.height() * 0.52)))
+
+        if hasattr(self, "headline_label") and self.headline_label is not None:
+            self.headline_label.update()
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
 
-        rect = self.rect().adjusted(1, 1, -1, -1)
+        rect = self.rect().adjusted(0, 0, 0, 0)
 
         path = QPainterPath()
         path.addRect(QRectF(rect))
@@ -80,7 +91,11 @@ class NewspaperImagePanel(QWidget):
             )
 
             x = int(rect.left() + (rect.width() - scaled.width()) / 2)
-            y = int(rect.top() + (rect.height() - scaled.height()) / 2)
+
+            # Top-align vertical cropping so faces/heads near the top of news photos
+            # are preserved instead of being cut off by center-cropping.
+            y = int(rect.top())
+
             painter.drawPixmap(x, y, scaled)
 
             overlay = QLinearGradient(0, 0, 0, rect.height())
@@ -93,8 +108,7 @@ class NewspaperImagePanel(QWidget):
 
         painter.setClipping(False)
 
-        painter.setPen(QPen(QColor(96, 78, 55, 130), 1))
-        painter.drawRect(rect)
+        # No drawn border here; the newspaper panel already frames the section.
 
 
     def draw_fallback_art(self, painter, rect):
@@ -153,11 +167,26 @@ class NewspaperImagePanel(QWidget):
 
 
 class NewsCard(QWidget):
+    @staticmethod
+    def plain_source_name(source):
+        source = (source or "").strip()
+        normalized = source.upper()
+
+        if normalized == "FOX NEWS":
+            return "Fox News"
+        if normalized == "CNN":
+            return "CNN"
+        if normalized == "CNBC":
+            return "CNBC"
+
+        return source.title() if source else ""
+
     def __init__(self, headline, source, image_label="", variant="fox"):
         super().__init__()
 
         self.variant = variant
         self.source = source
+        self.header_display_source = source
         self.image_label = image_label
         self.article_url = ""
         self.page2_widgets = []
@@ -185,7 +214,7 @@ class NewsCard(QWidget):
 
             QWidget#NewsPaperPhotoBox {
                 background-color: #d6c3a0;
-                border: 1px solid rgba(48, 36, 22, 190);
+                border: none;
                 border-radius: 0px;
             }
 
@@ -196,11 +225,12 @@ class NewsCard(QWidget):
             }
 
             QLabel#OldNewsTopMasthead {
-                font-family: "Georgia";
-                font-size: 23px;
-                font-weight: 1000;
+                font-family: "Rockwell", "Rockwell Extra Bold", "Rockwell Condensed", "Georgia", serif;
+                font-size: 20px;
+                font-weight: 900;
                 color: #241a10;
-                letter-spacing: 2.2px;
+                letter-spacing: 0.8px;
+                background: transparent;
             }
 
             QLabel#OldNewsEditionSmall {
@@ -221,7 +251,7 @@ class NewsCard(QWidget):
 
             QLabel#OldNewsHeadline {
                 font-family: "Georgia";
-                font-size: 24px;
+                font-size: 30px;
                 font-weight: 1000;
                 color: #15100b;
                 letter-spacing: -0.4px;
@@ -239,23 +269,34 @@ class NewsCard(QWidget):
 
         self.outer_layout = QVBoxLayout()
         outer = self.outer_layout
-        outer.setContentsMargins(14, 9, 14, 11)
-        outer.setSpacing(6)
+        outer.setContentsMargins(14, 6, 13, 6)
+        outer.setSpacing(0)
         self.setLayout(outer)
 
         top_row = QHBoxLayout()
         top_row.setContentsMargins(0, 0, 0, 0)
-        top_row.setSpacing(8)
+        top_row.setSpacing(5)
 
         self.top_source_label = QLabel(source)
         self.top_source_label.setObjectName("OldNewsTopMasthead")
         self.top_source_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        self.top_source_label.setFixedHeight(18)
+
+        self.top_source_label.setStyleSheet("""
+            QLabel#OldNewsTopMasthead {
+                font-family: "Rockwell", "Rockwell Extra Bold", "Rockwell Condensed", "Georgia", serif;
+                font-size: 20px;
+                font-weight: 900;
+                color: #241a10;
+                letter-spacing: 0.8px;
+                background: transparent;
+            }
+        """)
+        self.top_source_label.setFixedHeight(24)
 
         self.edition_label = QLabel("Politics")
         self.edition_label.setObjectName("OldNewsEditionSmall")
         self.edition_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.edition_label.setFixedHeight(18)
+        self.edition_label.setFixedHeight(19)
 
         top_row.addWidget(self.top_source_label, 1)
         top_row.addWidget(self.edition_label)
@@ -276,8 +317,8 @@ class NewsCard(QWidget):
 
         self.text_layout = QVBoxLayout()
         text_layout = self.text_layout
-        text_layout.setContentsMargins(4, 6, 4, 4)
-        text_layout.setSpacing(3)
+        text_layout.setContentsMargins(2, 0, 2, 0)
+        text_layout.setSpacing(1)
         self.text_panel.setLayout(text_layout)
 
         self.kicker_label = QLabel("TOP STORY" if variant == "fox" else "MARKETS & BUSINESS")
@@ -286,8 +327,8 @@ class NewsCard(QWidget):
 
         self.headline_label = AutoFitLabel(
             headline,
-            min_size=13,
-            max_size=29,
+            min_size=12,
+            max_size=34,
             bold=True,
             alignment=Qt.AlignLeft | Qt.AlignTop,
             word_wrap=True,
@@ -313,10 +354,11 @@ class NewsCard(QWidget):
         text_layout.addWidget(self.kicker_label)
         text_layout.addWidget(PaperRule())
         text_layout.addWidget(self.headline_label, 1)
-        text_layout.addLayout(bottom_row)
 
-        outer.addWidget(self.image, 62)
-        outer.addWidget(self.text_panel, 38)
+        # Newspaper layout: headline above image, footer below image.
+        outer.addWidget(self.text_panel, 17)
+        outer.addWidget(self.image, 81)
+        outer.addLayout(bottom_row, 2)
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -324,6 +366,23 @@ class NewsCard(QWidget):
 
         rect = self.rect().adjusted(1, 1, -1, -1)
         draw_stacked_newspaper_panel(painter, rect, seed=32 if self.variant == "fox" else 33)
+
+        # Draw the news-site masthead the same way Sports Desk / Game Times do:
+        # fixed newspaper coordinates, not QLabel layout guessing.
+        inner = rect.adjusted(17, 9, -17, -13)
+
+        masthead_font = QFont("Rockwell", 20)
+        masthead_font.setBold(True)
+        masthead_font.setLetterSpacing(QFont.PercentageSpacing, 106)
+
+        painter.setFont(masthead_font)
+        painter.setPen(QColor("#241a10"))
+
+        painter.drawText(
+            QRectF(inner.left(), inner.top() - 1, inner.width() * 0.72, 24),
+            Qt.AlignLeft | Qt.AlignVCenter,
+            getattr(self, "header_display_source", self.source),
+        )
 
     def clear_page2_widgets(self):
         for widget in getattr(self, "page2_widgets", []):
@@ -338,15 +397,19 @@ class NewsCard(QWidget):
 
     def update_article(self, article):
         self.clear_page2_widgets()
-        self.outer_layout.setStretchFactor(self.image, 66)
-        self.outer_layout.setStretchFactor(self.text_panel, 34)
+        self.outer_layout.setStretchFactor(self.text_panel, 17)
+        self.outer_layout.setStretchFactor(self.image, 81)
         self.source = article.source
         self.article_url = getattr(article, "link", "") or ""
 
-        visible_section = "BUSINESS" if self.variant == "fox" else "HEADLINES"
-        self.top_source_label.setText(visible_section)
+        source_name = (getattr(article, "source", "") or self.source or "").strip()
+        visible_section = self.plain_source_name(source_name) or ("Fox News" if self.variant == "fox" else "CNN")
+
+        self.header_display_source = visible_section
+        self.top_source_label.setText("")
         self.image.set_source_text(visible_section)
         self.headline_label.setText(article.title)
+        self.update()
 
         if article.source == "FOX NEWS":
             self.image.set_label_text("LIVE UPDATES")
@@ -394,9 +457,13 @@ class NewsCard(QWidget):
 
         if articles:
             self.source = articles[0].source
-            visible_section = "BUSINESS" if self.variant == "fox" else "HEADLINES"
-            self.top_source_label.setText(visible_section)
+            source_name = (getattr(articles[0], "source", "") or self.source or "").strip()
+            visible_section = self.plain_source_name(source_name) or ("Fox News" if self.variant == "fox" else "CNN")
+
+            self.header_display_source = visible_section
+            self.top_source_label.setText("")
             self.image.set_source_text(visible_section)
+            self.update()
 
         self.article_url = ""
         self.edition_label.setText("CONTINUED")
