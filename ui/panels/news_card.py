@@ -1,10 +1,12 @@
+import re
 import random
-from PySide6.QtCore import Qt, QRectF, QUrl, QSize, QEvent, QPointF
+from PySide6.QtCore import Qt, QRectF, QUrl, QSize, QEvent, QPointF, Signal, QThread
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QFontDatabase, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
-from PySide6.QtWidgets import QSizePolicy, QLabel, QVBoxLayout, QWidget, QHBoxLayout, QFrame
+from PySide6.QtWidgets import QSizePolicy, QLabel, QVBoxLayout, QWidget, QHBoxLayout, QFrame, QDialog, QTextEdit, QPushButton
 
 from ui.auto_fit_label import AutoFitLabel
 from ui.newspaper_chrome import draw_stacked_newspaper_panel
+from services.article_text_fetcher import fetch_article_text_payload
 
 
 class PaperRule(QFrame):
@@ -166,6 +168,429 @@ class NewspaperImagePanel(QWidget):
         )
 
 
+
+class ArticleTextWorker(QThread):
+    finished_payload = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, article_url):
+        super().__init__()
+        self.article_url = article_url
+
+    def run(self):
+        try:
+            payload = fetch_article_text_payload(self.article_url)
+            self.finished_payload.emit(payload)
+        except Exception as error:
+            self.failed.emit(str(error))
+
+
+class OpenNewspaperDialog(QDialog):
+    def __init__(self, source, headline, article_url, parent=None):
+        super().__init__(parent)
+
+        self.source = source or "News"
+        self.headline = headline or ""
+        self.article_url = article_url or ""
+        self.pages = []
+        self.spread_index = 0
+        self.worker = None
+
+        self.setWindowTitle(f"{self.source} Article")
+        self.setModal(False)
+
+        # Keep this as an in-dashboard temporary overlay, not a second native Mac window.
+        self.setWindowFlags(Qt.Widget | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.resize(1120, 650)
+
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #2d2419;
+            }
+
+            QLabel#PopupMasthead {
+                font-family: "Rockwell", "Georgia", serif;
+                font-size: 27px;
+                font-weight: 1000;
+                color: #24170d;
+                letter-spacing: 1.2px;
+                background: transparent;
+            }
+
+            QLabel#PopupHeadline {
+                font-family: "Georgia";
+                font-size: 18px;
+                font-weight: 900;
+                color: #17100a;
+                background: transparent;
+            }
+
+            QLabel#NewspaperPage,
+            QTextEdit#NewspaperPage {
+                background-color: #f3e6c9;
+                color: #1b130c;
+                border: 1px solid rgba(62, 42, 20, 180);
+                border-radius: 2px;
+                padding: 16px;
+                font-family: "Georgia";
+                font-size: 16px;
+                line-height: 130%;
+            }
+
+            QPushButton#PageTurnButton {
+                background-color: #f3e6c9;
+                border: 2px solid rgba(70, 50, 28, 210);
+                border-radius: 5px;
+                color: #24170d;
+                font-family: "Georgia";
+                font-size: 20px;
+                font-weight: 1000;
+                padding: 7px 18px;
+                min-width: 150px;
+                min-height: 34px;
+            }
+
+            QPushButton#PageTurnButton:hover {
+                background-color: #fff0cf;
+            }
+
+            QPushButton#ArticleCloseButton {
+                background-color: #f3e6c9;
+                border: 2px solid rgba(70, 50, 28, 210);
+                border-radius: 5px;
+                color: #24170d;
+                font-family: "Georgia";
+                font-size: 18px;
+                font-weight: 1000;
+                padding: 7px 18px;
+                min-width: 120px;
+                min-height: 34px;
+            }
+
+            QPushButton#ArticleCloseButton:hover {
+                background-color: #fff0cf;
+            }
+        """)
+
+        root = QVBoxLayout()
+        root.setContentsMargins(18, 16, 18, 16)
+        root.setSpacing(10)
+        self.setLayout(root)
+
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.setSpacing(10)
+
+        self.masthead = QLabel(self.source)
+        self.masthead.setObjectName("PopupMasthead")
+        self.masthead.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+
+        self.page_counter = QLabel("Loading article...")
+        self.page_counter.setStyleSheet("""
+            QLabel {
+                color: #e8d8b6;
+                font-family: "Times New Roman";
+                font-size: 13px;
+                font-weight: 900;
+                letter-spacing: 1px;
+                background: transparent;
+            }
+        """)
+        self.page_counter.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+        header.addWidget(self.masthead, 1)
+        header.addWidget(self.page_counter)
+        root.addLayout(header)
+
+        self.headline_label = QLabel(self.headline)
+        self.headline_label.setObjectName("PopupHeadline")
+        self.headline_label.setWordWrap(True)
+        root.addWidget(self.headline_label)
+
+        spread = QHBoxLayout()
+        spread.setContentsMargins(0, 0, 0, 0)
+        spread.setSpacing(10)
+
+        self.left_page = QLabel()
+        self.left_page.setObjectName("NewspaperPage")
+        self.left_page.setWordWrap(True)
+        self.left_page.setTextFormat(Qt.PlainText)
+        self.left_page.setTextInteractionFlags(Qt.NoTextInteraction)
+        self.left_page.setFocusPolicy(Qt.NoFocus)
+        self.left_page.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+
+        self.right_page = QLabel()
+        self.right_page.setObjectName("NewspaperPage")
+        self.right_page.setWordWrap(True)
+        self.right_page.setTextFormat(Qt.PlainText)
+        self.right_page.setTextInteractionFlags(Qt.NoTextInteraction)
+        self.right_page.setFocusPolicy(Qt.NoFocus)
+        self.right_page.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+
+        spread.addWidget(self.left_page, 1)
+        spread.addWidget(self.right_page, 1)
+        root.addLayout(spread, 1)
+
+        controls = QHBoxLayout()
+        controls.setContentsMargins(0, 0, 0, 0)
+        controls.setSpacing(8)
+
+        self.close_button = QPushButton("CLOSE")
+        self.close_button.setObjectName("ArticleCloseButton")
+        self.close_button.clicked.connect(self.close)
+
+        self.prev_button = QPushButton("‹")
+        self.prev_button.setObjectName("PageTurnButton")
+        self.prev_button.clicked.connect(self.previous_spread)
+
+        self.next_button = QPushButton("TURN PAGE  ›")
+        self.next_button.setObjectName("PageTurnButton")
+        self.next_button.clicked.connect(self.next_spread)
+
+        controls.addWidget(self.close_button)
+        controls.addStretch(1)
+        controls.addWidget(self.prev_button)
+        controls.addWidget(self.next_button)
+        root.addLayout(controls)
+
+        self.set_loading_state()
+        self.start_fetch()
+
+    def set_loading_state(self):
+        self.left_page.setText("Fetching article text...")
+        self.right_page.setText("")
+        self.prev_button.hide()
+        self.next_button.hide()
+
+    def start_fetch(self):
+        self.worker = ArticleTextWorker(self.article_url)
+        self.worker.finished_payload.connect(self.set_article_payload)
+        self.worker.failed.connect(self.set_error)
+        self.worker.start()
+
+    def set_error(self, message):
+        self.pages = [f"Could not load article text.\n\n{message}"]
+        self.spread_index = 0
+        self.render_spread()
+        if self.worker:
+            self.worker.quit()
+            self.worker.wait()
+            self.worker = None
+
+    def set_article_payload(self, payload):
+        if self.worker:
+            self.worker.quit()
+            self.worker.wait()
+            self.worker = None
+
+        payload = payload or {}
+        is_live = bool(payload.get("is_live"))
+        updates = list(payload.get("updates") or [])
+        text = payload.get("text", "") or ""
+
+        if is_live and updates:
+            formatted = []
+            for index, update in enumerate(updates, 1):
+                formatted.append(f"LIVE UPDATE {index}\n{update}")
+            display_text = "\n\n".join(formatted)
+        else:
+            display_text = text
+
+        if not display_text.strip():
+            display_text = "No article text was found for this page."
+
+        self.pages = self.paginate_text(display_text, chars_per_page=1100)
+        self.spread_index = 0
+        self.render_spread()
+
+    def paginate_text(self, text, chars_per_page=1100):
+        """
+        Newspaper-style pagination:
+        - no scrolling
+        - preserve paragraph breaks
+        - split paragraphs/sentences across pages when needed
+        - measure actual rendered text height so bottom words do not get clipped
+        """
+        text = text.strip()
+
+        if not text:
+            return [""]
+
+        page_width = max(320, int(self.left_page.width()) - 46)
+        page_height = max(320, int(self.left_page.height()) - 62)
+        metrics = self.left_page.fontMetrics()
+
+        def rendered_height(value):
+            return metrics.boundingRect(
+                0,
+                0,
+                page_width,
+                10000,
+                Qt.TextWordWrap,
+                value.strip(),
+            ).height()
+
+        def fits(value):
+            return rendered_height(value) <= page_height
+
+        raw_paragraphs = [
+            part.strip()
+            for part in re.split(r"\n\s*\n", text)
+            if part.strip()
+        ]
+
+        if len(raw_paragraphs) <= 1:
+            sentences = [
+                sentence.strip()
+                for sentence in re.split(r"(?<=[.!?])\s+", text)
+                if sentence.strip()
+            ]
+
+            raw_paragraphs = []
+            paragraph = ""
+
+            for sentence in sentences:
+                test = f"{paragraph} {sentence}".strip()
+
+                if len(test) > 520 and paragraph:
+                    raw_paragraphs.append(paragraph.strip())
+                    paragraph = sentence
+                else:
+                    paragraph = test
+
+            if paragraph:
+                raw_paragraphs.append(paragraph.strip())
+
+        pages = []
+        current = ""
+
+        def flush_current():
+            nonlocal current
+            if current.strip():
+                pages.append(current.strip())
+                current = ""
+
+        def add_words_as_needed(sentence, paragraph_break=False):
+            nonlocal current
+
+            words = sentence.split()
+            chunk = ""
+
+            for word in words:
+                test_chunk = f"{chunk} {word}".strip() if chunk else word
+
+                if fits(test_chunk):
+                    chunk = test_chunk
+                    continue
+
+                if chunk:
+                    add_piece(chunk, paragraph_break=paragraph_break)
+                    paragraph_break = False
+                    chunk = word
+                else:
+                    flush_current()
+                    pages.append(word)
+                    chunk = ""
+
+            if chunk:
+                add_piece(chunk, paragraph_break=paragraph_break)
+
+        def add_piece(piece, paragraph_break=False):
+            nonlocal current
+
+            piece = piece.strip()
+            if not piece:
+                return
+
+            separator = "\n\n" if paragraph_break and current else " "
+            candidate = f"{current}{separator}{piece}".strip() if current else piece
+
+            if fits(candidate):
+                current = candidate
+                return
+
+            if current:
+                flush_current()
+
+            if fits(piece):
+                current = piece
+                return
+
+            add_words_as_needed(piece, paragraph_break=False)
+
+        for paragraph in raw_paragraphs:
+            sentences = [
+                sentence.strip()
+                for sentence in re.split(r"(?<=[.!?])\s+", paragraph)
+                if sentence.strip()
+            ]
+
+            first_sentence = True
+
+            for sentence in sentences:
+                add_piece(sentence, paragraph_break=first_sentence and bool(current))
+                first_sentence = False
+
+        flush_current()
+
+        return pages or [text]
+
+    def render_spread(self):
+        left_index = self.spread_index * 2
+        right_index = left_index + 1
+
+        left_text = self.pages[left_index] if left_index < len(self.pages) else ""
+        right_text = self.pages[right_index] if right_index < len(self.pages) else ""
+
+        self.left_page.setText(left_text)
+        self.right_page.setText(right_text)
+
+        total_pages = len(self.pages)
+        total_spreads = max(1, (total_pages + 1) // 2)
+
+        left_page_num = left_index + 1
+        right_page_num = min(right_index + 1, total_pages)
+
+        self.page_counter.setText(f"Pages {left_page_num}-{right_page_num} of {total_pages}")
+
+        has_previous = self.spread_index > 0
+        has_next = right_index + 1 < total_pages
+
+        self.prev_button.setVisible(has_previous)
+        self.prev_button.setEnabled(has_previous)
+
+        self.next_button.setVisible(has_next)
+        self.next_button.setEnabled(has_next)
+
+        if has_next:
+            self.next_button.setText("TURN PAGE  ›")
+        else:
+            self.next_button.setText("")
+
+
+    def next_spread(self):
+        total_spreads = max(1, (len(self.pages) + 1) // 2)
+
+        if self.spread_index < total_spreads - 1:
+            self.spread_index += 1
+            self.render_spread()
+
+    def previous_spread(self):
+        if self.spread_index > 0:
+            self.spread_index -= 1
+            self.render_spread()
+
+    def closeEvent(self, event):
+        if self.worker:
+            self.worker.quit()
+            self.worker.wait()
+            self.worker = None
+
+        super().closeEvent(event)
+
+
+
 class NewsCard(QWidget):
     @staticmethod
     def plain_source_name(source):
@@ -189,6 +614,7 @@ class NewsCard(QWidget):
         self.header_display_source = source
         self.image_label = image_label
         self.article_url = ""
+        self.article_dialog = None
         self.page2_widgets = []
         self.page2_widget_urls = {}
 
@@ -571,18 +997,49 @@ class NewsCard(QWidget):
         self.page2_widgets.append(page2_container)
 
 
+    def open_article_popup(self, article_url=None):
+        url = article_url or self.article_url
+
+        if not url:
+            return
+
+        headline = self.headline_label.text() if hasattr(self.headline_label, "text") else ""
+        source = self.plain_source_name(self.source) or self.source or "News"
+
+        parent_window = self.window()
+
+        self.article_dialog = OpenNewspaperDialog(
+            source=source,
+            headline=headline,
+            article_url=url,
+            parent=parent_window,
+        )
+
+        if parent_window:
+            parent_rect = parent_window.rect()
+            width = min(1120, int(parent_rect.width() * 0.82))
+            height = min(650, int(parent_rect.height() * 0.78))
+            x = int((parent_rect.width() - width) / 2)
+            y = int((parent_rect.height() - height) / 2)
+            self.article_dialog.setGeometry(x, y, width, height)
+
+        self.article_dialog.show()
+        self.article_dialog.raise_()
+        self.article_dialog.activateWindow()
+
+
     def eventFilter(self, watched, event):
         if event.type() == QEvent.MouseButtonPress:
             article_url = getattr(self, "page2_widget_urls", {}).get(watched, "")
 
             if article_url:
-                QDesktopServices.openUrl(QUrl(article_url))
+                self.open_article_popup(article_url)
                 return True
 
         return super().eventFilter(watched, event)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton and self.article_url:
-            QDesktopServices.openUrl(QUrl(self.article_url))
+            self.open_article_popup(self.article_url)
 
         super().mousePressEvent(event)
