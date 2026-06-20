@@ -1,6 +1,6 @@
 import re
 import random
-from PySide6.QtCore import Qt, QRectF, QUrl, QSize, QEvent, QPointF, Signal, QThread
+from PySide6.QtCore import Qt, QRectF, QUrl, QSize, QEvent, QPointF, Signal, QThread, QTimer
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QFontDatabase, QFontMetrics, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import QSizePolicy, QLabel, QVBoxLayout, QWidget, QHBoxLayout, QFrame, QDialog, QTextEdit, QPushButton
 
@@ -80,6 +80,12 @@ class NewspaperImagePanel(QWidget):
         self.source_text = source_text
         self.original_pixmap = None
 
+        self.breaking_headline = ""
+        self.breaking_offset = 0
+        self.breaking_timer = QTimer(self)
+        self.breaking_timer.setInterval(28)
+        self.breaking_timer.timeout.connect(self.advance_breaking_ticker)
+
         self.setObjectName("NewsPaperPhotoBox")
         self.setAttribute(Qt.WA_StyledBackground, False)
         self.setMinimumHeight(150)
@@ -90,6 +96,38 @@ class NewspaperImagePanel(QWidget):
 
     def set_source_text(self, text):
         self.source_text = text
+        self.update()
+
+    def set_breaking_headline(self, text):
+        self.breaking_headline = " ".join(str(text or "").split())
+        self.breaking_offset = 0
+
+        if self.breaking_headline:
+            if not self.breaking_timer.isActive():
+                self.breaking_timer.start()
+        else:
+            self.breaking_timer.stop()
+
+        self.update()
+
+    def advance_breaking_ticker(self):
+        if not self.breaking_headline:
+            self.breaking_timer.stop()
+            return
+
+        self.breaking_offset += 2
+
+        font = QFont("Arial")
+        font.setPointSize(12)
+        font.setBold(True)
+
+        metrics = QFontMetrics(font)
+        ticker_text = f"   {self.breaking_headline}     •     {self.breaking_headline}     •"
+        text_width = max(1, metrics.horizontalAdvance(ticker_text))
+
+        if self.breaking_offset >= text_width:
+            self.breaking_offset = 0
+
         self.update()
 
     def set_pixmap_from_data(self, data):
@@ -163,8 +201,81 @@ class NewspaperImagePanel(QWidget):
 
         painter.setClipping(False)
 
+        self.draw_breaking_banner(painter, rect)
+
         # No drawn border here; the newspaper panel already frames the section.
 
+
+    def draw_breaking_banner(self, painter, rect):
+        if not self.breaking_headline:
+            return
+
+        banner_height = min(34, max(26, int(rect.height() * 0.16)))
+        banner_rect = QRectF(
+            rect.left(),
+            rect.top(),
+            rect.width(),
+            banner_height,
+        )
+
+        painter.save()
+        painter.setClipRect(banner_rect)
+
+        painter.fillRect(banner_rect, QColor("#8f120f"))
+
+        label_width = min(112, max(92, int(rect.width() * 0.23)))
+        label_rect = QRectF(
+            banner_rect.left(),
+            banner_rect.top(),
+            label_width,
+            banner_rect.height(),
+        )
+
+        painter.fillRect(label_rect, QColor("#f4e7cf"))
+
+        label_font = QFont("Arial")
+        label_font.setPointSize(10)
+        label_font.setBold(True)
+        painter.setFont(label_font)
+        painter.setPen(QColor("#7e110d"))
+        painter.drawText(
+            label_rect.adjusted(7, 0, -6, 0),
+            Qt.AlignLeft | Qt.AlignVCenter,
+            "BREAKING",
+        )
+
+        ticker_rect = QRectF(
+            label_rect.right(),
+            banner_rect.top(),
+            banner_rect.width() - label_rect.width(),
+            banner_rect.height(),
+        )
+
+        ticker_font = QFont("Arial")
+        ticker_font.setPointSize(12)
+        ticker_font.setBold(True)
+        painter.setFont(ticker_font)
+        painter.setPen(QColor("#fff7e8"))
+
+        ticker_text = f"   {self.breaking_headline}     •     {self.breaking_headline}     •"
+        text_width = painter.fontMetrics().horizontalAdvance(ticker_text)
+
+        start_x = ticker_rect.left() - self.breaking_offset
+
+        while start_x < ticker_rect.right():
+            painter.drawText(
+                QRectF(
+                    start_x,
+                    ticker_rect.top(),
+                    text_width + 4,
+                    ticker_rect.height(),
+                ),
+                Qt.AlignLeft | Qt.AlignVCenter,
+                ticker_text,
+            )
+            start_x += text_width
+
+        painter.restore()
 
     def draw_fallback_art(self, painter, rect):
         gradient = QLinearGradient(rect.topLeft(), rect.bottomRight())
@@ -1117,6 +1228,9 @@ class NewsCard(QWidget):
         self.header_display_source = visible_section
         self.top_source_label.setText("")
         self.image.set_source_text(visible_section)
+        self.image.set_breaking_headline(
+            getattr(article, "breaking_headline", "") or ""
+        )
         self.headline_label.setText(article.title)
         self.update()
 
@@ -1166,6 +1280,7 @@ class NewsCard(QWidget):
         articles = list(articles or [])[:4]
 
         self.image.set_pixmap_from_data(b"")
+        self.image.set_breaking_headline("")
         self.image.hide()
         self.headline_label.hide()
 

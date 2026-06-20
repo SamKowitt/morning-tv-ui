@@ -412,6 +412,168 @@ def format_live_update(update, limit=2000):
     return combined
 
 
+
+def fetch_espn_article_payload(url):
+    """
+    ESPN article pages need the rendered browser page rather than urllib HTML.
+    """
+    from services.newsmax_chrome import _close_page, _create_page, _eval, _navigate
+
+    target_id = ""
+    ws_url = ""
+
+    try:
+        target_id, ws_url = _create_page()
+        _navigate(ws_url, url)
+
+        payload = _eval(
+            ws_url,
+            r"""
+(() => {
+    const clean = value => String(value || "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    const blockedBits = [
+        "javascript is disabled",
+        "enable javascript",
+        "privacy preference center",
+        "strictly necessary cookies",
+        "functional cookies",
+        "analytics cookies",
+        "marketing cookies",
+        "manage consent preferences",
+        "advertisement",
+        "sign up for",
+        "follow us",
+        "all rights reserved",
+        "skip to main content"
+    ];
+
+    const usable = value => {
+        const text = clean(value);
+
+        if (text.length < 45) return false;
+
+        const lowered = text.toLowerCase();
+        return !blockedBits.some(bit => lowered.includes(bit));
+    };
+
+    const headlineNode =
+        document.querySelector("article h1") ||
+        document.querySelector("main h1") ||
+        document.querySelector("h1");
+
+    const headline = clean(
+        headlineNode
+            ? (headlineNode.innerText || headlineNode.textContent)
+            : ""
+    );
+
+    const roots = [
+        document.querySelector(".article-body"),
+        document.querySelector("article .article-body"),
+        document.querySelector('[data-id="article-body"]'),
+        document.querySelector('[class*="article-body"]'),
+        document.querySelector('[class*="ArticleBody"]'),
+        document.querySelector("article"),
+        document.querySelector("main")
+    ].filter(Boolean);
+
+    const root = roots[0] || document.body;
+
+    const seen = new Set();
+    const paragraphs = [];
+
+    for (const node of root.querySelectorAll("p")) {
+        const paragraph = clean(node.innerText || node.textContent);
+        const key = paragraph.toLowerCase();
+
+        if (!usable(paragraph) || seen.has(key)) {
+            continue;
+        }
+
+        seen.add(key);
+        paragraphs.push(paragraph);
+    }
+
+    let articleText = paragraphs.join("\n\n").trim();
+
+    if (articleText.length < 180) {
+        const rawText = String(
+            root.innerText ||
+            root.textContent ||
+            ""
+        ).trim();
+
+        const lines = rawText
+            .split(/\n+/)
+            .map(clean)
+            .filter(line => line.length >= 45);
+
+        const seenLines = new Set();
+        const articleLines = [];
+
+        for (const line of lines) {
+            const key = line.toLowerCase();
+
+            if (seenLines.has(key)) {
+                continue;
+            }
+
+            seenLines.add(key);
+            articleLines.push(line);
+        }
+
+        articleText = articleLines.join("\n\n").trim();
+
+        if (articleText.length < 180 && rawText.length >= 180) {
+            articleText = clean(rawText);
+        }
+    }
+
+    return {
+        headline,
+        text: articleText,
+        paragraphCount: paragraphs.length,
+        pageTitle: document.title || ""
+    };
+})()
+""",
+            timeout=25,
+        )
+
+        if not isinstance(payload, dict):
+            raise RuntimeError("Chrome did not return an ESPN article payload")
+
+        article_text = clean_text(payload.get("text", ""))
+
+        if not is_valid_article_text(article_text):
+            raise RuntimeError(
+                "No readable ESPN article text found. "
+                f"Page title: {payload.get('pageTitle', '')!r}; "
+                f"paragraphs: {payload.get('paragraphCount', 0)!r}"
+            )
+
+        print(
+            "ESPN CHROME ARTICLE TEXT: "
+            f"{len(article_text)} chars | "
+            f"{payload.get('paragraphCount', 0)} paragraphs"
+        )
+
+        return {
+            "is_live": False,
+            "method": "espn_chrome",
+            "text": article_text,
+            "updates": [],
+            "headline": clean_text(payload.get("headline", "")),
+        }
+
+    finally:
+        if target_id:
+            _close_page(target_id)
+
+
 def _fetch_article_text_payload_uncached(url):
     parsed_url = urlparse(str(url or ""))
     hostname = parsed_url.netloc.lower()
@@ -419,6 +581,10 @@ def _fetch_article_text_payload_uncached(url):
     # Newsmax must use Chrome because direct HTTP requests stall on this Mac.
     if hostname == "newsmax.com" or hostname.endswith(".newsmax.com"):
         return fetch_newsmax_article_payload(url)
+
+    # ESPN serves a script/anti-bot shell to ordinary urllib requests.
+    if hostname == "espn.com" or hostname.endswith(".espn.com"):
+        return fetch_espn_article_payload(url)
 
     page_html = fetch_url_text(url, timeout=20)
     is_live = "/live-news/" in str(url).lower()
@@ -659,7 +825,7 @@ def fetch_article_text_payload(url):
     url = str(url or "").strip()
 
     cached = get_cached_article_text_payload(url)
-    if cached:
+    if cached and is_valid_article_text(cached.get("text", "")):
         print(f"ARTICLE TEXT CACHE HIT: {url}")
         return cached
 

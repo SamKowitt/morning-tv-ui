@@ -31,6 +31,7 @@ from services.sports_news_fetcher import fetch_espn_sports_articles
 from services.stock_fetcher import INDEX_SYMBOLS, STOCK_SYMBOLS, fetch_market_data, fetch_market_data_for_symbols
 from services.weather_fetcher import fetch_weather_rows, validate_zip_code
 from services.apple_calendar_fetcher import fetch_icloud_calendar_events
+from services.article_text_fetcher import prefetch_article_text_payload
 
 from ui.styles import APP_STYLE
 from ui.panels.date_card import DateCard
@@ -136,20 +137,28 @@ class MoreNewsFetchWorker(QObject):
             )
 
             # The main left card already shows the top article.
-            # Use the next four unique ranked stories for the replacement panel.
+            # Use the next four unique headlines for the replacement panel.
             articles = []
+            seen_headlines = set()
 
             for candidate in ranked_candidates[1:]:
+                title = str(getattr(candidate, "title", "") or "").strip()
+                headline_key = " ".join(title.lower().split())
+
+                if not title or headline_key in seen_headlines:
+                    continue
+
                 article = NewsArticle(
-                    title=getattr(candidate, "title", "") or "",
+                    title=title,
                     source=source_name,
                     image_url=getattr(candidate, "image_url", "") or "",
                     link=getattr(candidate, "link", "") or "",
                     image_bytes=b"",
                 )
 
-                if article.title and article.link:
+                if article.link:
                     articles.append(article)
+                    seen_headlines.add(headline_key)
 
                 if len(articles) >= 4:
                     break
@@ -158,6 +167,15 @@ class MoreNewsFetchWorker(QObject):
                 raise RuntimeError(
                     f"No additional usable {source_name} headlines were found."
                 )
+
+            # These articles power both the More Headlines panel and the
+            # optional Market Tape replacement panel. Start their article-text
+            # fetches now so newspaper popups can read from cache on click.
+            for article in articles:
+                article_url = str(getattr(article, "link", "") or "").strip()
+
+                if article_url:
+                    prefetch_article_text_payload(article_url)
 
             self.finished.emit(
                 self.request_id,

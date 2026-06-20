@@ -23,6 +23,7 @@ class NewsArticle:
     image_url: str = ""
     link: str = ""
     image_bytes: bytes = b""
+    breaking_headline: str = ""
 
 
 SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
@@ -1050,6 +1051,7 @@ def fetch_configured_article(source_key):
                 image_url="",
                 link=article_url,
                 image_bytes=b"",
+                breaking_headline=payload.get("breaking_headline", "") or "",
             )
         except Exception as error:
             print(f"NEWSMAX Chrome resolver failed: {error}")
@@ -2270,6 +2272,7 @@ def fetch_fox_homepage_lead_article(source_key="FOX"):
 
     This resolver does NOT use the CNN /202 date URL rule.
     """
+    import json
     import re
     import ssl
     import urllib.request
@@ -2364,7 +2367,6 @@ def fetch_fox_homepage_lead_article(source_key="FOX"):
             "/shows/",
             "/person/",
             "/category/",
-            "/media/",
             "/radio/",
             "/podcasts/",
             "/weather/",

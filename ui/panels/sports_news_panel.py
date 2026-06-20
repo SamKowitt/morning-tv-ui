@@ -1,9 +1,11 @@
 from PySide6.QtCore import QRectF, Qt, QUrl
-from PySide6.QtGui import QColor, QDesktopServices, QFont, QLinearGradient, QPainter, QPen
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QFontMetrics, QLinearGradient, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
 
 from ui.newspaper_chrome import draw_stacked_newspaper_panel
+from ui.panels.news_card import OpenNewspaperDialog
+from services.article_text_fetcher import prefetch_article_text_payload
 
 
 class SportsNewsPanel(QWidget):
@@ -16,11 +18,22 @@ class SportsNewsPanel(QWidget):
 
         self.articles = []
         self.click_zones = []
+        self.article_dialog = None
 
         self.setMinimumHeight(120)
 
     def update_articles(self, articles):
         self.articles = list(articles or [])[:4]
+
+        # Start article-text requests in background immediately after the
+        # Sports Desk receives new stories. The popup will use the cache when
+        # the user clicks a story.
+        for article in self.articles:
+            link = str(getattr(article, "link", "") or "").strip()
+
+            if link:
+                prefetch_article_text_payload(link)
+
         self.update()
 
     def paintEvent(self, event):
@@ -130,7 +143,7 @@ class SportsNewsPanel(QWidget):
             "TOP STORIES",
         )
 
-        headline_font = QFont("Georgia", 18)
+        headline_font = QFont("Georgia", 22)
         headline_font.setBold(True)
 
         painter.setFont(headline_font)
@@ -153,20 +166,98 @@ class SportsNewsPanel(QWidget):
             "TOP STORIES",
         )
 
+        # Sized to allow two complete headline rows in the lead-story area.
         headline_font = QFont("Georgia", 22)
         headline_font.setBold(True)
 
         painter.setFont(headline_font)
         painter.setPen(QColor("#15100b"))
 
-        headline_rect = rect.adjusted(0, 16, 0, 0)
-        painter.drawText(
+        headline_rect = QRectF(
+            rect.left(),
+            rect.top() + 17,
+            rect.width(),
+            rect.height() - 17,
+        )
+
+        self.draw_two_line_lead_headline(
+            painter,
             headline_rect,
-            Qt.AlignLeft | Qt.AlignTop | Qt.TextWordWrap,
+            self.clean_title(getattr(article, "title", "")),
+            headline_font,
+        )
+
+        self.add_click_zone(
+            headline_rect,
+            getattr(article, "link", ""),
             self.clean_title(getattr(article, "title", "")),
         )
 
-        self.add_click_zone(headline_rect, getattr(article, "link", ""))
+    def draw_two_line_lead_headline(self, painter, rect, title, font):
+        """
+        Draw a lead headline at the supplied font size across up to two
+        full-width rows. Only overflow after row two receives an ellipsis.
+        """
+        painter.save()
+        painter.setFont(font)
+
+        metrics = QFontMetrics(font)
+        available_width = max(20, int(rect.width()))
+        line_height = metrics.lineSpacing()
+
+        words = str(title or "").split()
+        if not words:
+            painter.restore()
+            return
+
+        lines = []
+        current = ""
+        next_word_index = 0
+
+        for index, word in enumerate(words):
+            candidate = f"{current} {word}".strip()
+
+            if not current or metrics.horizontalAdvance(candidate) <= available_width:
+                current = candidate
+                next_word_index = index + 1
+                continue
+
+            lines.append(current)
+            current = word
+            next_word_index = index + 1
+
+            if len(lines) == 2:
+                break
+
+        if len(lines) < 2 and current:
+            lines.append(current)
+
+        # Everything not placed in line 1 or line 2 belongs at the end
+        # of line 2, where Qt may add one final ellipsis.
+        consumed = len(" ".join(lines).split())
+        remaining = words[consumed:]
+
+        if remaining and lines:
+            line_two = f"{lines[-1]} {' '.join(remaining)}".strip()
+            lines[-1] = metrics.elidedText(
+                line_two,
+                Qt.ElideRight,
+                available_width,
+            )
+
+        for row, line in enumerate(lines[:2]):
+            painter.drawText(
+                QRectF(
+                    rect.left(),
+                    rect.top() + row * line_height,
+                    rect.width(),
+                    line_height,
+                ),
+                Qt.AlignLeft | Qt.AlignTop,
+                line,
+            )
+
+        painter.restore()
 
     def draw_small_stories(self, painter, rect, articles):
         count = 3
@@ -223,19 +314,67 @@ class SportsNewsPanel(QWidget):
                 f"P. {index + 1}",
             )
 
-            self.add_click_zone(padded, getattr(article, "link", ""))
+            self.add_click_zone(
+                padded,
+                getattr(article, "link", ""),
+                self.clean_title(getattr(article, "title", "")),
+            )
 
-    def add_click_zone(self, rect, link):
+    def add_click_zone(self, rect, link, headline=""):
         if link:
-            self.click_zones.append((QRectF(rect), link))
+            self.click_zones.append(
+                (
+                    QRectF(rect),
+                    str(link or ""),
+                    str(headline or ""),
+                )
+            )
+
+    def open_article_popup(self, article_url, article_headline):
+        article_url = str(article_url or "").strip()
+
+        if not article_url:
+            return
+
+        parent_window = self.window()
+
+        self.article_dialog = OpenNewspaperDialog(
+            source="ESPN",
+            headline=str(article_headline or "").strip() or "Sports Desk",
+            article_url=article_url,
+            parent=parent_window,
+        )
+
+        if parent_window:
+            parent_rect = parent_window.rect()
+
+            aspect_ratio = 1120 / 650
+            max_width = int(parent_rect.width())
+            max_height = int(parent_rect.height())
+
+            width = max_width
+            height = int(width / aspect_ratio)
+
+            if height > max_height:
+                height = max_height
+                width = int(height * aspect_ratio)
+
+            x = int((parent_rect.width() - width) / 2)
+            y = int((parent_rect.height() - height) / 2)
+
+            self.article_dialog.setGeometry(x, y, width, height)
+
+        self.article_dialog.show()
+        self.article_dialog.raise_()
+        self.article_dialog.activateWindow()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             position = event.position()
 
-            for rect, link in self.click_zones:
+            for rect, link, headline in self.click_zones:
                 if rect.contains(position):
-                    QDesktopServices.openUrl(QUrl(link))
+                    self.open_article_popup(link, headline)
                     return
 
         super().mousePressEvent(event)

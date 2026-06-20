@@ -1,0 +1,197 @@
+import html
+import re
+import ssl
+import urllib.request
+import xml.etree.ElementTree as ET
+from dataclasses import dataclass
+
+import certifi
+
+
+@dataclass
+class SportsArticle:
+    title: str
+    link: str = ""
+    category: str = "ESPN"
+
+
+SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
+
+ESPN_FEEDS = [
+    "https://www.espn.com/espn/rss/news",
+    "http://sports.espn.go.com/espn/rss/news",
+]
+
+
+def clean_text(value):
+    if not value:
+        return ""
+
+    value = html.unescape(str(value))
+    value = re.sub(r"<[^>]+>", " ", value)
+    value = re.sub(r"\s+", " ", value).strip()
+
+    return value
+
+
+def get_child_text(item, tag_name):
+    for child in item:
+        if child.tag.lower().endswith(tag_name.lower()):
+            return clean_text(child.text or "")
+
+    return ""
+
+
+def fetch_article_page_title(url):
+    """
+    ESPN's RSS feed sometimes shortens a title with '...'.
+    Read the article's metadata to recover the complete headline.
+    """
+    if not url:
+        return ""
+
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/125.0 Safari/537.36"
+            ),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(
+            request,
+            timeout=8,
+            context=SSL_CONTEXT,
+        ) as response:
+            page_html = response.read().decode("utf-8", errors="replace")
+    except Exception as error:
+        print(f"ESPN full-title lookup failed: {error}")
+        return ""
+
+    title_patterns = [
+        r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)["\']',
+        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:title["\']',
+        r'<meta[^>]+name=["\']twitter:title["\'][^>]+content=["\']([^"\']+)["\']',
+        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']twitter:title["\']',
+        r"<h1[^>]*>(.*?)</h1>",
+        r"<title[^>]*>(.*?)</title>",
+    ]
+
+    for pattern in title_patterns:
+        match = re.search(pattern, page_html, flags=re.IGNORECASE | re.DOTALL)
+
+        if not match:
+            continue
+
+        title = clean_text(match.group(1))
+        title = re.sub(r"\s*\|\s*ESPN.*$", "", title, flags=re.IGNORECASE).strip()
+
+        if len(title) >= 12:
+            return title
+
+    return ""
+
+
+def should_expand_title(title):
+    """
+    Expand only titles that are visibly abbreviated in the ESPN RSS feed.
+    """
+    cleaned = clean_text(title)
+    return cleaned.endswith("...") or cleaned.endswith("…")
+
+
+def fetch_espn_sports_articles(max_articles=4):
+    errors = []
+
+    for feed_url in ESPN_FEEDS:
+        try:
+            print(f"Trying ESPN sports feed: {feed_url}")
+            articles = fetch_espn_rss(feed_url, max_articles=max_articles)
+
+            if articles:
+                print(f"Loaded ESPN sports stories: {len(articles)}")
+                return articles
+
+        except Exception as error:
+            message = f"{feed_url} -> {error}"
+            print(f"ESPN sports feed failed: {message}")
+            errors.append(message)
+
+    print(f"All ESPN sports feeds failed: {' | '.join(errors)}")
+    return fallback_articles()
+
+
+def fetch_espn_rss(feed_url, max_articles=4):
+    request = urllib.request.Request(
+        feed_url,
+        headers={
+            "User-Agent": "Mozilla/5.0 MorningTVUI/1.0",
+            "Accept": "application/rss+xml, application/xml, text/xml, */*",
+        },
+    )
+
+    with urllib.request.urlopen(
+        request,
+        timeout=12,
+        context=SSL_CONTEXT,
+    ) as response:
+        xml_data = response.read()
+
+    root = ET.fromstring(xml_data)
+    items = root.findall(".//item")
+
+    articles = []
+
+    for item in items:
+        title = get_child_text(item, "title")
+        link = get_child_text(item, "link")
+
+        if not title:
+            continue
+
+        category = get_child_text(item, "category") or "ESPN"
+
+        # The lead Sports Desk story gets its complete article-page title
+        # when ESPN's RSS title ends in an ellipsis.
+        if not articles and should_expand_title(title):
+            full_title = fetch_article_page_title(link)
+
+            if full_title:
+                print(f'Expanded ESPN lead title: "{full_title}"')
+                title = full_title
+
+        articles.append(
+            SportsArticle(
+                title=title,
+                link=link,
+                category=category.upper(),
+            )
+        )
+
+        if len(articles) >= max_articles:
+            break
+
+    return articles
+
+
+def fallback_articles():
+    return [
+        SportsArticle("Unable to load ESPN sports headlines.", "", "ESPN"),
+        SportsArticle(
+            "Check your internet connection or ESPN RSS availability.",
+            "",
+            "ESPN",
+        ),
+        SportsArticle(
+            "Sports news panel will keep using fallback stories.",
+            "",
+            "ESPN",
+        ),
+        SportsArticle("Try running the app again later.", "", "ESPN"),
+    ]

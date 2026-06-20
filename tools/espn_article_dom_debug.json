@@ -1,0 +1,703 @@
+{
+  "pageTitle": "It's (finally) OK to dream big about USMNT and World Cup - ESPN",
+  "bodyTextLength": 6841,
+  "bodyPreview": "Skip to main content Skip to navigation Top Soccer Full Scoreboard \u00bb World Cup 1:00 PM ET FOXTeleFOX One NED SWE 4:00 PM ET FOXTeleFOX One GER CIV 8:00 PM ET FS1TeleFOX One ECU CUW Sun 12:00 AM ET FS1TeleFOX One TUN JPN Menu ESPN Soccer Men's World Cup News Scores Schedule USMNT USWNT Transfers Tables More It's (finally) OK to dream big about USMNT and World Cup play Sam Borden Jun 20, 2026, 09:00 AM ET SEATTLE -- Faith is what makes sports great. Belief. Hope. Trust. All over the United States, for college teams and pro teams, big teams and small teams, good teams and bad teams, there are followers who believe -- truly believe -- that joy will come in the morning. But for the U.S. men's national team, it has always been different. No one can say for sure why. For some, it might be the relative superiority that Americans have in other sports compared with soccer. For others, it might be the lack of a mainstream international star. A sizable group is universally cynical about a game that's more popular everywhere else in the world than it is here. EDITOR'S PICKS Pulisic sits, but U.S. finds a way vs. Australia to reach World Cup KO rounds Jeff Carlisle and Joey Lynch USMNT player ratings: Freeman a surprise star with 7/10 performance to stonewall Australia Ryan Clark USMNT World Cup scenarios and path: What's next after winning the group? ESPN In this country, mediocre results rarely lead to sustained universal doubt from those who love a team -- just ask Dallas Cowboys fans in August what they think about the upcoming season -- but with the USMNT, skepticism has persisted. Until now. Now, it's OK to believe. Now, it's OK to be optimistic, to think big and imagine this group doing something grand. The players are doing their best to stay in the moment, to give the modest quotes that allow them to handle the pressure that comes their way. But even they are considering the possibilities. Zlatan Ibrahimovic, the former Sweden megastar, was asked on Fox's postgame show Friday after the U.S.'s 2-0 win over Australia whether the co-hosts could win the World Cup. His one-word answer: \"Yes.\" And Chris Richards, the American defender, doesn't mind hearing that. \"I don't think it's ridiculous to say that we want to win it,\" Richards said. \"We want to lift a trophy by the end of this.\" There's something different about this United States team at the 2026 World Cup: The players feel it, and we can all see it. So why not believe? Jared C. Tilton/FIFA via Getty Images No",
+  "nodes": [
+    {
+      "tag": "HEAD",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 50092,
+      "preview": "It's (finally) OK to dream big about USMNT and World Cup - ESPN { \"@context\": \"https://schema.org\", \"@type\": \"WebSite\", \"name\": \"ESPN\", \"url\": \"https://www.espn.com/\" } {\"@context\":\"http://schema.org\",\"@type\":\"NewsArticle\",\"mainEntityOfPage\":{\"@type\":\"WebPage\",\"@id\":\"https://www.espn.com/soccer/story/_/id/49121797/ok-dream-big-usmnt-world-cup\"},\"headline\":\"It's (finally) OK to dream big about USMNT and World Cup - ESPN\",\"description\":\"There's something different about this United States team at the 2026 World Cup: The players feel it, and we can all see it. So why not believe?\",\"datePublished\":\"2026-06-20T13:00:00Z\",\"dateModified\":\"2026-06-20T13:00:00Z\",\"image\":{\"@type\":\"ImageObject\",\"url\":\""
+    },
+    {
+      "tag": "SCRIPT",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 26350,
+      "preview": ";(function(){ function rc(a){for(var b=a+\"=\",c=document.cookie.split(\";\"),d=0;d<c.length;d++){for(var e=c[d];\" \"===e.charAt(0);)e=e.substring(1,e.length);if(0===e.indexOf(b))return e.substring(b.length,e.length)}return null}var _nr=!1,_nrCookie=rc(\"_nr\");null!==_nrCookie?\"1\"===_nrCookie&&(_nr=!0):Math.floor(100*Math.random())+1===13?(_nr=!0,document.cookie=\"_nr=1; path=/\"):(_nr=!1,document.cookie=\"_nr=0; path=/\");_nr&&(function(){;window.NREUM||(NREUM={});NREUM.init={privacy:{cookies_enabled:true},ajax:{deny_list:[\"bam.nr-data.net\"]}}; ;NREUM.loader_config={accountID:\"459463\",trustKey:\"486618\",agentID:\"4434370\",licenseKey:\"NRBR-0abaca59ac0e8679fd6\",applicationID:\"3785502\"}; ;NREUM.info={beac"
+    },
+    {
+      "tag": "SCRIPT",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 24502,
+      "preview": "var espn = espn || {}; espn.nav = espn.nav || {}; espn.nav.navId = 11929946; espn.nav.isFallback = false; espn.nav.tier2 = {\"subNavMenu\":{\"navigation\":{\"links\":[{\"isExternal\":false,\"shortText\":\"Soccer\",\"rel\":[\"sports\"],\"attributes\":{\"icon\":\"soccer\"},\"text\":\"Soccer\",\"href\":\"/soccer/\",\"isPremium\":false}],\"attributes\":{\"sport_id\":\"600\",\"root\":\"soccer\"},\"id\":21125648,\"text\":\"Soccer\",\"title\":\"Soccer Menu - US Edition\",\"$ref\":\"/v2/navigation/21125648\",\"items\":[{\"links\":[{\"isExternal\":false,\"shortText\":\"Home\",\"rel\":[\"sub\"],\"attributes\":{\"mobile\":\"false\",\"breakpoints\":\"desktop,desktop-lg\"},\"text\":\"Home\",\"href\":\"/soccer/\",\"isPremium\":false}],\"id\":21125677,\"title\":\"Soccer Home Desktop Only\",\"$ref\":\"/v"
+    },
+    {
+      "tag": "SCRIPT",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 9443,
+      "preview": "window.googletag = window.googletag || {}; (function () { espn = window.espn || {}; espn.ads = espn.ads || {}; espn.ads.config = {\"page_url\":\"https://www.espn.com/soccer/story/_/id/49121797/ok-dream-big-usmnt-world-cup\",\"prebidAdConfig\":{\"usePrebidBids\":true,\"timeout\":1000},\"level\":\"espn.com/soccer/story\",\"sizesEspnPlus\":{\"banner-index\":{\"excludedSize\":[\"728,90\"],\"mappings\":[{\"viewport\":[1280,0],\"slot\":[[1280,100],[970,250]]},{\"viewport\":[1024,0],\"slot\":[[970,66],[970,250]]},{\"viewport\":[768,0],\"slot\":[[728,90]]},{\"viewport\":[320,0],\"slot\":[[320,50]]},{\"viewport\":[0,0],\"slot\":[[240,38]]}],\"defaultSize\":[970,66],\"excludedProfile\":[\"xl\"],\"includedCountries\":[\"us\"],\"pbjs\":{\"s\":[[320,50]],\"xl\":["
+    },
+    {
+      "tag": "SCRIPT",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 8182,
+      "preview": "(function () { var featureGating; try { featureGating = JSON.parse('{\"draftArticleDeeplinks\":true,\"enableVenu\":false,\"enableBaseballV4GamepackageEspnDS_V2Theme\":false,\"enableCoverProbability-college-football\":true,\"soccer_v4\":true,\"enablePboFirst\":false,\"exclusivesOddsTabNhl\":true,\"enableBookworm\":false,\"enableNoSpoilerMode\":true,\"enableMilestonePropsV2\":false,\"nba-summer-utah_v4\":true,\"enableTiaraToggleSettings\":true,\"enableMagnite\":true,\"enableMyBetsSettingsOverlay\":true,\"enableSubscriberCohorts\":true,\"enableFightcenterOdds\":false,\"enableAutoplayUnlimited\":true,\"enableLiveOddsTab\":true,\"enableStreamMenu\":true,\"wnba_v4_global\":true,\"startFromBeginningForAllContent\":true,\"enableGameBreaksOnW"
+    },
+    {
+      "tag": "HTML",
+      "id": "",
+      "className": "js no-touch history cssanimations video localstorage desktop-ua tablet",
+      "dataId": "",
+      "textLength": 6841,
+      "preview": "Skip to main content Skip to navigation Top Soccer Full Scoreboard \u00bb World Cup 1:00 PM ET FOXTeleFOX One NED SWE 4:00 PM ET FOXTeleFOX One GER CIV 8:00 PM ET FS1TeleFOX One ECU CUW Sun 12:00 AM ET FS1TeleFOX One TUN JPN Menu ESPN Soccer Men's World Cup News Scores Schedule USMNT USWNT Transfers Tables More It's (finally) OK to dream big about USMNT and World Cup play Sam Borden Jun 20, 2026, 09:00 AM ET SEATTLE -- Faith is what makes sports great. Belief. Hope. Trust. All over the United States, for college teams and pro teams, big teams and small teams, good teams and bad teams, there are followers who believe -- truly believe -- that joy will come in the morning. But for the U.S. men's nat"
+    },
+    {
+      "tag": "BODY",
+      "id": "",
+      "className": "story desktop prod",
+      "dataId": "",
+      "textLength": 6841,
+      "preview": "Skip to main content Skip to navigation Top Soccer Full Scoreboard \u00bb World Cup 1:00 PM ET FOXTeleFOX One NED SWE 4:00 PM ET FOXTeleFOX One GER CIV 8:00 PM ET FS1TeleFOX One ECU CUW Sun 12:00 AM ET FS1TeleFOX One TUN JPN Menu ESPN Soccer Men's World Cup News Scores Schedule USMNT USWNT Transfers Tables More It's (finally) OK to dream big about USMNT and World Cup play Sam Borden Jun 20, 2026, 09:00 AM ET SEATTLE -- Faith is what makes sports great. Belief. Hope. Trust. All over the United States, for college teams and pro teams, big teams and small teams, good teams and bad teams, there are followers who believe -- truly believe -- that joy will come in the morning. But for the U.S. men's nat"
+    },
+    {
+      "tag": "DIV",
+      "id": "global-viewport",
+      "className": "interior secondary",
+      "dataId": "",
+      "textLength": 6841,
+      "preview": "Skip to main content Skip to navigation Top Soccer Full Scoreboard \u00bb World Cup 1:00 PM ET FOXTeleFOX One NED SWE 4:00 PM ET FOXTeleFOX One GER CIV 8:00 PM ET FS1TeleFOX One ECU CUW Sun 12:00 AM ET FS1TeleFOX One TUN JPN Menu ESPN Soccer Men's World Cup News Scores Schedule USMNT USWNT Transfers Tables More It's (finally) OK to dream big about USMNT and World Cup play Sam Borden Jun 20, 2026, 09:00 AM ET SEATTLE -- Faith is what makes sports great. Belief. Hope. Trust. All over the United States, for college teams and pro teams, big teams and small teams, good teams and bad teams, there are followers who believe -- truly believe -- that joy will come in the morning. But for the U.S. men's nat"
+    },
+    {
+      "tag": "SECTION",
+      "id": "pane-main",
+      "className": "",
+      "dataId": "",
+      "textLength": 6533,
+      "preview": "It's (finally) OK to dream big about USMNT and World Cup play Sam Borden Jun 20, 2026, 09:00 AM ET SEATTLE -- Faith is what makes sports great. Belief. Hope. Trust. All over the United States, for college teams and pro teams, big teams and small teams, good teams and bad teams, there are followers who believe -- truly believe -- that joy will come in the morning. But for the U.S. men's national team, it has always been different. No one can say for sure why. For some, it might be the relative superiority that Americans have in other sports compared with soccer. For others, it might be the lack of a mainstream international star. A sizable group is universally cynical about a game that's more"
+    },
+    {
+      "tag": "SECTION",
+      "id": "main-container",
+      "className": "",
+      "dataId": "",
+      "textLength": 6533,
+      "preview": "It's (finally) OK to dream big about USMNT and World Cup play Sam Borden Jun 20, 2026, 09:00 AM ET SEATTLE -- Faith is what makes sports great. Belief. Hope. Trust. All over the United States, for college teams and pro teams, big teams and small teams, good teams and bad teams, there are followers who believe -- truly believe -- that joy will come in the morning. But for the U.S. men's national team, it has always been different. No one can say for sure why. For some, it might be the relative superiority that Americans have in other sports compared with soccer. For others, it might be the lack of a mainstream international star. A sizable group is universally cynical about a game that's more"
+    },
+    {
+      "tag": "DIV",
+      "id": "",
+      "className": "main-content layout-cb",
+      "dataId": "",
+      "textLength": 6533,
+      "preview": "It's (finally) OK to dream big about USMNT and World Cup play Sam Borden Jun 20, 2026, 09:00 AM ET SEATTLE -- Faith is what makes sports great. Belief. Hope. Trust. All over the United States, for college teams and pro teams, big teams and small teams, good teams and bad teams, there are followers who believe -- truly believe -- that joy will come in the morning. But for the U.S. men's national team, it has always been different. No one can say for sure why. For some, it might be the relative superiority that Americans have in other sports compared with soccer. For others, it might be the lack of a mainstream international star. A sizable group is universally cynical about a game that's more"
+    },
+    {
+      "tag": "SECTION",
+      "id": "article-feed",
+      "className": "col-b",
+      "dataId": "",
+      "textLength": 6533,
+      "preview": "It's (finally) OK to dream big about USMNT and World Cup play Sam Borden Jun 20, 2026, 09:00 AM ET SEATTLE -- Faith is what makes sports great. Belief. Hope. Trust. All over the United States, for college teams and pro teams, big teams and small teams, good teams and bad teams, there are followers who believe -- truly believe -- that joy will come in the morning. But for the U.S. men's national team, it has always been different. No one can say for sure why. For some, it might be the relative superiority that Americans have in other sports compared with soccer. For others, it might be the lack of a mainstream international star. A sizable group is universally cynical about a game that's more"
+    },
+    {
+      "tag": "ARTICLE",
+      "id": "",
+      "className": "article",
+      "dataId": "49121797",
+      "textLength": 6533,
+      "preview": "It's (finally) OK to dream big about USMNT and World Cup play Sam Borden Jun 20, 2026, 09:00 AM ET SEATTLE -- Faith is what makes sports great. Belief. Hope. Trust. All over the United States, for college teams and pro teams, big teams and small teams, good teams and bad teams, there are followers who believe -- truly believe -- that joy will come in the morning. But for the U.S. men's national team, it has always been different. No one can say for sure why. For some, it might be the relative superiority that Americans have in other sports compared with soccer. For others, it might be the lack of a mainstream international star. A sizable group is universally cynical about a game that's more"
+    },
+    {
+      "tag": "DIV",
+      "id": "",
+      "className": "container",
+      "dataId": "",
+      "textLength": 6533,
+      "preview": "It's (finally) OK to dream big about USMNT and World Cup play Sam Borden Jun 20, 2026, 09:00 AM ET SEATTLE -- Faith is what makes sports great. Belief. Hope. Trust. All over the United States, for college teams and pro teams, big teams and small teams, good teams and bad teams, there are followers who believe -- truly believe -- that joy will come in the morning. But for the U.S. men's national team, it has always been different. No one can say for sure why. For some, it might be the relative superiority that Americans have in other sports compared with soccer. For others, it might be the lack of a mainstream international star. A sizable group is universally cynical about a game that's more"
+    },
+    {
+      "tag": "DIV",
+      "id": "",
+      "className": "article-body",
+      "dataId": "",
+      "textLength": 5740,
+      "preview": "Sam Borden Jun 20, 2026, 09:00 AM ET SEATTLE -- Faith is what makes sports great. Belief. Hope. Trust. All over the United States, for college teams and pro teams, big teams and small teams, good teams and bad teams, there are followers who believe -- truly believe -- that joy will come in the morning. But for the U.S. men's national team, it has always been different. No one can say for sure why. For some, it might be the relative superiority that Americans have in other sports compared with soccer. For others, it might be the lack of a mainstream international star. A sizable group is universally cynical about a game that's more popular everywhere else in the world than it is here. EDITOR'"
+    },
+    {
+      "tag": "SECTION",
+      "id": "news-feed",
+      "className": "col-c chk-height nocontent",
+      "dataId": "",
+      "textLength": 3701,
+      "preview": "If there was a time to dream big about about the USMNT at the World Cup, it's now4hSam BordenPulisic sits, but U.S. finds a way vs. Australia to reach World Cup KO rounds19hJeff Carlisle and Joey LynchU.S. clinches WC Group D after Paraguay victory11hAlmiron first to be sent off for covering mouth12hESPNFreeman goal for U.S. 'full-circle family moment'17hJeff CarlisleRichards: U.S. winning World Cup 'not ridiculous'17hSam BordenHaiti first team eliminated at WC as Brazil get win14hESPN News ServicesIran to file complaint over WC travel restrictions18hESPN News ServicesVan Hecke: \u20ac60M Spurs move 'won't change me'15hJames OlleyMorocco 'behind' captain Hakimi amid rape case15hTom HamiltonHow ca"
+    },
+    {
+      "tag": "DIV",
+      "id": "news-feed-content",
+      "className": "sidebar",
+      "dataId": "",
+      "textLength": 3701,
+      "preview": "If there was a time to dream big about about the USMNT at the World Cup, it's now4hSam BordenPulisic sits, but U.S. finds a way vs. Australia to reach World Cup KO rounds19hJeff Carlisle and Joey LynchU.S. clinches WC Group D after Paraguay victory11hAlmiron first to be sent off for covering mouth12hESPNFreeman goal for U.S. 'full-circle family moment'17hJeff CarlisleRichards: U.S. winning World Cup 'not ridiculous'17hSam BordenHaiti first team eliminated at WC as Brazil get win14hESPN News ServicesIran to file complaint over WC travel restrictions18hESPN News ServicesVan Hecke: \u20ac60M Spurs move 'won't change me'15hJames OlleyMorocco 'behind' captain Hakimi amid rape case15hTom HamiltonHow ca"
+    },
+    {
+      "tag": "DIV",
+      "id": "",
+      "className": "container-wrapper",
+      "dataId": "",
+      "textLength": 3701,
+      "preview": "If there was a time to dream big about about the USMNT at the World Cup, it's now4hSam BordenPulisic sits, but U.S. finds a way vs. Australia to reach World Cup KO rounds19hJeff Carlisle and Joey LynchU.S. clinches WC Group D after Paraguay victory11hAlmiron first to be sent off for covering mouth12hESPNFreeman goal for U.S. 'full-circle family moment'17hJeff CarlisleRichards: U.S. winning World Cup 'not ridiculous'17hSam BordenHaiti first team eliminated at WC as Brazil get win14hESPN News ServicesIran to file complaint over WC travel restrictions18hESPN News ServicesVan Hecke: \u20ac60M Spurs move 'won't change me'15hJames OlleyMorocco 'behind' captain Hakimi amid rape case15hTom HamiltonHow ca"
+    },
+    {
+      "tag": "DIV",
+      "id": "",
+      "className": "container",
+      "dataId": "",
+      "textLength": 3701,
+      "preview": "If there was a time to dream big about about the USMNT at the World Cup, it's now4hSam BordenPulisic sits, but U.S. finds a way vs. Australia to reach World Cup KO rounds19hJeff Carlisle and Joey LynchU.S. clinches WC Group D after Paraguay victory11hAlmiron first to be sent off for covering mouth12hESPNFreeman goal for U.S. 'full-circle family moment'17hJeff CarlisleRichards: U.S. winning World Cup 'not ridiculous'17hSam BordenHaiti first team eliminated at WC as Brazil get win14hESPN News ServicesIran to file complaint over WC travel restrictions18hESPN News ServicesVan Hecke: \u20ac60M Spurs move 'won't change me'15hJames OlleyMorocco 'behind' captain Hakimi amid rape case15hTom HamiltonHow ca"
+    },
+    {
+      "tag": "SCRIPT",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 2930,
+      "preview": "var data = {\"omniture\":{\"columnist\":\"sam+borden\",\"league\":\"soccer\",\"prop61\":[\"Soccer\",\"United States\",\"FIFA World Cup\",\"Tyler Adams\",\"Christian Pulisic\",\"Tim Ream\",\"Chris Richards\"],\"countryRegion\":\"en-us\",\"hier1\":\"soccer:story\",\"section\":\"soccer\",\"eVar195\":\"43bc94723e008\",\"pageName\":\"soccer:story\",\"storyInfo\":\"49121797+its+(finally)+ok+to+dream+big+about+usmnt+and+world+cup\",\"sections\":\"soccer:story\",\"site\":\"espn\",\"premium\":\"premium-no\",\"appearance\":\"light\",\"convrSport\":\"soccer\",\"prop44\":\"43bc94723e008\",\"pageURL\":\"www.espn.com/soccer/story/_/id/49121797/ok-dream-big-usmnt-world-cup\",\"lang\":\"en_us\",\"prop46\":\"name=sCoreTc, type=0\",\"prop35\":\"Jun 20, 2026, 10:56 AM ET\",\"contentType\":\"story\",\"sp"
+    },
+    {
+      "tag": "SCRIPT",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 2554,
+      "preview": "(function () { window.espn.exitModalConfig = [{\"continueText\":\"Go to DraftKings Sportsbook\",\"continueLogo\":\"https://assets.espn.com/i/espnbet/espn-bet-1.svg\",\"primaryTextMobile\":\"21+ Gambling Problem? Call 1-800-GAMBLER. You are about to leave ESPN and a different terms of use and privacy policy will apply. By proceeding, you agree and understand that The Walt Disney Company is not responsible for the site you are about to access.\",\"heading\":\"You are now leaving ESPN.com...\",\"primaryText\":\"You are about to leave the ESPN App and a different <a href='https://disneytermsofuse.com/english/'>terms of use<\\/a> and <a href='https://privacy.thewaltdisneycompany.com/en/current-privacy-policy/'>priva"
+    },
+    {
+      "tag": "SCRIPT",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 1910,
+      "preview": "(function () { var footerLinks, needConsent; try { footerLinks = JSON.parse('[{\"disclaimers\":[\"GAMBLING PROBLEM? CALL 1-800-GAMBLER or 1-800-MY-RESET, (800) 327-5050 or visit gamblinghelplinema.org (MA). Call 877-8-HOPENY/text HOPENY (467369) (NY). Call 888-789-7777/visit ccpg.org (CT), or visit www.mdgamblinghelp.org (MD), 1-800-981-0023 (PR). 21+ and present in most states. (18+ DC/KY/NH/PR/WY). Void in ONT. Eligibility restrictions apply. Terms: draftkings.com/sportsbook. On behalf of Boot Hill Casino (KS). Pass-thru of per wager tax may apply in IL.\"],\"copyright\":\"Copyright: \\u00a9 %{year} ESPN Enterprises, LLC. All rights reserved.\",\"footer\":[{\"label\":\"Terms of Use\",\"href\":\"https://disn"
+    },
+    {
+      "tag": "SCRIPT",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 1409,
+      "preview": "window.__dataLayer = window.__dataLayer || {}; __dataLayer = Object.assign({}, __dataLayer, {\"site\":{\"country\":\"us\",\"site\":\"espn\",\"edition\":\"en-us\",\"language\":\"en_us\",\"device\":\"desktop\",\"editionKey\":\"espn-en\"},\"pzn\":{\"entitlements\":\"none\",\"login_status\":\"\",\"hidebetting\":\"no\",\"league_manager\":\"no\",\"disneyplus_bundle\":\"no\",\"has_favorites\":\"no\",\"subscriber_type\":\"\",\"has_fantasy\":\"no\",\"auto_start\":\"no\",\"betaccountlinked\":\"no\",\"has_notifications\":\"no\"},\"page\":{\"nav_method\":\"\",\"page_url\":\"/soccer/story/_/id/49121797/ok-dream-big-usmnt-world-cup\",\"page_infrastructure\":\"sCore\",\"content_category\":\"Soccer,United States,FIFA World Cup,Tyler Adams,Christian Pulisic,Tim Ream,Chris Richards\",\"page_type\":\""
+    },
+    {
+      "tag": "NAV",
+      "id": "global-nav-mobile",
+      "className": "",
+      "dataId": "",
+      "textLength": 1376,
+      "preview": "Search SportsSportsSportsSportsNFLNFLNBANBAMLBMLBNHLNHLMen's World CupWorld CupWNBAWNBAGolfGolfBoxingBoxingCollege SportsNCAACricketCricketF1F1GamingGamingHorse RacingHorseLittle League World SeriesLLWSMMAMMANASCARNASCARNLLNLLNBA G LeagueNBA G LeagueNBA Summer LeagueNBA Summer LeagueNCAAFNCAAFNCAAMNCAAMNCAAWNCAAWNWSLNWSLOlympicsOlympicsPLLPLLRacingRacingRecruiting BBRN BBRecruiting FBRN FBRugbyRugbySavannah BananasBananasSoccerSoccerSports BettingSports BettingTennisTennisTGLTGLUFLUFLWWEWWEProfessional WrestlingProfessional WrestlingWatchWatchWatchWatchHomeHomeFilms & ShowsFilms & ShowsSportsCenter For YouSportsCenter For YouBrowseBrowseSchedule & ReplaysSchedule & ReplaysWhere To WatchWhere"
+    },
+    {
+      "tag": "UL",
+      "id": "",
+      "className": "tier-1 espn-en",
+      "dataId": "",
+      "textLength": 1376,
+      "preview": "Search SportsSportsSportsSportsNFLNFLNBANBAMLBMLBNHLNHLMen's World CupWorld CupWNBAWNBAGolfGolfBoxingBoxingCollege SportsNCAACricketCricketF1F1GamingGamingHorse RacingHorseLittle League World SeriesLLWSMMAMMANASCARNASCARNLLNLLNBA G LeagueNBA G LeagueNBA Summer LeagueNBA Summer LeagueNCAAFNCAAFNCAAMNCAAMNCAAWNCAAWNWSLNWSLOlympicsOlympicsPLLPLLRacingRacingRecruiting BBRN BBRecruiting FBRN FBRugbyRugbySavannah BananasBananasSoccerSoccerSports BettingSports BettingTennisTennisTGLTGLUFLUFLWWEWWEProfessional WrestlingProfessional WrestlingWatchWatchWatchWatchHomeHomeFilms & ShowsFilms & ShowsSportsCenter For YouSportsCenter For YouBrowseBrowseSchedule & ReplaysSchedule & ReplaysWhere To WatchWhere"
+    },
+    {
+      "tag": "SCRIPT",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 1287,
+      "preview": "jQuery.subscribe('espn.defer.end', function () { espn.scoreboard.init(null, { params : {\"type\":\"story\",\"sportSection\":\"soccer\",\"indexTopics\":{\"supportedPubKeys\":{\"espn-es-co-soccer-index\":true,\"espnin-en-soccer-index\":true,\"espn-es-ar-frontpage-index\":true,\"espn-es-cl-soccer-index\":true,\"espnin-en-cricket-index\":true,\"espnuk-en-rugby-index\":true,\"espnau-en-frontpage-index\":true,\"espnuk-en-tennis-index\":true,\"espn-es-cl-frontpage-index\":true,\"espnuk-en-frontpage-index\":true,\"espn-en-ncaa-index\":true,\"espnin-en-frontpage-index\":true,\"espn-en-tennis-index\":true,\"espn-es-ar-rpm-index\":true,\"espn-es-mx-soccer-index\":true,\"espn-en-womenbb-index\":true,\"espnuk-en-cricket-index\":true,\"espnin-en-tenni"
+    },
+    {
+      "tag": "SCRIPT",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 1080,
+      "preview": "var espn_ui = window.espn_ui || {}; var espn = window.espn || {}; espn_ui.staticRef = \"https://a.espncdn.com/redesign/0.778.4\"; espn_ui.imgRef = \"https://a.espncdn.com/redesign/assets/img/\"; espn_ui.insertRef = \"https://a.espncdn.com\"; espn_ui.deviceType = \"desktop\"; espn_ui.pageShell = false; espn_ui.pubKey = null; espn.api = {}; espn_ui.webview = false; espn_ui.useNativeBridge = false; espn_ui.onefeed = false; espn_ui.isCurated = false; espn_ui.error = false; espn_ui.dcf = false; function setIsCurated () { $('#news-feed').attr('data-curated', espn_ui.isCurated); $(document).trigger('checkIfShouldAutoUpdate'); espn_ui.checkIfShouldAutoUpdate = true; } //this is also set on ajax page loads i"
+    },
+    {
+      "tag": "SCRIPT",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 957,
+      "preview": "{\"@context\":\"https://schema.org\",\"@type\":\"VideoObject\",\"description\":\"Pochettino admits he was 'very emotional' during USMNT's victory\",\"name\":\"Pochettino admits he was 'very emotional' during USMNT's victory\",\"thumbnailURL\":\"https://a.espncdn.com/media/motion/2026/0619/dm_260619_COM_SOC_Presser_Pochettino_admits_he_was_very_emotional_during_USMNTs_victory__20260619_GLOB/dm_260619_COM_SOC_Presser_Pochettino_admits_he_was_very_emotional_during_USMNTs_victory__20260619_GLOB.jpg\",\"uploadDate\":\"2026-06-19T23:30:04Z\",\"contentUrl\":\"https://media.video-cdn.espn.com/motion/2026/0619/dm_260619_COM_SOC_Presser_Pochettino_admits_he_was_very_emotional_during_USMNTs_victory__20260619_GLOB/dm_260619_COM_S"
+    },
+    {
+      "tag": "SCRIPT",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 870,
+      "preview": "{\"@context\":\"http://schema.org\",\"@type\":\"NewsArticle\",\"mainEntityOfPage\":{\"@type\":\"WebPage\",\"@id\":\"https://www.espn.com/soccer/story/_/id/49121797/ok-dream-big-usmnt-world-cup\"},\"headline\":\"It's (finally) OK to dream big about USMNT and World Cup - ESPN\",\"description\":\"There's something different about this United States team at the 2026 World Cup: The players feel it, and we can all see it. So why not believe?\",\"datePublished\":\"2026-06-20T13:00:00Z\",\"dateModified\":\"2026-06-20T13:00:00Z\",\"image\":{\"@type\":\"ImageObject\",\"url\":\"https://a.espncdn.com/photo/2026/0620/r1676448_1296x729_16-9.jpg\",\"width\":1296,\"height\":729},\"author\":{\"@type\":\"Person\",\"name\":\"Sam Borden\"},\"publisher\":{\"@type\":\"organi"
+    },
+    {
+      "tag": "SCRIPT",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 767,
+      "preview": "(function() { function loadDefer() { var deferScripts = [ 'https://a.espncdn.com/redesign/0.778.4/js/espn-defer.js', 'https://a.espncdn.com/redesign/0.778.4/js/espn-defer-low.js' ]; $.when(deferScripts.map(function (script) { var deferred = $.Deferred(); $.getScriptCache(script, deferred.resolve); return deferred; })).done(function () { if(espn.siteType === 'data-lite' && typeof espn.ads.loadGPT === 'function') { espn.ads.loadGPT(); } }); } if(window.espn.loadType === \"loadEnd\" && espn_ui.deviceType !== 'desktop') { var race = []; $.when(function () { var deferred = $.Deferred(); $(window).on(\"load\",deferred.resolve); if(espn.siteType !== 'data-lite') { setTimeout( deferred.resolve, 5000 ); "
+    },
+    {
+      "tag": "FOOTER",
+      "id": "",
+      "className": "article-footer",
+      "dataId": "",
+      "textLength": 730,
+      "preview": "Terms of UsePrivacy PolicyYour US State Privacy RightsChildren's Online Privacy PolicyInterest-Based AdsAbout Nielsen MeasurementYour Privacy ChoicesContact UsDisney Ad Sales SiteWork for ESPNCorrections GAMBLING PROBLEM? CALL 1-800-GAMBLER or 1-800-MY-RESET, (800) 327-5050 or visit gamblinghelplinema.org (MA). Call 877-8-HOPENY/text HOPENY (467369) (NY). Call 888-789-7777/visit ccpg.org (CT), or visit www.mdgamblinghelp.org (MD), 1-800-981-0023 (PR). 21+ and present in most states. (18+ DC/KY/NH/PR/WY). Void in ONT. Eligibility restrictions apply. Terms: draftkings.com/sportsbook. On behalf of Boot Hill Casino (KS). Pass-thru of per wager tax may apply in IL. Copyright: \u00a9 2026 ESPN Enterpri"
+    },
+    {
+      "tag": "FOOTER",
+      "id": "",
+      "className": "article-legal-footer article-legal-footer--bottom-fixed",
+      "dataId": "",
+      "textLength": 730,
+      "preview": "Terms of UsePrivacy PolicyYour US State Privacy RightsChildren's Online Privacy PolicyInterest-Based AdsAbout Nielsen MeasurementYour Privacy ChoicesContact UsDisney Ad Sales SiteWork for ESPNCorrections GAMBLING PROBLEM? CALL 1-800-GAMBLER or 1-800-MY-RESET, (800) 327-5050 or visit gamblinghelplinema.org (MA). Call 877-8-HOPENY/text HOPENY (467369) (NY). Call 888-789-7777/visit ccpg.org (CT), or visit www.mdgamblinghelp.org (MD), 1-800-981-0023 (PR). 21+ and present in most states. (18+ DC/KY/NH/PR/WY). Void in ONT. Eligibility restrictions apply. Terms: draftkings.com/sportsbook. On behalf of Boot Hill Casino (KS). Pass-thru of per wager tax may apply in IL. Copyright: \u00a9 2026 ESPN Enterpri"
+    },
+    {
+      "tag": "DIV",
+      "id": "",
+      "className": "text",
+      "dataId": "",
+      "textLength": 730,
+      "preview": "Terms of UsePrivacy PolicyYour US State Privacy RightsChildren's Online Privacy PolicyInterest-Based AdsAbout Nielsen MeasurementYour Privacy ChoicesContact UsDisney Ad Sales SiteWork for ESPNCorrections GAMBLING PROBLEM? CALL 1-800-GAMBLER or 1-800-MY-RESET, (800) 327-5050 or visit gamblinghelplinema.org (MA). Call 877-8-HOPENY/text HOPENY (467369) (NY). Call 888-789-7777/visit ccpg.org (CT), or visit www.mdgamblinghelp.org (MD), 1-800-981-0023 (PR). 21+ and present in most states. (18+ DC/KY/NH/PR/WY). Void in ONT. Eligibility restrictions apply. Terms: draftkings.com/sportsbook. On behalf of Boot Hill Casino (KS). Pass-thru of per wager tax may apply in IL. Copyright: \u00a9 2026 ESPN Enterpri"
+    },
+    {
+      "tag": "SCRIPT",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 581,
+      "preview": "var espn = espn || {}; espn.isOneSite = false; espn.build = \"0.778.4\"; espn.siteType = \"full\"; espn.anonymous_favorites = \"true\" === \"true\"; espn.isFantasycast = false; espn.absoluteNavLinks = false; espn.useEPlus = true; espn.hidePremiumBranding = false; // used in pof: hide e+ branding if non premium edition (SEWEB-22908) espn.enableObscuredAdsSkipping = false; espn.enableInlinePlayback = true; espn.enableInlinePPV = true; espn.dcsOverride = ''; espn.cmsOverride = ''; espn.load_hl_cb_script = false; espn.enableDmp = \"true\" === \"true\"; espn.playabilitySource = \"playbackId\";"
+    },
+    {
+      "tag": "LI",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 558,
+      "preview": "FantasyFantasyFantasyFantasyFantasy HomeFantasy HomeFootballFootballSign Up: Fantasy FootballSign Up: Fantasy FootballGridiron GauntletGridiron GauntletKnockout Bracket ChallengeKnockout Bracket ChallengeGroup Stage ChallengeGroup Stage ChallengeBaseballBaseballWomen's BasketballWomen's BasketballNFL Pick'emNFL Pick'emNFL Playoff PredictorNFL Playoff PredictorNFL SurvivorNFL SurvivorNFL Win TotalsNFL Win TotalsCollege Pick'emCollege Pick'emMen's BasketballMen's BasketballSign Up: Men's BasketballSign Up: Men's BasketballHockeyHockeyGames HomeGames Home"
+    },
+    {
+      "tag": "SCRIPT",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 550,
+      "preview": "if (typeof s_omni === 'undefined') { jQuery(function($){ $.getScriptCache(\"https://a.espncdn.com/redesign/0.778.4/js/espn-analytics.js\", function() { var deferEvent = \"user.parsed\", initOnLoad = null || false, timeoutID; function initTrack(){ if (typeof espn.track.init === 'function') { window.clearTimeout(timeoutID); $.unsubscribe([deferEvent, initTrack]); espn.track.init(data); } } if(initOnLoad || window.espn_ui.userParsed){ initTrack(); } else { $.subscribe(deferEvent, initTrack); timeoutID = window.setTimeout(initTrack, 5000); } } ); }); }"
+    },
+    {
+      "tag": "UL",
+      "id": "",
+      "className": "tier-2",
+      "dataId": "",
+      "textLength": 544,
+      "preview": "FantasyFantasyFantasy HomeFantasy HomeFootballFootballSign Up: Fantasy FootballSign Up: Fantasy FootballGridiron GauntletGridiron GauntletKnockout Bracket ChallengeKnockout Bracket ChallengeGroup Stage ChallengeGroup Stage ChallengeBaseballBaseballWomen's BasketballWomen's BasketballNFL Pick'emNFL Pick'emNFL Playoff PredictorNFL Playoff PredictorNFL SurvivorNFL SurvivorNFL Win TotalsNFL Win TotalsCollege Pick'emCollege Pick'emMen's BasketballMen's BasketballSign Up: Men's BasketballSign Up: Men's BasketballHockeyHockeyGames HomeGames Home"
+    },
+    {
+      "tag": "LI",
+      "id": "",
+      "className": "active",
+      "dataId": "",
+      "textLength": 532,
+      "preview": "SportsSportsSportsSportsNFLNFLNBANBAMLBMLBNHLNHLMen's World CupWorld CupWNBAWNBAGolfGolfBoxingBoxingCollege SportsNCAACricketCricketF1F1GamingGamingHorse RacingHorseLittle League World SeriesLLWSMMAMMANASCARNASCARNLLNLLNBA G LeagueNBA G LeagueNBA Summer LeagueNBA Summer LeagueNCAAFNCAAFNCAAMNCAAMNCAAWNCAAWNWSLNWSLOlympicsOlympicsPLLPLLRacingRacingRecruiting BBRN BBRecruiting FBRN FBRugbyRugbySavannah BananasBananasSoccerSoccerSports BettingSports BettingTennisTennisTGLTGLUFLUFLWWEWWEProfessional WrestlingProfessional Wrestling"
+    },
+    {
+      "tag": "UL",
+      "id": "",
+      "className": "tier-2",
+      "dataId": "",
+      "textLength": 520,
+      "preview": "SportsSportsNFLNFLNBANBAMLBMLBNHLNHLMen's World CupWorld CupWNBAWNBAGolfGolfBoxingBoxingCollege SportsNCAACricketCricketF1F1GamingGamingHorse RacingHorseLittle League World SeriesLLWSMMAMMANASCARNASCARNLLNLLNBA G LeagueNBA G LeagueNBA Summer LeagueNBA Summer LeagueNCAAFNCAAFNCAAMNCAAMNCAAWNCAAWNWSLNWSLOlympicsOlympicsPLLPLLRacingRacingRecruiting BBRN BBRecruiting FBRN FBRugbyRugbySavannah BananasBananasSoccerSoccerSports BettingSports BettingTennisTennisTGLTGLUFLUFLWWEWWEProfessional WrestlingProfessional Wrestling"
+    },
+    {
+      "tag": "DIV",
+      "id": "",
+      "className": "PageFooter__Legal__Disclaimer",
+      "dataId": "",
+      "textLength": 464,
+      "preview": "GAMBLING PROBLEM? CALL 1-800-GAMBLER or 1-800-MY-RESET, (800) 327-5050 or visit gamblinghelplinema.org (MA). Call 877-8-HOPENY/text HOPENY (467369) (NY). Call 888-789-7777/visit ccpg.org (CT), or visit www.mdgamblinghelp.org (MD), 1-800-981-0023 (PR). 21+ and present in most states. (18+ DC/KY/NH/PR/WY). Void in ONT. Eligibility restrictions apply. Terms: draftkings.com/sportsbook. On behalf of Boot Hill Casino (KS). Pass-thru of per wager tax may apply in IL."
+    },
+    {
+      "tag": "P",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 363,
+      "preview": "The U.S. has shown it can respond to home crowds like it has never seen before. There is a history to host countries making deep runs at World Cups -- South Korea in the semifinals in 2002 or Russia in the quarterfinals in 2018, among others -- and after the first two matches, it doesn't feel absurd to imagine the American energy carrying the U.S. even further."
+    },
+    {
+      "tag": "SCRIPT",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 359,
+      "preview": "try{ var consentToken = JSON.parse(localStorage.getItem(\"consentToken\")); __dataLayer = window.__dataLayer || {}; __dataLayer.visitor = __dataLayer.visitor || {}; __dataLayer.visitor.consent = Object.assign({ isAnonymous: !1 }, consentToken && consentToken.data); __dataLayer.site = __dataLayer.site || {}; __dataLayer.site.age_restricted = false; }catch(e){}"
+    },
+    {
+      "tag": "SCRIPT",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 339,
+      "preview": "var espn = espn || {}; // Build skeleton for namespace. espn.scoreboard = { topics: { scoreboard: '', scoreboxes: [] }, models: {}, views: {}, collections: {}, timezoneOffset: 0, favorites: {}, editData: {}, settings: { useStatic: false, version: 2, topEventsId: 4379198, topSoccerId: 15878776, editionIndex: 'espn-en-frontpage-index' } };"
+    },
+    {
+      "tag": "P",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 329,
+      "preview": "It's natural. It's how it has always been. Maybe Pulisic won't get better or maybe someone else will get hurt or maybe a referee decision goes against the U.S. or maybe a bad day comes and another tournament ends with a whimper against a team that feels as if it could have been beaten. Maybe that is, in fact, how this all goes."
+    },
+    {
+      "tag": "SCRIPT",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 320,
+      "preview": "(function () { var webviewFeatureGating; try { webviewFeatureGating = JSON.parse('{\"showstory\":{\"fantasy\":{\"android\":\"8.15.0\",\"ios\":\"8.15.0\"},\"espnapp\":{\"android\":\"7.17.0\",\"ios\":\"7.17.0\"},\"tcmen\":{\"android\":\"14.0.0\",\"ios\":\"14.0.0\"}}}'); } catch (e) {} window.espn.webviewFeatureGating = webviewFeatureGating || {}; })();"
+    },
+    {
+      "tag": "P",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 320,
+      "preview": "No one can say for sure why. For some, it might be the relative superiority that Americans have in other sports compared with soccer. For others, it might be the lack of a mainstream international star. A sizable group is universally cynical about a game that's more popular everywhere else in the world than it is here."
+    },
+    {
+      "tag": "SCRIPT",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 312,
+      "preview": "var espn = espn || {}; espn.ads = espn.ads || {}; espn.shellParams = espn.shellParams || {}; espn.shellParams.excludeTVEProviders = false $.subscribe(\"espn.defer.ready\", function() { if(espn && espn.featureGating && espn.featureGating.enableScoreWatchAuth) { espn_ui.Helpers.watchProviders.initWatchAuth(); } });"
+    },
+    {
+      "tag": "DIV",
+      "id": "header-wrapper",
+      "className": "hidden-print",
+      "dataId": "",
+      "textLength": 307,
+      "preview": "Skip to main content Skip to navigation Top Soccer Full Scoreboard \u00bb World Cup 1:00 PM ET FOXTeleFOX One NED SWE 4:00 PM ET FOXTeleFOX One GER CIV 8:00 PM ET FS1TeleFOX One ECU CUW Sun 12:00 AM ET FS1TeleFOX One TUN JPN Menu ESPN Soccer Men's World Cup News Scores Schedule USMNT USWNT Transfers Tables More"
+    },
+    {
+      "tag": "P",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 306,
+      "preview": "Now, it's OK to believe. Now, it's OK to be optimistic, to think big and imagine this group doing something grand. The players are doing their best to stay in the moment, to give the modest quotes that allow them to handle the pressure that comes their way. But even they are considering the possibilities."
+    },
+    {
+      "tag": "ASIDE",
+      "id": "",
+      "className": "inline editorial float-r",
+      "dataId": "",
+      "textLength": 301,
+      "preview": "EDITOR'S PICKS Pulisic sits, but U.S. finds a way vs. Australia to reach World Cup KO rounds Jeff Carlisle and Joey Lynch USMNT player ratings: Freeman a surprise star with 7/10 performance to stonewall Australia Ryan Clark USMNT World Cup scenarios and path: What's next after winning the group? ESPN"
+    },
+    {
+      "tag": "UL",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 286,
+      "preview": "Pulisic sits, but U.S. finds a way vs. Australia to reach World Cup KO rounds Jeff Carlisle and Joey Lynch USMNT player ratings: Freeman a surprise star with 7/10 performance to stonewall Australia Ryan Clark USMNT World Cup scenarios and path: What's next after winning the group? ESPN"
+    },
+    {
+      "tag": "P",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 271,
+      "preview": "Zlatan Ibrahimovic, the former Sweden megastar, was asked on Fox's postgame show Friday after the U.S.'s 2-0 win over Australia whether the co-hosts could win the World Cup. His one-word answer: \"Yes.\" And Chris Richards, the American defender, doesn't mind hearing that."
+    },
+    {
+      "tag": "P",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 267,
+      "preview": "Tim Ream, the veteran defender and captain, broke down in tears as the team huddled on the field after Friday's win. Ream wasn't sure why he was weeping, but something -- the scene, the emotion, the possibilities of what might lie ahead -- broke his typical stoicism."
+    },
+    {
+      "tag": "NAV",
+      "id": "global-nav",
+      "className": "",
+      "dataId": "",
+      "textLength": 264,
+      "preview": "NFLNBAMLBNHLWorld CupWNBAGolfMore SportsBoxingNCAACricketF1GamingHorseLLWSMMANASCARNLLNBA G LeagueNBA Summer LeagueNCAAFNCAAMNCAAWNWSLOlympicsPLLRacingRN BBRN FBRugbyBananasSoccerSports BettingTennisTGLUFLWWEProfessional WrestlingEditionsWhere to WatchFantasyWatch"
+    },
+    {
+      "tag": "UL",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 264,
+      "preview": "NFLNBAMLBNHLWorld CupWNBAGolfMore SportsBoxingNCAACricketF1GamingHorseLLWSMMANASCARNLLNBA G LeagueNBA Summer LeagueNCAAFNCAAMNCAAWNWSLOlympicsPLLRacingRN BBRN FBRugbyBananasSoccerSports BettingTennisTGLUFLWWEProfessional WrestlingEditionsWhere to WatchFantasyWatch"
+    },
+    {
+      "tag": "P",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 264,
+      "preview": "Balogun is electric. Richards, Alex Freeman and Ream are stout. Sergi\u00f1o Dest seems to have fire in every step. Weston McKennie and Malik Tillman are connected. Pulisic never looked better before he had to step aside and doesn't need to rush back if he's not ready."
+    },
+    {
+      "tag": "P",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 262,
+      "preview": "The U.S. does. Minutes after the final whistle Friday, the players gathered on the field and joined with the fans, who were standing and stomping and singing, \"Oh, we're halfway there / Oh-oh! Livin' on a prayer\" as the Bon Jovi anthem rang out in the afternoon."
+    },
+    {
+      "tag": "LI",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 238,
+      "preview": "WatchWatchWatchWatchHomeHomeFilms & ShowsFilms & ShowsSportsCenter For YouSportsCenter For YouBrowseBrowseSchedule & ReplaysSchedule & ReplaysWhere To WatchWhere To WatchSupport & FAQsSupport & FAQsAppsAppsDon't Have ESPN?Don't Have ESPN?"
+    },
+    {
+      "tag": "P",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 238,
+      "preview": "Adams, understandably, didn't want to think about winning this tournament but was adamant that \"the biggest goal in this whole thing\" is to change the way American fans think about their national team. To change the way that they believe."
+    },
+    {
+      "tag": "P",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 234,
+      "preview": "In this country, mediocre results rarely lead to sustained universal doubt from those who love a team -- just ask Dallas Cowboys fans in August what they think about the upcoming season -- but with the USMNT, skepticism has persisted."
+    },
+    {
+      "tag": "UL",
+      "id": "",
+      "className": "tier-2",
+      "dataId": "",
+      "textLength": 228,
+      "preview": "WatchWatchHomeHomeFilms & ShowsFilms & ShowsSportsCenter For YouSportsCenter For YouBrowseBrowseSchedule & ReplaysSchedule & ReplaysWhere To WatchWhere To WatchSupport & FAQsSupport & FAQsAppsAppsDon't Have ESPN?Don't Have ESPN?"
+    },
+    {
+      "tag": "P",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 227,
+      "preview": "But if nothing else, these two games are license to let go of the distrust. Of the incredulity. Of the doubt. It's OK to loosen the grip on \"just being realistic\" and consider that \"realistic\" might finally mean something else."
+    },
+    {
+      "tag": "P",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 221,
+      "preview": "Belief. Hope. Trust. All over the United States, for college teams and pro teams, big teams and small teams, good teams and bad teams, there are followers who believe -- truly believe -- that joy will come in the morning."
+    },
+    {
+      "tag": "SECTION",
+      "id": "global-scoreboard",
+      "className": "no-datepicker",
+      "dataId": "",
+      "textLength": 219,
+      "preview": "Skip to main content Skip to navigation Top Soccer Full Scoreboard \u00bb World Cup 1:00 PM ET FOXTeleFOX One NED SWE 4:00 PM ET FOXTeleFOX One GER CIV 8:00 PM ET FS1TeleFOX One ECU CUW Sun 12:00 AM ET FS1TeleFOX One TUN JPN"
+    },
+    {
+      "tag": "UL",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 203,
+      "preview": "Terms of UsePrivacy PolicyYour US State Privacy RightsChildren's Online Privacy PolicyInterest-Based AdsAbout Nielsen MeasurementYour Privacy ChoicesContact UsDisney Ad Sales SiteWork for ESPNCorrections"
+    },
+    {
+      "tag": "LI",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 201,
+      "preview": "More SportsBoxingNCAACricketF1GamingHorseLLWSMMANASCARNLLNBA G LeagueNBA Summer LeagueNCAAFNCAAMNCAAWNWSLOlympicsPLLRacingRN BBRN FBRugbyBananasSoccerSports BettingTennisTGLUFLWWEProfessional Wrestling"
+    },
+    {
+      "tag": "P",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 201,
+      "preview": "The U.S. has shown it can win -- and control a game -- without its star, Christian Pulisic, who sat out the second half against Paraguay and the whole game against Australia because of an injured calf."
+    },
+    {
+      "tag": "DIV",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 190,
+      "preview": "BoxingNCAACricketF1GamingHorseLLWSMMANASCARNLLNBA G LeagueNBA Summer LeagueNCAAFNCAAMNCAAWNWSLOlympicsPLLRacingRN BBRN FBRugbyBananasSoccerSports BettingTennisTGLUFLWWEProfessional Wrestling"
+    },
+    {
+      "tag": "UL",
+      "id": "",
+      "className": "split",
+      "dataId": "",
+      "textLength": 190,
+      "preview": "BoxingNCAACricketF1GamingHorseLLWSMMANASCARNLLNBA G LeagueNBA Summer LeagueNCAAFNCAAMNCAAWNWSLOlympicsPLLRacingRN BBRN FBRugbyBananasSoccerSports BettingTennisTGLUFLWWEProfessional Wrestling"
+    },
+    {
+      "tag": "DIV",
+      "id": "",
+      "className": "league-nav-wrapper league-nav-mobile mobile-dropdown",
+      "dataId": "",
+      "textLength": 183,
+      "preview": "Top Events World Cup MLB NCAA Baseball WNBA PGA Tour LPGA Tour Tennis (M) Tennis (W) Top Soccer NASCAR F1 UFC NBA NHL PLL (Lacrosse) NLL (Lacrosse) NFL NCAAF NCAAM NCAAW NCAA Softball"
+    },
+    {
+      "tag": "SELECT",
+      "id": "league-nav",
+      "className": "",
+      "dataId": "",
+      "textLength": 183,
+      "preview": "Top Events World Cup MLB NCAA Baseball WNBA PGA Tour LPGA Tour Tennis (M) Tennis (W) Top Soccer NASCAR F1 UFC NBA NHL PLL (Lacrosse) NLL (Lacrosse) NFL NCAAF NCAAM NCAAW NCAA Softball"
+    },
+    {
+      "tag": "UL",
+      "id": "",
+      "className": "dropdown-menu league-nav med",
+      "dataId": "",
+      "textLength": 183,
+      "preview": "Top Events World Cup MLB NCAA Baseball WNBA PGA Tour LPGA Tour Tennis (M) Tennis (W) Top Soccer NASCAR F1 UFC NBA NHL PLL (Lacrosse) NLL (Lacrosse) NFL NCAAF NCAAM NCAAW NCAA Softball"
+    },
+    {
+      "tag": "ASIDE",
+      "id": "",
+      "className": "inline inline-photo full",
+      "dataId": "",
+      "textLength": 182,
+      "preview": "There's something different about this United States team at the 2026 World Cup: The players feel it, and we can all see it. So why not believe? Jared C. Tilton/FIFA via Getty Images"
+    },
+    {
+      "tag": "FIGURE",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 182,
+      "preview": "There's something different about this United States team at the 2026 World Cup: The players feel it, and we can all see it. So why not believe? Jared C. Tilton/FIFA via Getty Images"
+    },
+    {
+      "tag": "FIGCAPTION",
+      "id": "",
+      "className": "photoCaption",
+      "dataId": "",
+      "textLength": 182,
+      "preview": "There's something different about this United States team at the 2026 World Cup: The players feel it, and we can all see it. So why not believe? Jared C. Tilton/FIFA via Getty Images"
+    },
+    {
+      "tag": "P",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 181,
+      "preview": "\"I've told these guys that this is the most fun, special, enjoyable group that I've been a part of,\" he said afterward. \"There's something about this one that just feels different.\""
+    },
+    {
+      "tag": "DIV",
+      "id": "",
+      "className": "wrap",
+      "dataId": "",
+      "textLength": 179,
+      "preview": "Top Soccer Full Scoreboard \u00bb World Cup 1:00 PM ET FOXTeleFOX One NED SWE 4:00 PM ET FOXTeleFOX One GER CIV 8:00 PM ET FS1TeleFOX One ECU CUW Sun 12:00 AM ET FS1TeleFOX One TUN JPN"
+    },
+    {
+      "tag": "DIV",
+      "id": "",
+      "className": "scoreboard-content",
+      "dataId": "",
+      "textLength": 179,
+      "preview": "Top Soccer Full Scoreboard \u00bb World Cup 1:00 PM ET FOXTeleFOX One NED SWE 4:00 PM ET FOXTeleFOX One GER CIV 8:00 PM ET FS1TeleFOX One ECU CUW Sun 12:00 AM ET FS1TeleFOX One TUN JPN"
+    },
+    {
+      "tag": "P",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 169,
+      "preview": "\"There's been friendlies that we've played [at home] where we've been outnumbered,\" Tyler Adams said. \"To have a whole nation behind you -- that's something so special.\""
+    },
+    {
+      "tag": "P",
+      "id": "",
+      "className": "",
+      "dataId": "",
+      "textLength": 162,
+      "preview": "The U.S. has beaten Paraguay and Australia -- two solid wins, two comprehensive wins and two very different wins. That said, there is a very, very long way to go."
+    }
+  ],
+  "scriptHits": [
+    {
+      "id": "",
+      "type": "application/ld+json",
+      "textLength": 870,
+      "hasArticleBody": false,
+      "hasDreamBig": true,
+      "hasUsmnt": true,
+      "preview": "{\"@context\":\"http://schema.org\",\"@type\":\"NewsArticle\",\"mainEntityOfPage\":{\"@type\":\"WebPage\",\"@id\":\"https://www.espn.com/soccer/story/_/id/49121797/ok-dream-big-usmnt-world-cup\"},\"headline\":\"It's (finally) OK to dream big about USMNT and World Cup - ESPN\",\"description\":\"There's something different about this United States team at the 2026 World Cup: The players feel it, and we can all see it. So why not believe?\",\"datePublished\":\"2026-06-20T13:00:00Z\",\"dateModified\":\"2026-06-20T13:00:00Z\",\"image\":{\"@type\":\"ImageObject\",\"url\":\"https://a.espncdn.com/photo/2026/0620/r1676448_1296x729_16-9.jpg\",\"width\":1296,\"height\":729},\"author\":{\"@type\":\"Person\",\"name\":\"Sam Borden\"},\"publisher\":{\"@type\":\"organization\",\"name\":\"ESPN\",\"logo\":{\"@type\":\"ImageObject\",\"url\":\"https://a.espncdn.com/combiner/i?img=/i/espn/espn_logos/amp/ESPN_amp.png&w=600&h=60\",\"width\":107,\"height\":60}}}"
+    },
+    {
+      "id": "",
+      "type": "application/ld+json",
+      "textLength": 970,
+      "hasArticleBody": false,
+      "hasDreamBig": false,
+      "hasUsmnt": true,
+      "preview": "\n        {\"@context\":\"https://schema.org\",\"@type\":\"VideoObject\",\"description\":\"Pochettino admits he was 'very emotional' during USMNT's victory\",\"name\":\"Pochettino admits he was 'very emotional' during USMNT's victory\",\"thumbnailURL\":\"https://a.espncdn.com/media/motion/2026/0619/dm_260619_COM_SOC_Presser_Pochettino_admits_he_was_very_emotional_during_USMNTs_victory__20260619_GLOB/dm_260619_COM_SOC_Presser_Pochettino_admits_he_was_very_emotional_during_USMNTs_victory__20260619_GLOB.jpg\",\"uploadDate\":\"2026-06-19T23:30:04Z\",\"contentUrl\":\"https://media.video-cdn.espn.com/motion/2026/0619/dm_260619_COM_SOC_Presser_Pochettino_admits_he_was_very_emotional_during_USMNTs_victory__20260619_GLOB/dm_260619_COM_SOC_Presser_Pochettino_admits_he_was_very_emotional_during_USMNTs_victory__20260619_GLOB_360p30_1464k.mp4\",\"duration\":\"PT0M38S\",\"regionsAllowed\":[],\"embedUrl\":\"https://www.espn.com/video/clip/_/id/49120843/pochettino-admits-was-very-emotional-usmnt-victory\"}\n   "
+    },
+    {
+      "id": "",
+      "type": "",
+      "textLength": 9702,
+      "hasArticleBody": false,
+      "hasDreamBig": false,
+      "hasUsmnt": true,
+      "preview": "\n\t\twindow.googletag = window.googletag || {};\n\n\t\t(function () {\n\t\t\tespn = window.espn || {};\n\t\t\tespn.ads = espn.ads || {};\n\t\t\tespn.ads.config = {\"page_url\":\"https://www.espn.com/soccer/story/_/id/49121797/ok-dream-big-usmnt-world-cup\",\"prebidAdConfig\":{\"usePrebidBids\":true,\"timeout\":1000},\"level\":\"espn.com/soccer/story\",\"sizesEspnPlus\":{\"banner-index\":{\"excludedSize\":[\"728,90\"],\"mappings\":[{\"viewport\":[1280,0],\"slot\":[[1280,100],[970,250]]},{\"viewport\":[1024,0],\"slot\":[[970,66],[970,250]]},{\"viewport\":[768,0],\"slot\":[[728,90]]},{\"viewport\":[320,0],\"slot\":[[320,50]]},{\"viewport\":[0,0],\"slot\":[[240,38]]}],\"defaultSize\":[970,66],\"excludedProfile\":[\"xl\"],\"includedCountries\":[\"us\"],\"pbjs\":{\"s\":[[320,50]],\"xl\":[[970,250]],\"l\":[[970,250]],\"m\":[[728,90]]}},\"gamecast\":{\"mappings\":[{\"viewport\":[0,0],\"slot\":[[320,50]]}],\"defaultSize\":[320,50]},\"banner-scoreboard\":{\"excludedSize\":[\"970,250\"],\"mappings\":[{\"viewport\":[1280,0],\"slot\":[[1280,100],[728,90]]},{\"viewport\":[1024,0],\"slot\":[[970,66],[728,90]]},{\"viewport\":[768,0],\"slot\":[[728,90]]},{\"viewport\":[320,0],\"slot\":[[320,50]]},{\"viewport\":[0,0],\"slot\":[[240,38]]}],\"defaultSize\":[970,66],\"includedCountries\":[\"us\"],\"pbjs\":{\"s\":[[320,50]],\"xl\":["
+    },
+    {
+      "id": "",
+      "type": "text/javascript",
+      "textLength": 24533,
+      "hasArticleBody": false,
+      "hasDreamBig": false,
+      "hasUsmnt": true,
+      "preview": "\n\t\tvar espn = espn || {};\n\t\tespn.nav = espn.nav || {};\n\t\tespn.nav.navId = 11929946;\n\t\tespn.nav.isFallback = false;\n\n\t\t\n\t\t\tespn.nav.tier2 = {\"subNavMenu\":{\"navigation\":{\"links\":[{\"isExternal\":false,\"shortText\":\"Soccer\",\"rel\":[\"sports\"],\"attributes\":{\"icon\":\"soccer\"},\"text\":\"Soccer\",\"href\":\"/soccer/\",\"isPremium\":false}],\"attributes\":{\"sport_id\":\"600\",\"root\":\"soccer\"},\"id\":21125648,\"text\":\"Soccer\",\"title\":\"Soccer Menu - US Edition\",\"$ref\":\"/v2/navigation/21125648\",\"items\":[{\"links\":[{\"isExternal\":false,\"shortText\":\"Home\",\"rel\":[\"sub\"],\"attributes\":{\"mobile\":\"false\",\"breakpoints\":\"desktop,desktop-lg\"},\"text\":\"Home\",\"href\":\"/soccer/\",\"isPremium\":false}],\"id\":21125677,\"title\":\"Soccer Home Desktop Only\",\"$ref\":\"/v2/navigation/21125677\"},{\"links\":[{\"isExternal\":false,\"shortText\":\"World Cup\",\"rel\":[\"none\",\"sub\"],\"attributes\":{\"icon\":\"soccer\"},\"text\":\"Men's World Cup\",\"href\":\"/soccer/worldcup/\",\"isPremium\":false}],\"id\":47008313,\"text\":\"Men's World Cup\",\"title\":\"World Cup nav menu 2026 (from US soccer home)\",\"$ref\":\"/v2/navigation/47008313\",\"items\":[{\"links\":[{\"isExternal\":false,\"shortText\":\"Scoreboard\",\"text\":\"Scoreboard\",\"href\":\"/soccer/scoreboard?league=fifa.world\",\"isPremium\":false}],\"id\""
+    },
+    {
+      "id": "",
+      "type": "text/javascript",
+      "textLength": 1432,
+      "hasArticleBody": false,
+      "hasDreamBig": true,
+      "hasUsmnt": true,
+      "preview": "\n    window.__dataLayer = window.__dataLayer || {};\n\n    __dataLayer = Object.assign({}, __dataLayer,\n        {\"site\":{\"country\":\"us\",\"site\":\"espn\",\"edition\":\"en-us\",\"language\":\"en_us\",\"device\":\"desktop\",\"editionKey\":\"espn-en\"},\"pzn\":{\"entitlements\":\"none\",\"login_status\":\"\",\"hidebetting\":\"no\",\"league_manager\":\"no\",\"disneyplus_bundle\":\"no\",\"has_favorites\":\"no\",\"subscriber_type\":\"\",\"has_fantasy\":\"no\",\"auto_start\":\"no\",\"betaccountlinked\":\"no\",\"has_notifications\":\"no\"},\"page\":{\"nav_method\":\"\",\"page_url\":\"/soccer/story/_/id/49121797/ok-dream-big-usmnt-world-cup\",\"page_infrastructure\":\"sCore\",\"content_category\":\"Soccer,United States,FIFA World Cup,Tyler Adams,Christian Pulisic,Tim Ream,Chris Richards\",\"page_type\":\"\",\"author\":\"Sam Borden\",\"content_publish_timestamp\":\"2026-06-20T14:56:37Z\",\"league\":\"soccer\",\"story_id\":49121797,\"section\":\"soccer\",\"prev_page\":\"\",\"content_original_publish_timestamp\":\"2026-06-20T13:00:00Z\",\"content_publish_date\":\"Jun 20, 2026, 10:56 AM ET\",\"game_state\":\"\",\"premium\":\"no\",\"content_type\":\"story\",\"game_detail\":\"\",\"story_title\":\"It's (finally) OK to dream big about USMNT and World Cup\",\"page_name\":\"espn:soccer:story\",\"guid\":\"43bc94723e008\",\"content_image\":\"https://"
+    },
+    {
+      "id": "",
+      "type": "text/javascript",
+      "textLength": 2951,
+      "hasArticleBody": false,
+      "hasDreamBig": true,
+      "hasUsmnt": true,
+      "preview": "\n\t\t\t\tvar data = {\"omniture\":{\"columnist\":\"sam+borden\",\"league\":\"soccer\",\"prop61\":[\"Soccer\",\"United States\",\"FIFA World Cup\",\"Tyler Adams\",\"Christian Pulisic\",\"Tim Ream\",\"Chris Richards\"],\"countryRegion\":\"en-us\",\"hier1\":\"soccer:story\",\"section\":\"soccer\",\"eVar195\":\"43bc94723e008\",\"pageName\":\"soccer:story\",\"storyInfo\":\"49121797+its+(finally)+ok+to+dream+big+about+usmnt+and+world+cup\",\"sections\":\"soccer:story\",\"site\":\"espn\",\"premium\":\"premium-no\",\"appearance\":\"light\",\"convrSport\":\"soccer\",\"prop44\":\"43bc94723e008\",\"pageURL\":\"www.espn.com/soccer/story/_/id/49121797/ok-dream-big-usmnt-world-cup\",\"lang\":\"en_us\",\"prop46\":\"name=sCoreTc, type=0\",\"prop35\":\"Jun 20, 2026, 10:56 AM ET\",\"contentType\":\"story\",\"sport\":\"soccer\",\"account\":\"wdgespcom\",\"siteType\":\"full\",\"prop58\":\"isIndex=false\"},\"chartbeat\":{\"loadPubJS\":false,\"path\":\"/soccer/story/_/id/49121797/ok-dream-big-usmnt-world-cup\",\"zone\":\"www.espn.com.us.soccer\",\"domain\":\"www.espn.com\",\"loadVidJS\":true,\"title\":\"It's (finally) OK to dream big about USMNT and World Cup - ESPN\",\"sections\":\"soccer\",\"authors\":\"story\"},\"qualtrics\":false,\"nielsen\":{\"espnuk\":{\"apid\":\"P07264C85-15CD-4A80-8E56-B5BFA6D93296\",\"vc\":\"b01\"},\"espnau\":{\"apid\":\"P07264C85-15CD-4"
+    }
+  ]
+}

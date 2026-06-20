@@ -257,6 +257,13 @@ def _score_candidate(item):
 
 
 def fetch_newsmax_homepage_article():
+    """
+    Newsmax homepage resolver.
+
+    The breaking-news banner and the main homepage article are separate page
+    regions. The banner is returned as supplemental breaking_headline text;
+    the actual lead article always comes from the canvas-one lead module.
+    """
     target_id = ""
     ws_url = ""
 
@@ -264,85 +271,95 @@ def fetch_newsmax_homepage_article():
         target_id, ws_url = _create_page()
         _navigate(ws_url, "https://www.newsmax.com/")
 
-        raw_links = _eval(
+        payload = _eval(
             ws_url,
             r"""
-(() => Array.from(document.querySelectorAll("a[href]")).map((a, index) => {
-    const rect = a.getBoundingClientRect();
+(() => {
+    const clean = value => (value || "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .replace(/\s+\[?Full Story\]?\s*$/i, "")
+        .replace(/\s+\|\s+Newsmax\.com\s*$/i, "");
+
+    const breakingRoot = document.querySelector("#nmBreakingNewsCont");
+
+    const breakingLink =
+        breakingRoot?.querySelector("#nmBreakingText h2 a") ||
+        breakingRoot?.querySelector("#nmBreakingText a") ||
+        breakingRoot?.querySelector("h2 a") ||
+        breakingRoot?.querySelector("a[href]");
+
+    const leadLink =
+        document.querySelector("#nmCanvas1Headline h1 a") ||
+        document.querySelector("#nmCanvas1Headline a[href]") ||
+        document.querySelector("#nmCanvas1 h1 a");
+
+    const leadHeading =
+        document.querySelector("#nmCanvas1Headline h1") ||
+        document.querySelector("#nmCanvas1 h1");
 
     return {
-        index,
-        href: a.href || "",
-        text: (a.innerText || a.textContent || "").replace(/\s+/g, " ").trim(),
-        aria: (a.getAttribute("aria-label") || "").replace(/\s+/g, " ").trim(),
-        titleAttr: (a.getAttribute("title") || "").replace(/\s+/g, " ").trim(),
-        top: rect.top + window.scrollY
+        breakingHeadline: clean(
+            breakingLink
+                ? (breakingLink.innerText || breakingLink.textContent || "")
+                : ""
+        ),
+        breakingUrl: breakingLink ? (breakingLink.href || "") : "",
+        leadHeadline: clean(
+            leadLink
+                ? (leadLink.innerText || leadLink.textContent || "")
+                : (leadHeading ? (leadHeading.innerText || leadHeading.textContent || "") : "")
+        ),
+        leadUrl: leadLink ? (leadLink.href || "") : "",
+        pageTitle: document.title || ""
     };
-}) )()
+})()
 """,
+            timeout=PAGE_TIMEOUT,
         )
 
-        if not isinstance(raw_links, list):
-            raise RuntimeError("Chrome did not return Newsmax homepage links")
+        if not isinstance(payload, dict):
+            raise RuntimeError("Chrome did not return Newsmax homepage payload")
 
-        candidates = []
-        seen = set()
+        breaking_headline = _clean(payload.get("breakingHeadline", ""))
+        lead_title = _clean(payload.get("leadHeadline", ""))
+        lead_url = urljoin(
+            "https://www.newsmax.com/",
+            str(payload.get("leadUrl", "") or ""),
+        )
 
-        for raw in raw_links:
-            url = urljoin("https://www.newsmax.com/", raw.get("href", ""))
-            title = _clean(
-                raw.get("text")
-                or raw.get("aria")
-                or raw.get("titleAttr")
+        if not lead_title or not lead_url:
+            raise RuntimeError(
+                "Newsmax homepage lead was not found in #nmCanvas1Headline. "
+                f"Page title: {payload.get('pageTitle', '')!r}"
             )
 
-            if not _is_newsmax_article_url(url):
-                continue
+        if not _is_newsmax_article_url(lead_url):
+            raise RuntimeError(
+                f"Newsmax canvas-one lead URL was not a valid article URL: {lead_url}"
+            )
 
-            if _should_skip_title(title):
-                continue
+        if _should_skip_title(lead_title):
+            raise RuntimeError(
+                f"Newsmax canvas-one lead title was not usable: {lead_title!r}"
+            )
 
-            key = (title.lower(), url.lower())
-
-            if key in seen:
-                continue
-
-            seen.add(key)
-
-            candidate = {
-                "title": title,
-                "url": url,
-                "top": raw.get("top", 99999),
-                "index": raw.get("index", 9999),
-            }
-
-            candidate["score"] = _score_candidate(candidate)
-            candidates.append(candidate)
-
-        if not candidates:
-            raise RuntimeError("No usable Newsmax homepage article candidates found")
-
-        candidates.sort(key=lambda item: item["score"], reverse=True)
-        selected = candidates[0]
-
-        print(
-            f'SELECTED NEWSMAX CHROME: '
-            f'score={selected["score"]:.1f} '
-            f'title={selected["title"]}'
-        )
-        print(f'NEWSMAX CHROME LINK: {selected["url"]}')
+        print(f'NEWSMAX BREAKING HEADLINE: "{breaking_headline}"')
+        print(f'NEWSMAX ACTUAL LEAD: "{lead_title}"')
+        print(f'NEWSMAX ACTUAL LEAD LINK: "{lead_url}"')
 
         return {
-            "title": selected["title"],
-            "link": selected["url"],
+            "title": lead_title,
+            "link": lead_url,
             "image_url": "",
             "image_bytes": b"",
+            "breaking_headline": breaking_headline,
+            "breaking_url": str(payload.get("breakingUrl", "") or ""),
         }
 
     finally:
         if target_id:
             _close_page(target_id)
-
 
 def fetch_newsmax_article_payload(url):
     if not _is_newsmax_article_url(url):
