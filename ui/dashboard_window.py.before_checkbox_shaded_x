@@ -42,31 +42,6 @@ from ui.panels.stocks_panel import StocksPanel
 from ui.panels.reminders_panel import RemindersPanel
 
 
-class MarketTapeReplacementCheckbox(QCheckBox):
-    def paintEvent(self, event):
-        super().paintEvent(event)
-
-        if not self.isChecked():
-            return
-
-        from PySide6.QtGui import QPainter, QPen, QColor
-
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, True)
-
-        pen = QPen(QColor("#f7f0df"))
-        pen.setWidth(2)
-        painter.setPen(pen)
-
-        x = 5
-        y = max(3, int((self.height() - 16) / 2) + 3)
-
-        painter.drawLine(x, y, x + 8, y + 8)
-        painter.drawLine(x + 8, y, x, y + 8)
-        painter.end()
-
-
-
 class WeatherFetchWorker(QObject):
     finished = Signal(object)
     failed = Signal(str)
@@ -1628,9 +1603,7 @@ class DashboardWindow(QMainWindow):
         left_settings_col.addWidget(right_label)
         left_settings_col.addWidget(self.right_news_combo)
 
-        self.replace_market_tape_checkbox = MarketTapeReplacementCheckbox(
-            "Replace Market Tape with additional articles"
-        )
+        self.replace_market_tape_checkbox = QCheckBox()
         self.replace_market_tape_checkbox.setObjectName(
             "ReplaceMarketTapeCheckbox"
         )
@@ -1644,28 +1617,21 @@ class DashboardWindow(QMainWindow):
                 background: transparent;
                 font-size: 12px;
                 font-weight: 800;
-                spacing: 8px;
+                spacing: 0px;
                 padding: 2px 0px 0px 0px;
             }
 
             QCheckBox#ReplaceMarketTapeCheckbox::indicator {
-                width: 16px;
-                height: 16px;
-            }
-
-            QCheckBox#ReplaceMarketTapeCheckbox::indicator:unchecked {
-                background: rgba(255, 248, 236, 0.78);
-                border: 1px solid rgba(83, 59, 33, 0.50);
-                border-radius: 3px;
-            }
-
-            QCheckBox#ReplaceMarketTapeCheckbox::indicator:checked {
-                background: #72542d;
-                border: 1px solid #4d351b;
-                border-radius: 3px;
-                image: url(none);
+                width: 0px;
+                height: 0px;
             }
         """)
+        self.replace_market_tape_checkbox.toggled.connect(
+            self.update_market_tape_checkbox_text
+        )
+        self.update_market_tape_checkbox_text(
+            self.replace_market_tape_checkbox.isChecked()
+        )
         left_settings_col.addWidget(self.replace_market_tape_checkbox)
 
         weather_title = QLabel("WEATHER")
@@ -1848,6 +1814,14 @@ class DashboardWindow(QMainWindow):
 
         return scroll_area
 
+    def update_market_tape_checkbox_text(self, checked):
+        symbol = "☒" if checked else "☐"
+
+        if hasattr(self, "replace_market_tape_checkbox"):
+            self.replace_market_tape_checkbox.setText(
+                f"{symbol}  Replace Market Tape with additional articles"
+            )
+
     def set_combo_to_source(self, combo, source_key):
         for index in range(combo.count()):
             if combo.itemData(index) == source_key:
@@ -1860,6 +1834,9 @@ class DashboardWindow(QMainWindow):
 
         if hasattr(self, "replace_market_tape_checkbox"):
             self.replace_market_tape_checkbox.setChecked(
+                self.replace_market_tape_with_news
+            )
+            self.update_market_tape_checkbox_text(
                 self.replace_market_tape_with_news
             )
 

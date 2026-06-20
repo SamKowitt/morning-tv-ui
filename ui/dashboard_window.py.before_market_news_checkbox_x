@@ -42,31 +42,6 @@ from ui.panels.stocks_panel import StocksPanel
 from ui.panels.reminders_panel import RemindersPanel
 
 
-class MarketTapeReplacementCheckbox(QCheckBox):
-    def paintEvent(self, event):
-        super().paintEvent(event)
-
-        if not self.isChecked():
-            return
-
-        from PySide6.QtGui import QPainter, QPen, QColor
-
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, True)
-
-        pen = QPen(QColor("#f7f0df"))
-        pen.setWidth(2)
-        painter.setPen(pen)
-
-        x = 5
-        y = max(3, int((self.height() - 16) / 2) + 3)
-
-        painter.drawLine(x, y, x + 8, y + 8)
-        painter.drawLine(x + 8, y, x, y + 8)
-        painter.end()
-
-
-
 class WeatherFetchWorker(QObject):
     finished = Signal(object)
     failed = Signal(str)
@@ -1628,7 +1603,7 @@ class DashboardWindow(QMainWindow):
         left_settings_col.addWidget(right_label)
         left_settings_col.addWidget(self.right_news_combo)
 
-        self.replace_market_tape_checkbox = MarketTapeReplacementCheckbox(
+        self.replace_market_tape_checkbox = QCheckBox(
             "Replace Market Tape with additional articles"
         )
         self.replace_market_tape_checkbox.setObjectName(
@@ -1663,7 +1638,6 @@ class DashboardWindow(QMainWindow):
                 background: #72542d;
                 border: 1px solid #4d351b;
                 border-radius: 3px;
-                image: url(none);
             }
         """)
         left_settings_col.addWidget(self.replace_market_tape_checkbox)
