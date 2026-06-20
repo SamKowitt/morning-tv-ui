@@ -207,14 +207,10 @@ def fetch_espn_sports_articles(max_articles=4):
 
                 normalized_link = article.link.rstrip("/").lower()
 
-                # ESPN uses both editorial story URLs and match-report URLs
-                # for real homepage headline content.
-                is_editorial_story = "/story/_/id/" in normalized_link
-                is_match_report = "/report/_/gameid/" in normalized_link
-
-                if not (is_editorial_story or is_match_report):
+                # ESPN schedule/navigation pages are never valid Sports Desk stories.
+                if "/story/_/id/" not in normalized_link:
                     print(
-                        "Skipping non-article ESPN feed entry: "
+                        "Skipping non-story ESPN feed entry: "
                         f"{article.title} -> {article.link}"
                     )
                     continue
