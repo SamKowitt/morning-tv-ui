@@ -2263,362 +2263,235 @@ except NameError:
 
 def fetch_fox_homepage_lead_article(source_key="FOX"):
     """
-    FoxNews.com resolver.
+    Select Fox's visible homepage lead by rendered headline prominence.
 
-    Fox uses different URL patterns than CNN. Fox articles usually look like:
-      https://www.foxnews.com/politics/...
-      https://www.foxnews.com/world/...
-      https://www.foxnews.com/us/...
-
-    This resolver does NOT use the CNN /202 date URL rule.
+    Fox JSON-LD ordering is not reliable for the actual visual lead card.
     """
-    import json
-    import re
-    import ssl
-    import urllib.request
-    from html import unescape
-    from html.parser import HTMLParser
-    from urllib.parse import urljoin
+    import time
+    from services.newsmax_chrome import _close_page, _create_page, _eval, _navigate
 
-    config = NEWS_SOURCES[source_key]
-    homepage_url = config.get("homepage_url") or config.get("homepage") or "https://www.foxnews.com/"
-
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/125.0 Safari/537.36"
-        ),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-    }
-
-    def _fetch_url(url):
-        try:
-            return fetch_url_text(url, timeout=20)
-        except Exception:
-            req = urllib.request.Request(url, headers=headers)
-            ctx = ssl._create_unverified_context()
-            with urllib.request.urlopen(req, timeout=20, context=ctx) as resp:
-                return resp.read().decode("utf-8", errors="replace")
-
-    def _clean(value):
-        value = unescape(str(value or ""))
-
-        try:
-            value = value.encode("utf-8").decode("unicode_escape", errors="ignore")
-        except Exception:
-            pass
-
-        value = re.sub(r"<[^>]+>", " ", value)
-        value = re.sub(r"\s+", " ", value).strip()
-
-        # Fox-specific UI cleanup.
-        value = re.sub(r"^(Video|Watch|Photos|Opinion)\s*[:|-]\s*", "", value, flags=re.I).strip()
-        value = re.sub(r"\s+\|\s+Fox News$", "", value, flags=re.I).strip()
-
-        try:
-            return clean_text(value)
-        except Exception:
-            return value
-
-    class _FoxAnchorParser(HTMLParser):
-        def __init__(self):
-            super().__init__()
-            self.links = []
-            self.current = None
-
-        def handle_starttag(self, tag, attrs):
-            attrs = dict(attrs)
-
-            if tag == "a" and attrs.get("href"):
-                self.current = {
-                    "href": attrs.get("href", ""),
-                    "text_parts": [],
-                    "class": attrs.get("class", ""),
-                    "aria": attrs.get("aria-label", ""),
-                    "data": " ".join(
-                        f"{k}={v}" for k, v in attrs.items() if k.startswith("data-")
-                    ),
-                }
-
-        def handle_data(self, data):
-            if self.current is not None:
-                self.current["text_parts"].append(data)
-
-        def handle_endtag(self, tag):
-            if tag == "a" and self.current is not None:
-                raw_text = " ".join(self.current["text_parts"])
-                self.current["raw_text"] = raw_text
-                self.current["text"] = _clean(raw_text)
-                self.current["aria"] = _clean(self.current["aria"])
-                self.links.append(self.current)
-                self.current = None
-
-    def _is_fox_article_url(url):
-        low = url.lower()
-
-        if "foxnews.com/" not in low:
-            return False
-
-        bad_bits = [
-            "/video/",
-            "/watch/",
-            "/shows/",
-            "/person/",
-            "/category/",
-            "/radio/",
-            "/podcasts/",
-            "/weather/",
-            "/newsletter",
-            "/deals",
-            "/fox-news-shop",
-            "/login",
-            "/search",
-            "/about",
-        ]
-
-        if any(bit in low for bit in bad_bits):
-            return False
-
-        # Reject the plain homepage and top-level section pages.
-        path = low.split("foxnews.com", 1)[-1].strip("/")
-        if not path:
-            return False
-
-        parts = [part for part in path.split("/") if part]
-        if len(parts) < 2:
-            return False
-
-        allowed_sections = {
-            "politics",
-            "us",
-            "world",
-            "opinion",
-            "media",
-            "entertainment",
-            "sports",
-            "lifestyle",
-            "health",
-            "science",
-            "tech",
-        }
-
-        return parts[0] in allowed_sections
-
-    def _should_skip_title(title, url, raw_text="", meta_text=""):
-        title_l = title.lower()
-        raw_l = raw_text.lower()
-        meta_l = meta_text.lower()
-
-        if not title or len(title) < 20:
-            return True, "blank/too-short title"
-
-        bad_title_bits = [
-            "fox news",
-            "subscribe",
-            "newsletter",
-            "sign up",
-            "watch:",
-            "video:",
-            "photos:",
-            "read more",
-            "click here",
-            "download the app",
-            "terms of use",
-            "privacy policy",
-            "advertisement",
-        ]
-
-        if any(bit in title_l for bit in bad_title_bits):
-            return True, "bad title/UI pattern"
-
-        if any(bit in raw_l for bit in ["getty images", "ap photo", "reuters"]):
-            if "/" in title or len(title.split()) <= 5:
-                return True, "image credit/caption text"
-
-        if any(bit in meta_l for bit in ["sponsored", "paid content", "advertisement"]):
-            return True, "sponsored/meta context"
-
-        return False, "candidate"
-
-    def _score_candidate(title, url, raw_text="", meta_text="", position=9999):
-        score = 1000.0
-
-        # Earlier homepage anchors are usually more important.
-        score += max(0, 700 - position * 10)
-
-        title_l = title.lower()
-        url_l = url.lower()
-        raw_l = raw_text.lower()
-        meta_l = meta_text.lower()
-
-        # Boost likely homepage lead card wording.
-        if any(bit in meta_l for bit in ["main", "primary", "lead", "article", "story"]):
-            score += 150
-
-        if any(bit in raw_l for bit in ["breaking", "exclusive"]):
-            score += 100
-
-        # Avoid lower-page collections.
-        if any(bit in raw_l for bit in ["trending", "latest", "more from"]):
-            score -= 150
-
-        if "/opinion/" in url_l:
-            score -= 80
-
-        return score
-
-    html = _fetch_url(homepage_url)
-
-    # Fox's actual homepage lead is the FIRST NewsArticle in the ordered
-    # WebPage/CollectionPage JSON-LD "hasPart" list. Preserve that order
-    # instead of scoring unrelated JSON-LD items as ties.
-    json_ld_scripts = re.findall(
-        r'<script[^>]+type=["\\\']application/ld\\+json["\\\'][^>]*>(.*?)</script>',
-        html,
-        flags=re.IGNORECASE | re.DOTALL,
+    homepage_url = (
+        NEWS_SOURCES[source_key].get("homepage_url")
+        or NEWS_SOURCES[source_key].get("homepage")
+        or "https://www.foxnews.com/"
     )
 
-    def _walk_json(value):
-        if isinstance(value, dict):
-            yield value
-            for child in value.values():
-                yield from _walk_json(child)
-        elif isinstance(value, list):
-            for child in value:
-                yield from _walk_json(child)
+    target_id = ""
+    ws_url = ""
+    last_error = None
 
-    for raw_json in json_ld_scripts:
-        try:
-            parsed_json = json.loads(raw_json.strip())
-        except Exception:
-            continue
+    try:
+        for attempt in range(1, 4):
+            try:
+                target_id, ws_url = _create_page()
+                _navigate(ws_url, homepage_url)
 
-        for node in _walk_json(parsed_json):
-            node_type = node.get("@type", "")
-            node_types = (
-                node_type
-                if isinstance(node_type, list)
-                else [node_type]
+                payload = _eval(
+                    ws_url,
+                    r"""
+(() => {
+    const clean = value => String(value || "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    const visible = element => {
+        const style = getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+
+        return (
+            style.display !== "none" &&
+            style.visibility !== "hidden" &&
+            Number(style.opacity || 1) > 0 &&
+            rect.width > 20 &&
+            rect.height > 10
+        );
+    };
+
+    const validFoxArticle = href => {
+        try {
+            const url = new URL(href);
+            const host = url.hostname.toLowerCase();
+            const path = url.pathname.toLowerCase();
+
+            if (!host.endsWith("foxnews.com")) return false;
+
+            const blocked = [
+                "/video/", "/watch/", "/shows/", "/person/", "/category/",
+                "/radio/", "/podcasts/", "/weather/", "/newsletter",
+                "/deals", "/fox-news-shop", "/login", "/search", "/about"
+            ];
+
+            if (blocked.some(bit => path.includes(bit))) return false;
+
+            return path.split("/").filter(Boolean).length >= 2;
+        } catch {
+            return false;
+        }
+    };
+
+    const blockedTitles = [
+        "subscribe", "newsletter", "sign up", "watch live",
+        "live tv", "weather", "advertisement", "sponsored",
+        "privacy policy", "terms of use"
+    ];
+
+    const candidates = [];
+    const seen = new Set();
+
+    for (const link of document.querySelectorAll("a[href]")) {
+        const href = String(link.href || "").trim();
+
+        if (!validFoxArticle(href) || !visible(link)) continue;
+
+        const nodes = [
+            link,
+            ...Array.from(
+                link.querySelectorAll(
+                    "h1, h2, h3, h4, h5, h6, [class*='headline'], [class*='title']"
+                )
             )
+        ].filter(visible);
 
-            if not any(
-                value in {"WebPage", "CollectionPage"}
-                for value in node_types
-            ):
-                continue
+        let best = null;
 
-            parts = node.get("hasPart", [])
-            if not isinstance(parts, list):
-                continue
+        for (const node of nodes) {
+            const title = clean(node.innerText || node.textContent);
+            const lower = title.toLowerCase();
 
-            for item in parts:
-                if not isinstance(item, dict):
-                    continue
+            if (
+                title.length < 20 ||
+                blockedTitles.some(bit => lower.includes(bit))
+            ) continue;
 
-                item_type = item.get("@type", "")
-                item_types = (
-                    item_type
-                    if isinstance(item_type, list)
-                    else [item_type]
+            const style = getComputedStyle(node);
+            const rect = node.getBoundingClientRect();
+
+            const card =
+                link.closest("article") ||
+                link.closest("li") ||
+                link.closest("section") ||
+                link;
+
+            const imageNodes = [
+                ...link.querySelectorAll("img"),
+                ...card.querySelectorAll("img")
+            ];
+
+            const normalizedTitle = title.toLowerCase();
+
+            const imageNode =
+                imageNodes.find(img => {
+                    const alt = String(img.alt || "")
+                        .replace(/\s+/g, " ")
+                        .trim()
+                        .toLowerCase();
+
+                    return alt.includes(normalizedTitle);
+                }) ||
+                imageNodes.find(img => {
+                    const imageRect = img.getBoundingClientRect();
+                    return imageRect.width > 100 && imageRect.height > 80;
+                }) ||
+                null;
+
+            const image = imageNode
+                ? String(
+                    imageNode.currentSrc ||
+                    imageNode.src ||
+                    imageNode.getAttribute("data-src") ||
+                    imageNode.getAttribute("data-lazy-src") ||
+                    ""
+                ).trim()
+                : "";
+
+            const item = {
+                title,
+                link: href,
+                image,
+                fontSize: parseFloat(style.fontSize || "0") || 0,
+                fontWeight: parseInt(style.fontWeight || "400", 10) || 400,
+                top: Math.round(rect.top),
+                left: Math.round(rect.left)
+            };
+
+            if (
+                !best ||
+                item.fontSize > best.fontSize ||
+                (
+                    item.fontSize === best.fontSize &&
+                    item.fontWeight > best.fontWeight
+                )
+            ) {
+                best = item;
+            }
+        }
+
+        if (!best) continue;
+
+        const key = `${best.title.toLowerCase()}|${best.link.toLowerCase()}`;
+
+        if (seen.has(key)) continue;
+
+        seen.add(key);
+        candidates.push(best);
+    }
+
+    candidates.sort((a, b) =>
+        b.fontSize - a.fontSize ||
+        b.fontWeight - a.fontWeight ||
+        a.top - b.top ||
+        a.left - b.left
+    );
+
+    return {
+        selected: candidates[0] || null
+    };
+})()
+""",
+                    timeout=25,
                 )
 
-                if "NewsArticle" not in item_types:
-                    continue
+                selected = (payload or {}).get("selected") or {}
+                title = clean_text(selected.get("title", ""))
+                link = str(selected.get("link", "") or "").strip()
+                image = str(selected.get("image", "") or "").strip()
 
-                title = _clean(item.get("headline", ""))
-                url = urljoin(
-                    homepage_url,
-                    str(item.get("url", "") or ""),
-                ).replace("\\/", "/")
-                image = str(item.get("image", "") or "")
-
-                if not _is_fox_article_url(url):
-                    continue
-
-                skip, _reason = _should_skip_title(title, url)
-
-                if skip:
-                    continue
+                if not title or not link:
+                    raise RuntimeError("No rendered Fox homepage lead article found")
 
                 print(
-                    "SELECTED FOX JSON-LD HOMEPAGE LEAD: "
-                    f"{title}"
+                    "SELECTED FOX RENDERED HOMEPAGE LEAD: "
+                    f"{title} | {selected.get('fontSize', 0)}px"
                 )
+                print(f"FOX RENDERED LEAD LINK: {link}")
+                print(f"FOX RENDERED LEAD IMAGE: {image}")
 
                 return {
                     "source": source_key,
                     "title": title,
-                    "link": url,
-                    "url": url,
+                    "link": link,
+                    "url": link,
                     "summary": "",
                     "image": image,
-                    "published": str(item.get("datePublished", "") or ""),
+                    "published": "",
                 }
 
-    parser = _FoxAnchorParser()
-    parser.feed(html)
+            except Exception as error:
+                last_error = error
+                print(f"Fox rendered lead attempt {attempt} failed: {error}")
 
-    candidates = []
-    seen = set()
+                if target_id:
+                    _close_page(target_id)
+                    target_id = ""
+                    ws_url = ""
 
-    for position, link in enumerate(parser.links, 1):
-        href = link.get("href") or ""
-        url = urljoin(homepage_url, href).replace("\\/", "/")
+                time.sleep(2)
 
-        if not _is_fox_article_url(url):
-            continue
+        raise RuntimeError(f"Fox rendered homepage lead failed: {last_error}")
 
-        title = link.get("text") or link.get("aria") or ""
-        title = _clean(title)
-
-        raw_text = link.get("raw_text", "")
-        meta_text = " ".join([
-            link.get("class", ""),
-            link.get("aria", ""),
-            link.get("data", ""),
-        ])
-
-        skip, reason = _should_skip_title(title, url, raw_text=raw_text, meta_text=meta_text)
-
-        if skip:
-            continue
-
-        key = (title.lower(), url.lower())
-        if key in seen:
-            continue
-        seen.add(key)
-
-        candidates.append({
-            "title": title,
-            "link": url,
-            "score": _score_candidate(
-                title,
-                url,
-                raw_text=raw_text,
-                meta_text=meta_text,
-                position=position,
-            ),
-            "position": position,
-            "reason": reason,
-        })
-
-    if not candidates:
-        raise RuntimeError("No usable FoxNews.com homepage lead article found")
-
-    selected = sorted(candidates, key=lambda item: item["score"], reverse=True)[0]
-
-    return {
-        "source": source_key,
-        "title": selected["title"],
-        "link": selected["link"],
-        "url": selected["link"],
-        "summary": "",
-        "image": "",
-        "published": "",
-    }
-
+    finally:
+        if target_id:
+            _close_page(target_id)
 
 def fetch_cnn_homepage_lead_article(source_key="CNN"):
     """
