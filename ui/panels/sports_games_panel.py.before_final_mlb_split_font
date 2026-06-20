@@ -262,86 +262,25 @@ class SportsGamesPanel(QWidget):
             if not score_lines:
                 score_lines = [matchup_text]
 
-            score_font = QFont("Georgia", 12 if compact else 13)
+            score_font = QFont("Georgia", 9 if compact else 10)
             score_font.setBold(True)
-
-            pitcher_font = QFont("Georgia", 12 if compact else 13)
-            pitcher_font.setBold(False)
-
-            winner_font = QFont("Georgia", 12 if compact else 13)
-            winner_font.setBold(True)
+            painter.setFont(score_font)
+            painter.setPen(QColor("#17100a"))
 
             score_top = row.top() + 1
-            line_height = 16 if compact else 18
+            line_height = 11 if compact else 12
 
             for index, line in enumerate(score_lines[:2]):
-                line_rect = QRectF(
-                    left,
-                    score_top + index * line_height,
-                    width,
-                    line_height + 2,
-                )
-
-                if " - " not in line:
-                    painter.setFont(score_font)
-                    painter.setPen(QColor("#17100a"))
-                    painter.drawText(
-                        line_rect,
-                        Qt.AlignLeft | Qt.AlignVCenter,
-                        line,
-                    )
-                    continue
-
-                bold_part, pitcher_part = line.split(" - ", 1)
-                bold_text = f"{bold_part} - "
-
-                painter.setFont(score_font)
-                painter.setPen(QColor("#17100a"))
-                painter.drawText(
-                    line_rect,
-                    Qt.AlignLeft | Qt.AlignVCenter,
-                    bold_text,
-                )
-
-                bold_width = painter.fontMetrics().horizontalAdvance(bold_text)
-
-                winner_suffix = ""
-                pitcher_name = pitcher_part
-
-                if pitcher_part.endswith(" (W)"):
-                    pitcher_name = pitcher_part[:-4]
-                    winner_suffix = " (W)"
-
-                painter.setFont(pitcher_font)
-                painter.setPen(QColor("#4f3c25"))
                 painter.drawText(
                     QRectF(
-                        left + bold_width,
-                        line_rect.top(),
-                        max(1, width - bold_width),
-                        line_rect.height(),
+                        left,
+                        score_top + index * line_height,
+                        width,
+                        line_height + 2,
                     ),
                     Qt.AlignLeft | Qt.AlignVCenter,
-                    pitcher_name,
+                    line,
                 )
-
-                if winner_suffix:
-                    pitcher_width = painter.fontMetrics().horizontalAdvance(
-                        pitcher_name
-                    )
-
-                    painter.setFont(winner_font)
-                    painter.setPen(QColor("#17100a"))
-                    painter.drawText(
-                        QRectF(
-                            left + bold_width + pitcher_width,
-                            line_rect.top(),
-                            max(1, width - bold_width - pitcher_width),
-                            line_rect.height(),
-                        ),
-                        Qt.AlignLeft | Qt.AlignVCenter,
-                        winner_suffix,
-                    )
 
             if detail_text:
                 detail_font = QFont("Times New Roman", 13 if compact else 15)

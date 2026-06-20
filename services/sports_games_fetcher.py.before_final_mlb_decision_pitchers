@@ -245,7 +245,7 @@ def build_mlb_schedule_url(date_from, date_to):
         "sportId": 1,
         "startDate": f"{date_from:%Y-%m-%d}",
         "endDate": f"{date_to:%Y-%m-%d}",
-        "hydrate": "team,probablePitcher,linescore,broadcasts(all),decisions",
+        "hydrate": "team,probablePitcher,linescore,broadcasts(all)",
     }
 
     return f"{MLB_SCHEDULE_ENDPOINT}?{urlencode(query)}"
@@ -291,37 +291,6 @@ def is_mlb_favorite_game(game, favorite_teams=None):
     return bool(get_mlb_team_abbreviations(game) & selected_teams)
 
 
-def short_mlb_pitcher_name(pitcher):
-    full_name = str((pitcher or {}).get("fullName", "") or "").strip()
-
-    if not full_name:
-        return "TBD"
-
-    parts = full_name.split()
-
-    if len(parts) == 1:
-        return parts[0]
-
-    return f"{parts[0][0]}. {parts[-1]}"
-
-
-def get_mlb_decision_pitcher(game, decision):
-    decisions = game.get("decisions", {}) or {}
-
-    aliases = {
-        "winner": ("winner", "win"),
-        "loser": ("loser", "loss"),
-    }
-
-    for key in aliases.get(decision, (decision,)):
-        pitcher = decisions.get(key) or {}
-
-        if pitcher:
-            return pitcher
-
-    return {}
-
-
 def build_mlb_matchup(game):
     teams = game.get("teams", {})
     away = teams.get("away", {})
@@ -346,22 +315,12 @@ def build_mlb_matchup(game):
             away_score_number = away_score
             home_score_number = home_score
 
-        winner_pitcher = short_mlb_pitcher_name(
-            get_mlb_decision_pitcher(game, "winner")
-        )
-        loser_pitcher = short_mlb_pitcher_name(
-            get_mlb_decision_pitcher(game, "loser")
-        )
-
-        if away_score_number > home_score_number:
-            return (
-                f"{away_display} {away_score} - {winner_pitcher} (W)\n"
-                f"{home_display} {home_score} - {loser_pitcher}"
-            )
+        away_winner = " W" if away_score_number > home_score_number else ""
+        home_winner = " W" if home_score_number > away_score_number else ""
 
         return (
-            f"{home_display} {home_score} - {winner_pitcher} (W)\n"
-            f"{away_display} {away_score} - {loser_pitcher}"
+            f"{away_display} {away_score}{away_winner}\n"
+            f"{home_display} {home_score}{home_winner}"
         )
 
     if away_score is not None and home_score is not None:
@@ -392,9 +351,6 @@ def format_mlb_time(game):
 
 
 def build_mlb_detail(game):
-    if "final" in get_mlb_game_status(game).lower():
-        return ""
-
     teams = game.get("teams", {})
     away = teams.get("away", {})
     home = teams.get("home", {})
