@@ -239,6 +239,55 @@ class ArticleTextWorker(QThread):
             self.failed.emit(str(error))
 
 
+class ConnectedNewspaperSpread(QWidget):
+    """
+    One continuous two-page newspaper surface.
+    The labels sit on top of this background, while this widget paints the
+    shared paper texture, outside border, and center fold.
+    """
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+
+        rect = self.rect().adjusted(1, 1, -1, -1)
+
+        paper = QLinearGradient(rect.topLeft(), rect.bottomRight())
+        paper.setColorAt(0.0, QColor("#fff1d3"))
+        paper.setColorAt(0.48, QColor("#f6e4bd"))
+        paper.setColorAt(0.52, QColor("#ead4a8"))
+        paper.setColorAt(1.0, QColor("#fff0d0"))
+
+        painter.setPen(QPen(QColor(75, 51, 28, 185), 1))
+        painter.setBrush(paper)
+        painter.drawRect(rect)
+
+        center_x = rect.center().x()
+
+        # Dark recessed side of the fold.
+        fold_shadow = QLinearGradient(center_x - 10, 0, center_x + 4, 0)
+        fold_shadow.setColorAt(0.0, QColor(75, 48, 25, 0))
+        fold_shadow.setColorAt(0.55, QColor(74, 45, 22, 95))
+        fold_shadow.setColorAt(1.0, QColor(74, 45, 22, 0))
+        painter.fillRect(
+            QRectF(center_x - 10, rect.top(), 14, rect.height()),
+            fold_shadow,
+        )
+
+        # Light raised side of the fold.
+        fold_highlight = QLinearGradient(center_x - 1, 0, center_x + 10, 0)
+        fold_highlight.setColorAt(0.0, QColor(255, 249, 225, 0))
+        fold_highlight.setColorAt(0.45, QColor(255, 249, 225, 120))
+        fold_highlight.setColorAt(1.0, QColor(255, 249, 225, 0))
+        painter.fillRect(
+            QRectF(center_x - 1, rect.top(), 12, rect.height()),
+            fold_highlight,
+        )
+
+        painter.setPen(QPen(QColor(91, 59, 31, 120), 1))
+        painter.drawLine(center_x, rect.top() + 2, center_x, rect.bottom() - 2)
+
+
 class OpenNewspaperDialog(QDialog):
     def __init__(self, source, headline, article_url, parent=None):
         super().__init__(parent)
@@ -282,14 +331,19 @@ class OpenNewspaperDialog(QDialog):
 
             QLabel#NewspaperPage,
             QTextEdit#NewspaperPage {
-                background-color: #f3e6c9;
+                background: transparent;
                 color: #1b130c;
-                border: 1px solid rgba(62, 42, 20, 180);
-                border-radius: 2px;
-                padding: 16px;
+                border: none;
+                border-radius: 0px;
+                padding: 18px;
                 font-family: "American Typewriter", "Courier New", monospace;
                 font-size: 21px;
                 line-height: 156%;
+            }
+
+            QWidget#NewspaperFold {
+                background: transparent;
+                border: none;
             }
 
             QPushButton#PageTurnButton {
@@ -362,9 +416,12 @@ class OpenNewspaperDialog(QDialog):
         self.headline_label.setWordWrap(True)
         root.addWidget(self.headline_label)
 
-        spread = QHBoxLayout()
+        self.spread_surface = ConnectedNewspaperSpread()
+        self.spread_surface.setObjectName("ConnectedNewspaperSpread")
+
+        spread = QHBoxLayout(self.spread_surface)
         spread.setContentsMargins(0, 0, 0, 0)
-        spread.setSpacing(10)
+        spread.setSpacing(0)
 
         self.left_page = QLabel()
         self.left_page.setObjectName("NewspaperPage")
@@ -382,9 +439,15 @@ class OpenNewspaperDialog(QDialog):
         self.right_page.setFocusPolicy(Qt.NoFocus)
         self.right_page.setAlignment(Qt.AlignLeft | Qt.AlignTop)
 
+        self.fold = QWidget()
+        self.fold.setObjectName("NewspaperFold")
+        self.fold.setFixedWidth(14)
+
         spread.addWidget(self.left_page, 1)
+        spread.addWidget(self.fold)
         spread.addWidget(self.right_page, 1)
-        root.addLayout(spread, 1)
+
+        root.addWidget(self.spread_surface, 1)
 
         controls = QHBoxLayout()
         controls.setContentsMargins(0, 0, 0, 0)
