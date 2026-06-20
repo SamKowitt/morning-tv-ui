@@ -169,6 +169,60 @@ class NewspaperImagePanel(QWidget):
 
 
 
+class ArticleImageWorker(QThread):
+    image_ready = Signal(int, str, bytes)
+    failed = Signal(int, str)
+
+    def __init__(self, request_token, source, article_url, image_url):
+        super().__init__()
+        self.request_token = request_token
+        self.source = str(source or "")
+        self.article_url = str(article_url or "")
+        self.image_url = str(image_url or "")
+
+    def run(self):
+        try:
+            source_upper = self.source.upper().strip()
+            image_url = self.image_url
+            image_bytes = b""
+
+            if source_upper == "NEWSMAX":
+                from services.newsmax_chrome import (
+                    fetch_newsmax_article_image_url,
+                    fetch_newsmax_image_jpeg_bytes,
+                )
+
+                if not image_url:
+                    image_url = fetch_newsmax_article_image_url(self.article_url)
+
+                if image_url:
+                    image_bytes = fetch_newsmax_image_jpeg_bytes(image_url)
+
+            else:
+                from services.news_fetcher import (
+                    download_image_bytes,
+                    find_page_image_url,
+                )
+
+                if not image_url:
+                    image_url = find_page_image_url(self.article_url)
+
+                if image_url:
+                    image_bytes = download_image_bytes(image_url)
+
+            if not image_bytes:
+                raise RuntimeError("No usable image bytes returned")
+
+            self.image_ready.emit(
+                self.request_token,
+                image_url,
+                image_bytes,
+            )
+
+        except Exception as error:
+            self.failed.emit(self.request_token, str(error))
+
+
 class ArticleTextWorker(QThread):
     finished_payload = Signal(object)
     failed = Signal(str)
@@ -233,9 +287,9 @@ class OpenNewspaperDialog(QDialog):
                 border: 1px solid rgba(62, 42, 20, 180);
                 border-radius: 2px;
                 padding: 16px;
-                font-family: "Georgia";
-                font-size: 16px;
-                line-height: 130%;
+                font-family: "American Typewriter", "Courier New", monospace;
+                font-size: 21px;
+                line-height: 156%;
             }
 
             QPushButton#PageTurnButton {
@@ -373,16 +427,19 @@ class OpenNewspaperDialog(QDialog):
         self.pages = [f"Could not load article text.\n\n{message}"]
         self.spread_index = 0
         self.render_spread()
-        if self.worker:
-            self.worker.quit()
-            self.worker.wait()
-            self.worker = None
+
+        worker = self.worker
+        self.worker = None
+
+        if worker:
+            worker.deleteLater()
 
     def set_article_payload(self, payload):
-        if self.worker:
-            self.worker.quit()
-            self.worker.wait()
-            self.worker = None
+        worker = self.worker
+        self.worker = None
+
+        if worker:
+            worker.deleteLater()
 
         payload = payload or {}
         is_live = bool(payload.get("is_live"))
@@ -400,7 +457,7 @@ class OpenNewspaperDialog(QDialog):
         if not display_text.strip():
             display_text = "No article text was found for this page."
 
-        self.pages = self.paginate_text(display_text, chars_per_page=1100)
+        self.pages = self.paginate_text(display_text, chars_per_page=620)
         self.spread_index = 0
         self.render_spread()
 
@@ -618,6 +675,9 @@ class NewsCard(QWidget):
         self.page2_widgets = []
         self.page2_widget_urls = {}
 
+        self.image_request_token = 0
+        self.image_workers = set()
+
         self.setObjectName("NewspaperNewsCard")
         self.setAttribute(Qt.WA_StyledBackground, False)
         self.setCursor(Qt.PointingHandCursor)
@@ -828,6 +888,55 @@ class NewsCard(QWidget):
         self.image.show()
         self.headline_label.show()
 
+
+    def start_background_image_load(self, source, article_url, image_url=""):
+        article_url = str(article_url or "").strip()
+
+        if not article_url:
+            return
+
+        self.image_request_token += 1
+        token = self.image_request_token
+
+        worker = ArticleImageWorker(
+            request_token=token,
+            source=source,
+            article_url=article_url,
+            image_url=image_url,
+        )
+
+        self.image_workers.add(worker)
+
+        worker.image_ready.connect(self.apply_background_image)
+        worker.failed.connect(self.background_image_failed)
+
+        def cleanup():
+            self.image_workers.discard(worker)
+            worker.deleteLater()
+
+        worker.finished.connect(cleanup)
+        worker.start()
+
+    def apply_background_image(self, token, image_url, image_bytes):
+        if token != self.image_request_token:
+            return
+
+        if not image_bytes:
+            return
+
+        self.image.set_pixmap_from_data(image_bytes)
+
+        print(
+            f"BACKGROUND IMAGE READY: "
+            f"{self.source} | {len(image_bytes)} bytes | {image_url}"
+        )
+
+    def background_image_failed(self, token, message):
+        if token != self.image_request_token:
+            return
+
+        print(f"BACKGROUND IMAGE FAILED: {self.source} -> {message}")
+
     def update_article(self, article):
         self.clear_page2_widgets()
         self.outer_layout.setStretchFactor(self.text_panel, 16)
@@ -871,10 +980,18 @@ class NewsCard(QWidget):
             self.text_panel.setCursor(Qt.ArrowCursor)
             self.headline_label.setCursor(Qt.ArrowCursor)
 
-        if getattr(article, "image_bytes", b""):
-            self.image.set_pixmap_from_data(article.image_bytes)
+        image_bytes = getattr(article, "image_bytes", b"") or b""
+        image_url = getattr(article, "image_url", "") or ""
+
+        if image_bytes:
+            self.image.set_pixmap_from_data(image_bytes)
         else:
             self.image.set_pixmap_from_data(b"")
+            self.start_background_image_load(
+                source=article.source,
+                article_url=self.article_url,
+                image_url=image_url,
+            )
 
     def update_article_list(self, articles, page_label="PAGE 2"):
         self.clear_page2_widgets()
@@ -1017,10 +1134,23 @@ class NewsCard(QWidget):
 
         if parent_window:
             parent_rect = parent_window.rect()
-            width = min(1120, int(parent_rect.width() * 0.82))
-            height = min(650, int(parent_rect.height() * 0.78))
+
+            # Keep the existing wide newspaper spread shape while using nearly
+            # the entire dashboard window.
+            aspect_ratio = 1120 / 650
+            max_width = int(parent_rect.width())
+            max_height = int(parent_rect.height())
+
+            width = max_width
+            height = int(width / aspect_ratio)
+
+            if height > max_height:
+                height = max_height
+                width = int(height * aspect_ratio)
+
             x = int((parent_rect.width() - width) / 2)
             y = int((parent_rect.height() - height) / 2)
+
             self.article_dialog.setGeometry(x, y, width, height)
 
         self.article_dialog.show()

@@ -12,6 +12,8 @@ from dataclasses import asdict, dataclass
 from difflib import SequenceMatcher
 
 import certifi
+from services.article_text_fetcher import prefetch_article_text_payload
+from services.newsmax_chrome import fetch_newsmax_homepage_article
 
 
 @dataclass
@@ -878,14 +880,13 @@ def download_image_bytes(image_url):
 
 
 def enrich_article(article):
-    # Fast headline first, but still try one quick image lookup if the selected
-    # candidate did not include an image URL.
-    if not article.image_url and article.link:
-        article.image_url = find_page_image_url(article.link)
+    """
+    Keep headline fetching fast.
 
-    if article.image_url:
-        article.image_bytes = download_image_bytes(article.image_url)
-
+    Images are loaded asynchronously by NewsCard after the dashboard is visible.
+    This prevents slow image pages, AVIF conversions, or blocked image hosts from
+    delaying the entire news-card request.
+    """
     return article
 
 
@@ -1031,9 +1032,54 @@ def fetch_ranked_candidates(source_key):
 
 
 def fetch_configured_article(source_key):
+    source_key = normalize_source_key(source_key)
+
+    # Newsmax works through Chrome on this Mac but direct urllib/RSS requests
+    # can hang or return incorrect results. Never use the generic route here.
+    if source_key == "NEWSMAX":
+        try:
+            payload = fetch_newsmax_homepage_article()
+
+            article_url = payload.get("link", "") or ""
+
+            # Return the Newsmax card immediately. Its image is fetched separately
+            # after the dashboard is visible so Chrome image work cannot stall launch.
+            return NewsArticle(
+                title=payload.get("title", "") or "",
+                source=NEWS_SOURCES["NEWSMAX"]["source_name"],
+                image_url="",
+                link=article_url,
+                image_bytes=b"",
+            )
+        except Exception as error:
+            print(f"NEWSMAX Chrome resolver failed: {error}")
+            return fallback_article(
+                "NEWSMAX",
+                "Chrome-backed Newsmax fetch failed: " + str(error),
+            )
+
     if source_key == "CNN":
         try:
-            return fetch_cnn_homepage_lead_article(source_key)
+            payload = fetch_source_specific_homepage_lead_article(source_key)
+
+            # CNN source-specific resolver returns a dict. The UI/news validation code
+            # expects the normal article object with .source, .title, .link, etc.
+            article = fallback_article(source_key, "")
+            article.source = NEWS_SOURCES[source_key]["source_name"]
+            article.title = payload.get("title", "") or ""
+            article.link = payload.get("link", "") or payload.get("url", "") or ""
+            article.summary = payload.get("summary", "") or ""
+            article.image_url = payload.get("image", "") or payload.get("image_url", "") or ""
+            article.image_bytes = payload.get("image_bytes", b"") or b""
+
+            try:
+                article = enrich_article(article)
+            except Exception as enrich_error:
+                print(f"CNN source-specific article enrich failed: {enrich_error}")
+
+            cache_article(source_key, article)
+            return article
+
         except Exception as error:
             print(f"CNN direct homepage resolver failed: {error}; falling back to generic logic")
 
@@ -1115,6 +1161,18 @@ def fetch_configured_article(source_key):
     return fallback_article(source_key, " | ".join(errors))
 
 
+
+def _preload_article_text_for_value(value):
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            _preload_article_text_for_value(item)
+        return
+
+    url = str(getattr(value, "link", "") or "").strip()
+
+    if url:
+        prefetch_article_text_payload(url)
+
 def fetch_news_cards(left_source_key="FOX", right_source_key="CNBC"):
     left_source_key = normalize_source_key(left_source_key)
     right_source_key = normalize_source_key(right_source_key)
@@ -1124,6 +1182,9 @@ def fetch_news_cards(left_source_key="FOX", right_source_key="CNBC"):
 
         left_article = articles[0]
         right_articles = articles[1:5]
+
+        _preload_article_text_for_value(left_article)
+        _preload_article_text_for_value(right_articles)
 
         return left_article, right_articles
 
@@ -1135,6 +1196,9 @@ def fetch_news_cards(left_source_key="FOX", right_source_key="CNBC"):
 
         left_article = left_future.result()
         right_article = right_future.result()
+
+    _preload_article_text_for_value(left_article)
+    _preload_article_text_for_value(right_article)
 
     return left_article, right_article
 
@@ -2180,3 +2244,608 @@ def fetch_cnn_homepage_lead_article(source_key="CNN"):
     print(f'SELECTED CNN HOMEPAGE IMAGE: "{final_image}"')
     return article
 
+
+
+# ============================================================
+# Source-specific homepage lead resolvers
+# Added so FoxNews.com and CNN.com do NOT share the same rules.
+# Fox keeps the existing homepage-anchor logic.
+# CNN gets CNN-specific logic that allows live-news lead stories.
+# ============================================================
+
+try:
+    _FOX_EXISTING_HOMEPAGE_LEAD_RESOLVER = fetch_cnn_homepage_lead_article
+except NameError:
+    _FOX_EXISTING_HOMEPAGE_LEAD_RESOLVER = None
+
+
+def fetch_fox_homepage_lead_article(source_key="FOX"):
+    """
+    FoxNews.com resolver.
+
+    Fox uses different URL patterns than CNN. Fox articles usually look like:
+      https://www.foxnews.com/politics/...
+      https://www.foxnews.com/world/...
+      https://www.foxnews.com/us/...
+
+    This resolver does NOT use the CNN /202 date URL rule.
+    """
+    import re
+    import ssl
+    import urllib.request
+    from html import unescape
+    from html.parser import HTMLParser
+    from urllib.parse import urljoin
+
+    config = NEWS_SOURCES[source_key]
+    homepage_url = config.get("homepage_url") or config.get("homepage") or "https://www.foxnews.com/"
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/125.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+
+    def _fetch_url(url):
+        try:
+            return fetch_url_text(url, timeout=20)
+        except Exception:
+            req = urllib.request.Request(url, headers=headers)
+            ctx = ssl._create_unverified_context()
+            with urllib.request.urlopen(req, timeout=20, context=ctx) as resp:
+                return resp.read().decode("utf-8", errors="replace")
+
+    def _clean(value):
+        value = unescape(str(value or ""))
+
+        try:
+            value = value.encode("utf-8").decode("unicode_escape", errors="ignore")
+        except Exception:
+            pass
+
+        value = re.sub(r"<[^>]+>", " ", value)
+        value = re.sub(r"\s+", " ", value).strip()
+
+        # Fox-specific UI cleanup.
+        value = re.sub(r"^(Video|Watch|Photos|Opinion)\s*[:|-]\s*", "", value, flags=re.I).strip()
+        value = re.sub(r"\s+\|\s+Fox News$", "", value, flags=re.I).strip()
+
+        try:
+            return clean_text(value)
+        except Exception:
+            return value
+
+    class _FoxAnchorParser(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.links = []
+            self.current = None
+
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+
+            if tag == "a" and attrs.get("href"):
+                self.current = {
+                    "href": attrs.get("href", ""),
+                    "text_parts": [],
+                    "class": attrs.get("class", ""),
+                    "aria": attrs.get("aria-label", ""),
+                    "data": " ".join(
+                        f"{k}={v}" for k, v in attrs.items() if k.startswith("data-")
+                    ),
+                }
+
+        def handle_data(self, data):
+            if self.current is not None:
+                self.current["text_parts"].append(data)
+
+        def handle_endtag(self, tag):
+            if tag == "a" and self.current is not None:
+                raw_text = " ".join(self.current["text_parts"])
+                self.current["raw_text"] = raw_text
+                self.current["text"] = _clean(raw_text)
+                self.current["aria"] = _clean(self.current["aria"])
+                self.links.append(self.current)
+                self.current = None
+
+    def _is_fox_article_url(url):
+        low = url.lower()
+
+        if "foxnews.com/" not in low:
+            return False
+
+        bad_bits = [
+            "/video/",
+            "/watch/",
+            "/shows/",
+            "/person/",
+            "/category/",
+            "/media/",
+            "/radio/",
+            "/podcasts/",
+            "/weather/",
+            "/newsletter",
+            "/deals",
+            "/fox-news-shop",
+            "/login",
+            "/search",
+            "/about",
+        ]
+
+        if any(bit in low for bit in bad_bits):
+            return False
+
+        # Reject the plain homepage and top-level section pages.
+        path = low.split("foxnews.com", 1)[-1].strip("/")
+        if not path:
+            return False
+
+        parts = [part for part in path.split("/") if part]
+        if len(parts) < 2:
+            return False
+
+        allowed_sections = {
+            "politics",
+            "us",
+            "world",
+            "opinion",
+            "media",
+            "entertainment",
+            "sports",
+            "lifestyle",
+            "health",
+            "science",
+            "tech",
+        }
+
+        return parts[0] in allowed_sections
+
+    def _should_skip_title(title, url, raw_text="", meta_text=""):
+        title_l = title.lower()
+        raw_l = raw_text.lower()
+        meta_l = meta_text.lower()
+
+        if not title or len(title) < 20:
+            return True, "blank/too-short title"
+
+        bad_title_bits = [
+            "fox news",
+            "subscribe",
+            "newsletter",
+            "sign up",
+            "watch:",
+            "video:",
+            "photos:",
+            "read more",
+            "click here",
+            "download the app",
+            "terms of use",
+            "privacy policy",
+            "advertisement",
+        ]
+
+        if any(bit in title_l for bit in bad_title_bits):
+            return True, "bad title/UI pattern"
+
+        if any(bit in raw_l for bit in ["getty images", "ap photo", "reuters"]):
+            if "/" in title or len(title.split()) <= 5:
+                return True, "image credit/caption text"
+
+        if any(bit in meta_l for bit in ["sponsored", "paid content", "advertisement"]):
+            return True, "sponsored/meta context"
+
+        return False, "candidate"
+
+    def _score_candidate(title, url, raw_text="", meta_text="", position=9999):
+        score = 1000.0
+
+        # Earlier homepage anchors are usually more important.
+        score += max(0, 700 - position * 10)
+
+        title_l = title.lower()
+        url_l = url.lower()
+        raw_l = raw_text.lower()
+        meta_l = meta_text.lower()
+
+        # Boost likely homepage lead card wording.
+        if any(bit in meta_l for bit in ["main", "primary", "lead", "article", "story"]):
+            score += 150
+
+        if any(bit in raw_l for bit in ["breaking", "exclusive"]):
+            score += 100
+
+        # Avoid lower-page collections.
+        if any(bit in raw_l for bit in ["trending", "latest", "more from"]):
+            score -= 150
+
+        if "/opinion/" in url_l:
+            score -= 80
+
+        return score
+
+    html = _fetch_url(homepage_url)
+
+    parser = _FoxAnchorParser()
+    parser.feed(html)
+
+    candidates = []
+    seen = set()
+
+    for position, link in enumerate(parser.links, 1):
+        href = link.get("href") or ""
+        url = urljoin(homepage_url, href).replace("\\/", "/")
+
+        if not _is_fox_article_url(url):
+            continue
+
+        title = link.get("text") or link.get("aria") or ""
+        title = _clean(title)
+
+        raw_text = link.get("raw_text", "")
+        meta_text = " ".join([
+            link.get("class", ""),
+            link.get("aria", ""),
+            link.get("data", ""),
+        ])
+
+        skip, reason = _should_skip_title(title, url, raw_text=raw_text, meta_text=meta_text)
+
+        if skip:
+            continue
+
+        key = (title.lower(), url.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+
+        candidates.append({
+            "title": title,
+            "link": url,
+            "score": _score_candidate(
+                title,
+                url,
+                raw_text=raw_text,
+                meta_text=meta_text,
+                position=position,
+            ),
+            "position": position,
+            "reason": reason,
+        })
+
+    if not candidates:
+        raise RuntimeError("No usable FoxNews.com homepage lead article found")
+
+    selected = sorted(candidates, key=lambda item: item["score"], reverse=True)[0]
+
+    return {
+        "source": source_key,
+        "title": selected["title"],
+        "link": selected["link"],
+        "url": selected["link"],
+        "summary": "",
+        "image": "",
+        "published": "",
+    }
+
+
+def fetch_cnn_homepage_lead_article(source_key="CNN"):
+    """
+    CNN.com resolver.
+
+    CNN often places the lead headline on /live-news/ URLs, so CNN needs
+    separate rules from Fox. In particular, do NOT reject /live-news/.
+    """
+    import re
+    import ssl
+    import urllib.request
+    from html import unescape
+    from html.parser import HTMLParser
+    from urllib.parse import urljoin
+
+    config = NEWS_SOURCES[source_key]
+    homepage_url = config.get("homepage_url") or config.get("homepage") or "https://www.cnn.com/"
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/125.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+
+    def _fetch_url(url):
+        try:
+            return fetch_url_text(url, timeout=20)
+        except Exception:
+            req = urllib.request.Request(url, headers=headers)
+            ctx = ssl._create_unverified_context()
+            with urllib.request.urlopen(req, timeout=20, context=ctx) as resp:
+                return resp.read().decode("utf-8", errors="replace")
+
+    def _clean(value):
+        value = unescape(str(value or ""))
+
+        replacements = {
+            "Ã¢Â€Â™": "'",
+            "Ã¢Â€Â˜": "'",
+            "Ã¢Â€Âœ": '"',
+            "Ã¢Â€Â�": '"',
+            "Ã¢Â€Â�": '"',
+            "Ã¢Â�Â�": '"',
+            "Ã¢Â�Â¢": "•",
+            "Ã¢Â€Â¢": "•",
+        }
+
+        for bad, good in replacements.items():
+            value = value.replace(bad, good)
+
+        value = re.sub(r"<[^>]+>", " ", value)
+        value = re.sub(r"\s+", " ", value).strip()
+
+        # CNN-specific UI cleanup.
+        value = re.sub(r"\s+Show\s+all\s*$", "", value, flags=re.I).strip()
+        value = re.sub(r"^•\s*", "", value).strip()
+        value = re.sub(
+            r"^Live Updates\s+(?:\d+\s+min(?:ute)?s? ago|a min ago)\s+",
+            "",
+            value,
+            flags=re.I,
+        ).strip()
+        value = re.sub(
+            r"^(Breaking News|Analysis|Video|CNN Exclusive|For Subscribers)\s+",
+            "",
+            value,
+            flags=re.I,
+        ).strip()
+
+        try:
+            return clean_text(value)
+        except Exception:
+            return value
+
+    class _CNNAnchorParser(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.links = []
+            self.current = None
+
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+
+            if tag == "a" and attrs.get("href"):
+                self.current = {
+                    "href": attrs.get("href", ""),
+                    "text_parts": [],
+                    "class": attrs.get("class", ""),
+                    "aria": attrs.get("aria-label", ""),
+                    "data": " ".join(
+                        f"{k}={v}" for k, v in attrs.items() if k.startswith("data-")
+                    ),
+                }
+
+        def handle_data(self, data):
+            if self.current is not None:
+                self.current["text_parts"].append(data)
+
+        def handle_endtag(self, tag):
+            if tag == "a" and self.current is not None:
+                raw_text = " ".join(self.current["text_parts"])
+                self.current["raw_text"] = raw_text
+                self.current["text"] = _clean(raw_text)
+                self.current["aria"] = _clean(self.current["aria"])
+                self.links.append(self.current)
+                self.current = None
+
+    def _is_cnn_article_url(url):
+        low = url.lower()
+
+        if "cnn.com/202" not in low:
+            return False
+
+        # CNN difference from Fox:
+        # DO NOT block /live-news/ because CNN's main lead is often there.
+        bad_bits = [
+            "/videos/",
+            "/audio/",
+            "/podcasts/",
+            "/cnn-underscored/",
+            "/style/",
+            "/travel/",
+            "/entertainment/",
+            "/weather/",
+            "/interactive/",
+            "/gallery/",
+            "/profiles/",
+        ]
+
+        return not any(bit in low for bit in bad_bits)
+
+    def _should_skip_title(title, url, raw_text="", meta_text=""):
+        title_l = title.lower()
+        url_l = url.lower()
+        raw_l = raw_text.lower()
+        meta_l = meta_text.lower()
+
+        if not title or len(title) < 20:
+            return True, "blank/too-short title"
+
+        if title_l in {"trending primary results", "obtained from social media"}:
+            return True, "navigation/UI text"
+
+        bad_title_bits = [
+            "all there is with anderson cooper",
+            "chasing life with dr. sanjay gupta",
+            "the assignment with audie cornish",
+            "cnn underscored",
+            "newsletter",
+            "subscribe",
+            "sign up",
+            "listen to",
+            "watch:",
+            "video ",
+            "video:",
+            "photos:",
+            "for subscribers",
+            "paid content",
+            "advertisement",
+            "getty images",
+            "afp/getty",
+            "ap photo",
+            "reuters",
+            "bloomberg/getty",
+            "/ap",
+            "/getty",
+            "read the whole",
+        ]
+
+        if any(bit in title_l for bit in bad_title_bits):
+            return True, "bad title/caption/UI pattern"
+
+        credit_patterns = [
+            r"^[A-Z][A-Za-z .'-]+/[A-Z]{2,}$",
+            r"^[A-Z][A-Za-z .'-]+/(AP|Reuters|Getty Images|AFP|Bloomberg)(/Getty Images)?$",
+            r"^[A-Z][A-Za-z .'-]+\s*/\s*(AP|Reuters|Getty Images|AFP|Bloomberg)",
+        ]
+
+        for pattern in credit_patterns:
+            if re.search(pattern, title, flags=re.I):
+                return True, "image credit/caption text"
+
+        if any(bit in raw_l for bit in ["getty images", "afp/getty", "ap photo", "reuters", "bloomberg/getty"]):
+            if "/" in title or len(title.split()) <= 5:
+                return True, "raw caption/source text"
+
+        bad_meta_bits = [
+            "podcast",
+            "audio",
+            "cnn underscored",
+            "paid content",
+            "sponsored",
+            "newsletter",
+        ]
+
+        if any(bit in meta_l for bit in bad_meta_bits):
+            return True, "bad module/meta context"
+
+        if any(bit in url_l for bit in ["/audio/", "/podcasts/", "/cnn-underscored/", "/videos/"]):
+            return True, "bad URL type"
+
+        return False, "candidate"
+
+    def _score_candidate(title, url, raw_text="", meta_text="", position=9999):
+        title_l = title.lower()
+        url_l = url.lower()
+        raw_l = raw_text.lower()
+        meta_l = meta_text.lower()
+
+        score = 1000.0
+
+        # Earlier homepage anchors are usually more important.
+        score += max(0, 600 - position * 10)
+
+        # CNN homepage lead/live-news boost.
+        if "/live-news/" in url_l:
+            score += 500
+
+        if any(word in title_l for word in ["trump", "iran", "israel", "war", "supreme court", "white house"]):
+            score += 120
+
+        if "homepage" in meta_l or "zone" in meta_l or "card" in meta_l:
+            score += 75
+
+        if "live updates" in raw_l:
+            score -= 80
+
+        if "trending" in raw_l or "latest" in raw_l:
+            score -= 120
+
+        return score
+
+    html = _fetch_url(homepage_url)
+
+    parser = _CNNAnchorParser()
+    parser.feed(html)
+
+    candidates = []
+    seen = set()
+
+    for position, link in enumerate(parser.links, 1):
+        href = link.get("href") or ""
+        url = urljoin(homepage_url, href).replace("\\/", "/")
+
+        if not _is_cnn_article_url(url):
+            continue
+
+        title = link.get("text") or link.get("aria") or ""
+        title = _clean(title)
+
+        raw_text = link.get("raw_text", "")
+        meta_text = " ".join([
+            link.get("class", ""),
+            link.get("aria", ""),
+            link.get("data", ""),
+        ])
+
+        skip, reason = _should_skip_title(title, url, raw_text=raw_text, meta_text=meta_text)
+
+        if skip:
+            continue
+
+        key = (title.lower(), url.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+
+        candidates.append({
+            "title": title,
+            "link": url,
+            "score": _score_candidate(
+                title,
+                url,
+                raw_text=raw_text,
+                meta_text=meta_text,
+                position=position,
+            ),
+            "position": position,
+            "reason": reason,
+        })
+
+    if not candidates:
+        raise RuntimeError("No usable CNN homepage lead article found")
+
+    selected = sorted(candidates, key=lambda item: item["score"], reverse=True)[0]
+
+    return {
+        "source": source_key,
+        "title": selected["title"],
+        "link": selected["link"],
+        "url": selected["link"],
+        "summary": "",
+        "image": "",
+        "published": "",
+    }
+
+
+def fetch_source_specific_homepage_lead_article(source_key):
+    """
+    Dispatcher for source-specific homepage lead logic.
+    Use this where the app asks for homepage lead news.
+    """
+    key = str(source_key or "").upper()
+
+    if key in {"FOX", "FOXNEWS", "FOX NEWS"}:
+        return fetch_fox_homepage_lead_article(source_key)
+
+    if key == "CNN":
+        return fetch_cnn_homepage_lead_article(source_key)
+
+    if _FOX_EXISTING_HOMEPAGE_LEAD_RESOLVER is not None:
+        return _FOX_EXISTING_HOMEPAGE_LEAD_RESOLVER(source_key)
+
+    raise RuntimeError(f"No homepage lead resolver available for source: {source_key}")

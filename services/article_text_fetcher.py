@@ -7,6 +7,7 @@ from html.parser import HTMLParser
 from urllib.parse import urljoin, urlparse
 
 import certifi
+from services.newsmax_chrome import fetch_newsmax_article_payload
 
 
 SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
@@ -411,7 +412,14 @@ def format_live_update(update, limit=2000):
     return combined
 
 
-def fetch_article_text_payload(url):
+def _fetch_article_text_payload_uncached(url):
+    parsed_url = urlparse(str(url or ""))
+    hostname = parsed_url.netloc.lower()
+
+    # Newsmax must use Chrome because direct HTTP requests stall on this Mac.
+    if hostname == "newsmax.com" or hostname.endswith(".newsmax.com"):
+        return fetch_newsmax_article_payload(url)
+
     page_html = fetch_url_text(url, timeout=20)
     is_live = "/live-news/" in str(url).lower()
 
@@ -438,3 +446,293 @@ def fetch_article_text_payload(url):
         "text": clean_text(text),
         "updates": [],
     }
+
+
+# ============================================================
+# Article text cache and background preload support
+# ============================================================
+import hashlib
+import os
+import tempfile
+import threading
+import time
+from pathlib import Path
+
+
+ARTICLE_TEXT_CACHE_FILE = Path.home() / ".morning_tv_ui_article_text_cache.json"
+ARTICLE_TEXT_CACHE_LOCK = threading.Lock()
+ARTICLE_TEXT_CACHE = None
+ARTICLE_TEXT_PREFETCHING = set()
+
+# Normal articles keep cached text for seven days.
+# Live-news articles are refreshed much more often.
+NORMAL_ARTICLE_CACHE_SECONDS = 7 * 24 * 60 * 60
+LIVE_ARTICLE_CACHE_SECONDS = 10 * 60
+
+
+def _article_cache_key(url):
+    normalized = str(url or "").strip()
+    normalized = normalized.split("#", 1)[0]
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _load_article_text_cache():
+    global ARTICLE_TEXT_CACHE
+
+    if ARTICLE_TEXT_CACHE is not None:
+        return ARTICLE_TEXT_CACHE
+
+    try:
+        raw = ARTICLE_TEXT_CACHE_FILE.read_text(encoding="utf-8")
+        loaded = json.loads(raw)
+
+        if not isinstance(loaded, dict):
+            loaded = {}
+    except Exception:
+        loaded = {}
+
+    ARTICLE_TEXT_CACHE = loaded
+    return ARTICLE_TEXT_CACHE
+
+
+def _save_article_text_cache():
+    cache = _load_article_text_cache()
+
+    try:
+        ARTICLE_TEXT_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+        # Keep the cache from growing forever.
+        entries = list(cache.items())
+        entries.sort(
+            key=lambda item: float(item[1].get("saved_at", 0) or 0),
+            reverse=True,
+        )
+
+        trimmed = dict(entries[:80])
+
+        fd, temp_path = tempfile.mkstemp(
+            prefix=".morning_tv_ui_article_text_cache_",
+            suffix=".json",
+            dir=str(ARTICLE_TEXT_CACHE_FILE.parent),
+        )
+
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(trimmed, handle, ensure_ascii=False, indent=2)
+
+            os.replace(temp_path, ARTICLE_TEXT_CACHE_FILE)
+        finally:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+
+        cache.clear()
+        cache.update(trimmed)
+
+    except Exception as error:
+        print(f"Article text cache save failed: {error}")
+
+
+def _cache_lifetime(payload):
+    if bool((payload or {}).get("is_live")):
+        return LIVE_ARTICLE_CACHE_SECONDS
+
+    return NORMAL_ARTICLE_CACHE_SECONDS
+
+
+def get_cached_article_text_payload(url):
+    if not url:
+        return None
+
+    key = _article_cache_key(url)
+
+    with ARTICLE_TEXT_CACHE_LOCK:
+        cache = _load_article_text_cache()
+        record = cache.get(key)
+
+        if not isinstance(record, dict):
+            return None
+
+        saved_at = float(record.get("saved_at", 0) or 0)
+        payload = record.get("payload")
+
+        if not isinstance(payload, dict):
+            return None
+
+        if (time.time() - saved_at) > _cache_lifetime(payload):
+            cache.pop(key, None)
+            return None
+
+        text = str(payload.get("text", "") or "")
+
+        if len(text.strip()) < 80:
+            return None
+
+        return dict(payload)
+
+
+def _store_cached_article_text_payload(url, payload):
+    if not url or not isinstance(payload, dict):
+        return
+
+    text = str(payload.get("text", "") or "")
+
+    if len(text.strip()) < 80:
+        return
+
+    key = _article_cache_key(url)
+
+    with ARTICLE_TEXT_CACHE_LOCK:
+        cache = _load_article_text_cache()
+
+        cache[key] = {
+            "url": str(url),
+            "saved_at": time.time(),
+            "payload": dict(payload),
+        }
+
+        _save_article_text_cache()
+
+
+def fetch_article_text_payload(url):
+    cached = get_cached_article_text_payload(url)
+
+    if cached:
+        print(f"ARTICLE TEXT CACHE HIT: {url}")
+        return cached
+
+    payload = _fetch_article_text_payload_uncached(url)
+    _store_cached_article_text_payload(url, payload)
+
+    return payload
+
+
+def prefetch_article_text_payload(url):
+    url = str(url or "").strip()
+
+    if not url:
+        return
+
+    if get_cached_article_text_payload(url):
+        print(f"ARTICLE TEXT ALREADY CACHED: {url}")
+        return
+
+    with ARTICLE_TEXT_CACHE_LOCK:
+        if url in ARTICLE_TEXT_PREFETCHING:
+            return
+
+        ARTICLE_TEXT_PREFETCHING.add(url)
+
+    def worker():
+        try:
+            print(f"PRELOADING ARTICLE TEXT: {url}")
+            payload = fetch_article_text_payload(url)
+
+            text_length = len(str(payload.get("text", "") or ""))
+
+            print(
+                f"ARTICLE TEXT PRELOAD COMPLETE: "
+                f"{text_length} chars | {url}"
+            )
+
+        except Exception as error:
+            print(f"ARTICLE TEXT PRELOAD FAILED: {url} -> {error}")
+
+        finally:
+            with ARTICLE_TEXT_CACHE_LOCK:
+                ARTICLE_TEXT_PREFETCHING.discard(url)
+
+    threading.Thread(
+        target=worker,
+        name="MorningTVArticlePreload",
+        daemon=True,
+    ).start()
+
+
+# ============================================================
+# Prevent duplicate article fetches while a preload is running
+# ============================================================
+ARTICLE_TEXT_PREFETCH_EVENTS = {}
+ARTICLE_TEXT_PREFETCH_EVENTS_LOCK = threading.Lock()
+
+
+def fetch_article_text_payload(url):
+    url = str(url or "").strip()
+
+    cached = get_cached_article_text_payload(url)
+    if cached:
+        print(f"ARTICLE TEXT CACHE HIT: {url}")
+        return cached
+
+    with ARTICLE_TEXT_PREFETCH_EVENTS_LOCK:
+        event = ARTICLE_TEXT_PREFETCH_EVENTS.get(url)
+
+    # A background preload is already working on this exact article.
+    # Wait for that one instead of opening a duplicate Chrome page.
+    if event is not None:
+        print(f"ARTICLE TEXT WAITING FOR PRELOAD: {url}")
+        event.wait(timeout=25)
+
+        cached = get_cached_article_text_payload(url)
+        if cached:
+            print(f"ARTICLE TEXT CACHE HIT AFTER PRELOAD: {url}")
+            return cached
+
+    payload = _fetch_article_text_payload_uncached(url)
+    _store_cached_article_text_payload(url, payload)
+    return payload
+
+
+def prefetch_article_text_payload(url):
+    url = str(url or "").strip()
+
+    if not url:
+        return
+
+    if get_cached_article_text_payload(url):
+        print(f"ARTICLE TEXT ALREADY CACHED: {url}")
+        return
+
+    with ARTICLE_TEXT_PREFETCH_EVENTS_LOCK:
+        existing = ARTICLE_TEXT_PREFETCH_EVENTS.get(url)
+
+        if existing is not None:
+            return
+
+        event = threading.Event()
+        ARTICLE_TEXT_PREFETCH_EVENTS[url] = event
+
+    def worker():
+        try:
+            print(f"PRELOADING ARTICLE TEXT: {url}")
+
+            cached = get_cached_article_text_payload(url)
+
+            if cached:
+                print(f"ARTICLE TEXT ALREADY CACHED: {url}")
+                return
+
+            payload = _fetch_article_text_payload_uncached(url)
+            _store_cached_article_text_payload(url, payload)
+
+            text_length = len(str(payload.get("text", "") or ""))
+
+            print(
+                f"ARTICLE TEXT PRELOAD COMPLETE: "
+                f"{text_length} chars | {url}"
+            )
+
+        except Exception as error:
+            print(f"ARTICLE TEXT PRELOAD FAILED: {url} -> {error}")
+
+        finally:
+            with ARTICLE_TEXT_PREFETCH_EVENTS_LOCK:
+                done_event = ARTICLE_TEXT_PREFETCH_EVENTS.pop(url, None)
+
+                if done_event:
+                    done_event.set()
+
+    threading.Thread(
+        target=worker,
+        name="MorningTVArticlePreload",
+        daemon=True,
+    ).start()
