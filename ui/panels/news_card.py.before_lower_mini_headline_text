@@ -45,7 +45,7 @@ class ResponsiveMiniHeadlineLabel(QLabel):
         painter.setFont(font)
         painter.setPen(QColor("#17100a"))
 
-        rect = self.contentsRect()
+        rect = self.contentsRect().adjusted(0, 0, 0, -2)
         metrics = painter.fontMetrics()
 
         visible_text = metrics.elidedText(
@@ -55,8 +55,8 @@ class ResponsiveMiniHeadlineLabel(QLabel):
         )
 
         painter.drawText(
-            rect.adjusted(0, 0, 0, -3),
-            Qt.AlignLeft | Qt.AlignBottom,
+            rect,
+            Qt.AlignLeft | Qt.AlignVCenter,
             visible_text,
         )
         painter.end()
@@ -1128,7 +1128,7 @@ class NewsCard(QWidget):
         elif article.source == "CNBC":
             self.image.set_label_text("BUSINESS")
             self.edition_label.setText("BUSINESS")
-            self.kicker_label.setText("TOP STORY")
+            self.kicker_label.setText("BUSINESS")
             self.page_label.setText("PAGE 1")
         else:
             self.image.set_label_text("LATEST")
@@ -1218,10 +1218,10 @@ class NewsCard(QWidget):
             row_layout.setSpacing(0)
             row.setLayout(row_layout)
 
-            story_label = QLabel(f"STORY {index + 2}")
+            story_label = QLabel(f"STORY {index + 1}")
             story_label.setObjectName("Page2HeadlineSection")
-            story_label.setAlignment(Qt.AlignLeft | Qt.AlignBottom)
-            story_label.setFixedHeight(11)
+            story_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            story_label.setFixedHeight(8)
 
             title_label = ResponsiveMiniHeadlineLabel(title)
             title_label.setMinimumHeight(20)

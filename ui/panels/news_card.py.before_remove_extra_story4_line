@@ -55,7 +55,7 @@ class ResponsiveMiniHeadlineLabel(QLabel):
         )
 
         painter.drawText(
-            rect.adjusted(0, 0, 0, -3),
+            rect,
             Qt.AlignLeft | Qt.AlignBottom,
             visible_text,
         )
@@ -1128,7 +1128,7 @@ class NewsCard(QWidget):
         elif article.source == "CNBC":
             self.image.set_label_text("BUSINESS")
             self.edition_label.setText("BUSINESS")
-            self.kicker_label.setText("TOP STORY")
+            self.kicker_label.setText("BUSINESS")
             self.page_label.setText("PAGE 1")
         else:
             self.image.set_label_text("LATEST")
@@ -1218,10 +1218,10 @@ class NewsCard(QWidget):
             row_layout.setSpacing(0)
             row.setLayout(row_layout)
 
-            story_label = QLabel(f"STORY {index + 2}")
+            story_label = QLabel(f"STORY {index + 1}")
             story_label.setObjectName("Page2HeadlineSection")
-            story_label.setAlignment(Qt.AlignLeft | Qt.AlignBottom)
-            story_label.setFixedHeight(11)
+            story_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            story_label.setFixedHeight(8)
 
             title_label = ResponsiveMiniHeadlineLabel(title)
             title_label.setMinimumHeight(20)
@@ -1271,6 +1271,16 @@ class NewsCard(QWidget):
                 self.page2_widget_headlines[row] = title
                 self.page2_widget_headlines[title_label] = title
                 self.page2_widget_headlines[story_label] = title
+
+            if index == 3:
+                row.setStyleSheet(row.styleSheet() + """
+                    QWidget#Page2HeadlineBox {
+                        border-bottom: 1px solid rgba(55, 42, 25, 0.42);
+                    }
+                    QWidget#Page2HeadlineBox:hover {
+                        border-bottom: 1px solid rgba(55, 42, 25, 0.62);
+                    }
+                """)
 
             page2_layout.addWidget(row, 1)
 

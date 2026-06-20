@@ -1,65 +1,12 @@
 import re
 import random
 from PySide6.QtCore import Qt, QRectF, QUrl, QSize, QEvent, QPointF, Signal, QThread
-from PySide6.QtGui import QColor, QDesktopServices, QFont, QFontDatabase, QFontMetrics, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QFontDatabase, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import QSizePolicy, QLabel, QVBoxLayout, QWidget, QHBoxLayout, QFrame, QDialog, QTextEdit, QPushButton
 
 from ui.auto_fit_label import AutoFitLabel
 from ui.newspaper_chrome import draw_stacked_newspaper_panel
 from services.article_text_fetcher import fetch_article_text_payload
-
-
-class ResponsiveMiniHeadlineLabel(QLabel):
-    """
-    Mini-news headline with one fixed font size.
-
-    Long titles stay the same size and end with an ellipsis.
-    """
-
-    FONT_SIZE = 12
-
-    def __init__(self, text=""):
-        super().__init__()
-
-        self.full_title = ""
-        self.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        self.setWordWrap(False)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.setContentsMargins(0, 0, 0, 0)
-
-        self.setText(text)
-
-    def setText(self, text):
-        self.full_title = " ".join(str(text or "").split())
-        super().setText(self.full_title)
-        self.update()
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, True)
-
-        font = QFont("Georgia")
-        font.setPointSize(self.FONT_SIZE)
-        font.setBold(True)
-
-        painter.setFont(font)
-        painter.setPen(QColor("#17100a"))
-
-        rect = self.contentsRect()
-        metrics = painter.fontMetrics()
-
-        visible_text = metrics.elidedText(
-            self.full_title,
-            Qt.ElideRight,
-            max(20, rect.width()),
-        )
-
-        painter.drawText(
-            rect.adjusted(0, 0, 0, -3),
-            Qt.AlignLeft | Qt.AlignBottom,
-            visible_text,
-        )
-        painter.end()
 
 
 class PaperRule(QFrame):
@@ -1128,7 +1075,7 @@ class NewsCard(QWidget):
         elif article.source == "CNBC":
             self.image.set_label_text("BUSINESS")
             self.edition_label.setText("BUSINESS")
-            self.kicker_label.setText("TOP STORY")
+            self.kicker_label.setText("BUSINESS")
             self.page_label.setText("PAGE 1")
         else:
             self.image.set_label_text("LATEST")
@@ -1199,7 +1146,7 @@ class NewsCard(QWidget):
 
         page2_layout = QVBoxLayout()
         page2_layout.setContentsMargins(0, 0, 0, 0)
-        page2_layout.setSpacing(2)
+        page2_layout.setSpacing(6)
         page2_container.setLayout(page2_layout)
 
         for index in range(4):
@@ -1211,20 +1158,24 @@ class NewsCard(QWidget):
             row.setObjectName("Page2HeadlineBox")
             row.setAttribute(Qt.WA_StyledBackground, True)
             row.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-            row.setMinimumHeight(31)
 
             row_layout = QVBoxLayout()
-            row_layout.setContentsMargins(10, 1, 10, 1)
-            row_layout.setSpacing(0)
+            row_layout.setContentsMargins(10, 5, 10, 5)
+            row_layout.setSpacing(2)
             row.setLayout(row_layout)
 
-            story_label = QLabel(f"STORY {index + 2}")
+            story_label = QLabel(f"STORY {index + 1}")
             story_label.setObjectName("Page2HeadlineSection")
-            story_label.setAlignment(Qt.AlignLeft | Qt.AlignBottom)
-            story_label.setFixedHeight(11)
+            story_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 
-            title_label = ResponsiveMiniHeadlineLabel(title)
-            title_label.setMinimumHeight(20)
+            title_label = AutoFitLabel(
+                title,
+                min_size=11,
+                max_size=23,
+                bold=True,
+                alignment=Qt.AlignLeft | Qt.AlignVCenter,
+                word_wrap=True,
+            )
             title_label.setObjectName("Page2HeadlineText")
 
             row_layout.addWidget(story_label)
@@ -1252,6 +1203,8 @@ class NewsCard(QWidget):
                 QLabel#Page2HeadlineText {
                     color: #17100a;
                     background: transparent;
+                    font-family: "Georgia";
+                    font-weight: 1000;
                 }
             """)
 

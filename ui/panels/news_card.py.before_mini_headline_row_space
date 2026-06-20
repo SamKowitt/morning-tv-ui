@@ -11,18 +11,22 @@ from services.article_text_fetcher import fetch_article_text_payload
 
 class ResponsiveMiniHeadlineLabel(QLabel):
     """
-    Mini-news headline with one fixed font size.
+    Mini-news headline label with exactly two font sizes.
 
-    Long titles stay the same size and end with an ellipsis.
+    Shorter titles use the large font. Longer titles use the small font.
+    Both may occupy two lines. Any overflow is truncated with an ellipsis.
     """
 
-    FONT_SIZE = 12
+    LARGE_SIZE = 17
+    SMALL_SIZE = 13
+    LARGE_TITLE_LIMIT = 120
+    MAX_LINES = 2
 
     def __init__(self, text=""):
         super().__init__()
 
         self.full_title = ""
-        self.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         self.setWordWrap(False)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setContentsMargins(0, 0, 0, 0)
@@ -34,31 +38,96 @@ class ResponsiveMiniHeadlineLabel(QLabel):
         super().setText(self.full_title)
         self.update()
 
+    def selected_font(self):
+        font = QFont("Georgia")
+        font.setBold(True)
+
+        if len(self.full_title) <= self.LARGE_TITLE_LIMIT:
+            font.setPointSize(self.LARGE_SIZE)
+        else:
+            font.setPointSize(self.SMALL_SIZE)
+
+        return font
+
+    def build_visible_lines(self, metrics, available_width):
+        words = self.full_title.split()
+
+        if not words:
+            return []
+
+        lines = []
+        current = ""
+
+        for word in words:
+            candidate = f"{current} {word}".strip()
+
+            if metrics.horizontalAdvance(candidate) <= available_width:
+                current = candidate
+                continue
+
+            if current:
+                lines.append(current)
+                current = word
+            else:
+                lines.append(
+                    metrics.elidedText(
+                        word,
+                        Qt.ElideRight,
+                        available_width,
+                    )
+                )
+                current = ""
+
+            if len(lines) == self.MAX_LINES:
+                break
+
+        if current and len(lines) < self.MAX_LINES:
+            lines.append(current)
+
+        consumed_words = " ".join(lines).split()
+        remaining_words = words[len(consumed_words):]
+
+        if remaining_words and lines:
+            final_text = f"{lines[-1]} {' '.join(remaining_words)}"
+            lines[-1] = metrics.elidedText(
+                final_text,
+                Qt.ElideRight,
+                available_width,
+            )
+
+        return lines[:self.MAX_LINES]
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
 
-        font = QFont("Georgia")
-        font.setPointSize(self.FONT_SIZE)
-        font.setBold(True)
-
+        font = self.selected_font()
         painter.setFont(font)
         painter.setPen(QColor("#17100a"))
 
-        rect = self.contentsRect()
+        rect = self.contentsRect().adjusted(0, 0, 0, -3)
         metrics = painter.fontMetrics()
+        line_height = metrics.lineSpacing()
 
-        visible_text = metrics.elidedText(
-            self.full_title,
-            Qt.ElideRight,
+        lines = self.build_visible_lines(
+            metrics,
             max(20, rect.width()),
         )
 
-        painter.drawText(
-            rect.adjusted(0, 0, 0, -3),
-            Qt.AlignLeft | Qt.AlignBottom,
-            visible_text,
-        )
+        total_height = len(lines) * line_height
+        y = max(rect.top(), rect.top() + (rect.height() - total_height) // 2)
+
+        for line in lines:
+            painter.drawText(
+                rect.left(),
+                y,
+                rect.width(),
+                line_height,
+                Qt.AlignLeft | Qt.AlignTop,
+                line,
+            )
+            y += line_height
+
         painter.end()
 
 
@@ -1128,7 +1197,7 @@ class NewsCard(QWidget):
         elif article.source == "CNBC":
             self.image.set_label_text("BUSINESS")
             self.edition_label.setText("BUSINESS")
-            self.kicker_label.setText("TOP STORY")
+            self.kicker_label.setText("BUSINESS")
             self.page_label.setText("PAGE 1")
         else:
             self.image.set_label_text("LATEST")
@@ -1199,7 +1268,7 @@ class NewsCard(QWidget):
 
         page2_layout = QVBoxLayout()
         page2_layout.setContentsMargins(0, 0, 0, 0)
-        page2_layout.setSpacing(2)
+        page2_layout.setSpacing(6)
         page2_container.setLayout(page2_layout)
 
         for index in range(4):
@@ -1211,20 +1280,18 @@ class NewsCard(QWidget):
             row.setObjectName("Page2HeadlineBox")
             row.setAttribute(Qt.WA_StyledBackground, True)
             row.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-            row.setMinimumHeight(31)
 
             row_layout = QVBoxLayout()
-            row_layout.setContentsMargins(10, 1, 10, 1)
+            row_layout.setContentsMargins(10, 2, 10, 2)
             row_layout.setSpacing(0)
             row.setLayout(row_layout)
 
-            story_label = QLabel(f"STORY {index + 2}")
+            story_label = QLabel(f"STORY {index + 1}")
             story_label.setObjectName("Page2HeadlineSection")
-            story_label.setAlignment(Qt.AlignLeft | Qt.AlignBottom)
-            story_label.setFixedHeight(11)
+            story_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            story_label.setFixedHeight(10)
 
             title_label = ResponsiveMiniHeadlineLabel(title)
-            title_label.setMinimumHeight(20)
             title_label.setObjectName("Page2HeadlineText")
 
             row_layout.addWidget(story_label)

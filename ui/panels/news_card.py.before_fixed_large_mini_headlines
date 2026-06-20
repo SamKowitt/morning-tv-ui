@@ -11,12 +11,16 @@ from services.article_text_fetcher import fetch_article_text_payload
 
 class ResponsiveMiniHeadlineLabel(QLabel):
     """
-    Mini-news headline with one fixed font size.
+    One-line mini-news title.
 
-    Long titles stay the same size and end with an ellipsis.
+    Uses only two sizes:
+    - large when the complete title fits the row
+    - small when it does not
+    - ellipsis only when the small size still cannot fit
     """
 
-    FONT_SIZE = 12
+    LARGE_SIZE = 15
+    SMALL_SIZE = 12
 
     def __init__(self, text=""):
         super().__init__()
@@ -34,29 +38,39 @@ class ResponsiveMiniHeadlineLabel(QLabel):
         super().setText(self.full_title)
         self.update()
 
+    def _font_at_size(self, point_size):
+        font = QFont("Georgia")
+        font.setPointSize(point_size)
+        font.setBold(True)
+        return font
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
 
-        font = QFont("Georgia")
-        font.setPointSize(self.FONT_SIZE)
-        font.setBold(True)
+        rect = self.contentsRect().adjusted(0, 0, 0, -2)
+        available_width = max(20, rect.width())
+
+        large_font = self._font_at_size(self.LARGE_SIZE)
+        large_metrics = QFontMetrics(large_font)
+
+        if large_metrics.horizontalAdvance(self.full_title) <= available_width:
+            font = large_font
+            visible_text = self.full_title
+        else:
+            font = self._font_at_size(self.SMALL_SIZE)
+            small_metrics = QFontMetrics(font)
+            visible_text = small_metrics.elidedText(
+                self.full_title,
+                Qt.ElideRight,
+                available_width,
+            )
 
         painter.setFont(font)
         painter.setPen(QColor("#17100a"))
-
-        rect = self.contentsRect()
-        metrics = painter.fontMetrics()
-
-        visible_text = metrics.elidedText(
-            self.full_title,
-            Qt.ElideRight,
-            max(20, rect.width()),
-        )
-
         painter.drawText(
-            rect.adjusted(0, 0, 0, -3),
-            Qt.AlignLeft | Qt.AlignBottom,
+            rect,
+            Qt.AlignLeft | Qt.AlignVCenter,
             visible_text,
         )
         painter.end()
@@ -1128,7 +1142,7 @@ class NewsCard(QWidget):
         elif article.source == "CNBC":
             self.image.set_label_text("BUSINESS")
             self.edition_label.setText("BUSINESS")
-            self.kicker_label.setText("TOP STORY")
+            self.kicker_label.setText("BUSINESS")
             self.page_label.setText("PAGE 1")
         else:
             self.image.set_label_text("LATEST")
@@ -1218,10 +1232,10 @@ class NewsCard(QWidget):
             row_layout.setSpacing(0)
             row.setLayout(row_layout)
 
-            story_label = QLabel(f"STORY {index + 2}")
+            story_label = QLabel(f"STORY {index + 1}")
             story_label.setObjectName("Page2HeadlineSection")
-            story_label.setAlignment(Qt.AlignLeft | Qt.AlignBottom)
-            story_label.setFixedHeight(11)
+            story_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            story_label.setFixedHeight(8)
 
             title_label = ResponsiveMiniHeadlineLabel(title)
             title_label.setMinimumHeight(20)

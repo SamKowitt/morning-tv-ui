@@ -11,55 +11,64 @@ from services.article_text_fetcher import fetch_article_text_payload
 
 class ResponsiveMiniHeadlineLabel(QLabel):
     """
-    Mini-news headline with one fixed font size.
-
-    Long titles stay the same size and end with an ellipsis.
+    Mini-news headline label that starts large and only shrinks when the
+    current row cannot contain the title.
     """
 
-    FONT_SIZE = 12
-
     def __init__(self, text=""):
-        super().__init__()
+        super().__init__(text)
 
-        self.full_title = ""
+        self.minimum_font_size = 11
+        self.maximum_font_size = 22
+
+        self.setWordWrap(True)
         self.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        self.setWordWrap(False)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.setContentsMargins(0, 0, 0, 0)
 
-        self.setText(text)
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.fit_text()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.fit_text()
 
     def setText(self, text):
-        self.full_title = " ".join(str(text or "").split())
-        super().setText(self.full_title)
-        self.update()
+        super().setText(text)
+        self.fit_text()
 
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, True)
+    def fit_text(self):
+        title = self.text().strip()
+
+        if not title:
+            return
+
+        available_width = max(40, self.contentsRect().width())
+        available_height = max(20, self.contentsRect().height())
+
+        for size in range(self.maximum_font_size, self.minimum_font_size - 1, -1):
+            font = QFont("Georgia")
+            font.setPointSize(size)
+            font.setBold(True)
+
+            metrics = QFontMetrics(font)
+            required = metrics.boundingRect(
+                0,
+                0,
+                available_width,
+                10000,
+                Qt.TextWordWrap,
+                title,
+            )
+
+            if required.height() <= available_height:
+                self.setFont(font)
+                return
 
         font = QFont("Georgia")
-        font.setPointSize(self.FONT_SIZE)
+        font.setPointSize(self.minimum_font_size)
         font.setBold(True)
-
-        painter.setFont(font)
-        painter.setPen(QColor("#17100a"))
-
-        rect = self.contentsRect()
-        metrics = painter.fontMetrics()
-
-        visible_text = metrics.elidedText(
-            self.full_title,
-            Qt.ElideRight,
-            max(20, rect.width()),
-        )
-
-        painter.drawText(
-            rect.adjusted(0, 0, 0, -3),
-            Qt.AlignLeft | Qt.AlignBottom,
-            visible_text,
-        )
-        painter.end()
+        self.setFont(font)
 
 
 class PaperRule(QFrame):
@@ -1128,7 +1137,7 @@ class NewsCard(QWidget):
         elif article.source == "CNBC":
             self.image.set_label_text("BUSINESS")
             self.edition_label.setText("BUSINESS")
-            self.kicker_label.setText("TOP STORY")
+            self.kicker_label.setText("BUSINESS")
             self.page_label.setText("PAGE 1")
         else:
             self.image.set_label_text("LATEST")
@@ -1199,7 +1208,7 @@ class NewsCard(QWidget):
 
         page2_layout = QVBoxLayout()
         page2_layout.setContentsMargins(0, 0, 0, 0)
-        page2_layout.setSpacing(2)
+        page2_layout.setSpacing(6)
         page2_container.setLayout(page2_layout)
 
         for index in range(4):
@@ -1211,20 +1220,17 @@ class NewsCard(QWidget):
             row.setObjectName("Page2HeadlineBox")
             row.setAttribute(Qt.WA_StyledBackground, True)
             row.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-            row.setMinimumHeight(31)
 
             row_layout = QVBoxLayout()
-            row_layout.setContentsMargins(10, 1, 10, 1)
-            row_layout.setSpacing(0)
+            row_layout.setContentsMargins(10, 5, 10, 5)
+            row_layout.setSpacing(2)
             row.setLayout(row_layout)
 
-            story_label = QLabel(f"STORY {index + 2}")
+            story_label = QLabel(f"STORY {index + 1}")
             story_label.setObjectName("Page2HeadlineSection")
-            story_label.setAlignment(Qt.AlignLeft | Qt.AlignBottom)
-            story_label.setFixedHeight(11)
+            story_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 
             title_label = ResponsiveMiniHeadlineLabel(title)
-            title_label.setMinimumHeight(20)
             title_label.setObjectName("Page2HeadlineText")
 
             row_layout.addWidget(story_label)
