@@ -436,23 +436,26 @@ class OpenNewspaperDialog(QDialog):
         spread_surface_layout.setContentsMargins(20, 14, 20, 12)
         spread_surface_layout.setSpacing(0)
 
-        spread = QHBoxLayout()
-        spread.setContentsMargins(0, 0, 0, 0)
-        spread.setSpacing(0)
-
-        # LEFT NEWSPAPER PAGE:
-        # headline gets space here only, then the left article text begins.
-        left_page_container = QWidget()
-        left_page_layout = QVBoxLayout(left_page_container)
-        left_page_layout.setContentsMargins(0, 0, 0, 0)
-        left_page_layout.setSpacing(0)
-
         self.paper_headline = QLabel(self.headline)
         self.paper_headline.setObjectName("SpreadHeadline")
         self.paper_headline.setWordWrap(True)
         self.paper_headline.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 
-        self.paper_headline_rule = PaperRule()
+        headline_rule = PaperRule()
+
+        headline_row = QHBoxLayout()
+        headline_row.setContentsMargins(0, 0, 0, 0)
+        headline_row.setSpacing(14)
+
+        headline_row.addWidget(self.paper_headline, 1)
+
+        headline_right_spacer = QWidget()
+        headline_right_spacer.setObjectName("NewspaperFold")
+        headline_row.addWidget(headline_right_spacer, 1)
+
+        spread = QHBoxLayout()
+        spread.setContentsMargins(0, 8, 0, 0)
+        spread.setSpacing(0)
 
         self.left_page = QLabel()
         self.left_page.setObjectName("NewspaperPage")
@@ -462,12 +465,6 @@ class OpenNewspaperDialog(QDialog):
         self.left_page.setFocusPolicy(Qt.NoFocus)
         self.left_page.setAlignment(Qt.AlignLeft | Qt.AlignTop)
 
-        left_page_layout.addWidget(self.paper_headline, 0)
-        left_page_layout.addWidget(self.paper_headline_rule, 0)
-        left_page_layout.addWidget(self.left_page, 1)
-
-        # RIGHT NEWSPAPER PAGE:
-        # no headline space, so article text starts at the very top.
         self.right_page = QLabel()
         self.right_page.setObjectName("NewspaperPage")
         self.right_page.setWordWrap(True)
@@ -480,10 +477,12 @@ class OpenNewspaperDialog(QDialog):
         self.fold.setObjectName("NewspaperFold")
         self.fold.setFixedWidth(14)
 
-        spread.addWidget(left_page_container, 1)
+        spread.addWidget(self.left_page, 1)
         spread.addWidget(self.fold)
         spread.addWidget(self.right_page, 1)
 
+        spread_surface_layout.addLayout(headline_row)
+        spread_surface_layout.addWidget(headline_rule)
         spread_surface_layout.addLayout(spread, 1)
 
         root.addWidget(self.spread_surface, 1)
@@ -704,16 +703,6 @@ class OpenNewspaperDialog(QDialog):
 
         self.left_page.setText(left_text)
         self.right_page.setText(right_text)
-
-        # The article headline belongs only on the first newspaper spread.
-        # Later spreads begin with article text at the very top of both pages.
-        show_first_spread_headline = self.spread_index == 0
-
-        if hasattr(self, "paper_headline"):
-            self.paper_headline.setVisible(show_first_spread_headline)
-
-        if hasattr(self, "paper_headline_rule"):
-            self.paper_headline_rule.setVisible(show_first_spread_headline)
 
         total_pages = len(self.pages)
         total_spreads = max(1, (total_pages + 1) // 2)

@@ -1058,7 +1058,7 @@ def fetch_configured_article(source_key):
                 "Chrome-backed Newsmax fetch failed: " + str(error),
             )
 
-    if source_key in {"FOX", "CNN"}:
+    if source_key == "CNN":
         try:
             payload = fetch_source_specific_homepage_lead_article(source_key)
 
@@ -2468,92 +2468,6 @@ def fetch_fox_homepage_lead_article(source_key="FOX"):
         return score
 
     html = _fetch_url(homepage_url)
-
-    # Fox's actual homepage lead is the FIRST NewsArticle in the ordered
-    # WebPage/CollectionPage JSON-LD "hasPart" list. Preserve that order
-    # instead of scoring unrelated JSON-LD items as ties.
-    json_ld_scripts = re.findall(
-        r'<script[^>]+type=["\\\']application/ld\\+json["\\\'][^>]*>(.*?)</script>',
-        html,
-        flags=re.IGNORECASE | re.DOTALL,
-    )
-
-    def _walk_json(value):
-        if isinstance(value, dict):
-            yield value
-            for child in value.values():
-                yield from _walk_json(child)
-        elif isinstance(value, list):
-            for child in value:
-                yield from _walk_json(child)
-
-    for raw_json in json_ld_scripts:
-        try:
-            parsed_json = json.loads(raw_json.strip())
-        except Exception:
-            continue
-
-        for node in _walk_json(parsed_json):
-            node_type = node.get("@type", "")
-            node_types = (
-                node_type
-                if isinstance(node_type, list)
-                else [node_type]
-            )
-
-            if not any(
-                value in {"WebPage", "CollectionPage"}
-                for value in node_types
-            ):
-                continue
-
-            parts = node.get("hasPart", [])
-            if not isinstance(parts, list):
-                continue
-
-            for item in parts:
-                if not isinstance(item, dict):
-                    continue
-
-                item_type = item.get("@type", "")
-                item_types = (
-                    item_type
-                    if isinstance(item_type, list)
-                    else [item_type]
-                )
-
-                if "NewsArticle" not in item_types:
-                    continue
-
-                title = _clean(item.get("headline", ""))
-                url = urljoin(
-                    homepage_url,
-                    str(item.get("url", "") or ""),
-                ).replace("\\/", "/")
-                image = str(item.get("image", "") or "")
-
-                if not _is_fox_article_url(url):
-                    continue
-
-                skip, _reason = _should_skip_title(title, url)
-
-                if skip:
-                    continue
-
-                print(
-                    "SELECTED FOX JSON-LD HOMEPAGE LEAD: "
-                    f"{title}"
-                )
-
-                return {
-                    "source": source_key,
-                    "title": title,
-                    "link": url,
-                    "url": url,
-                    "summary": "",
-                    "image": image,
-                    "published": str(item.get("datePublished", "") or ""),
-                }
 
     parser = _FoxAnchorParser()
     parser.feed(html)

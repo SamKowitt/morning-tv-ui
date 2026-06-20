@@ -346,16 +346,6 @@ class OpenNewspaperDialog(QDialog):
                 border: none;
             }
 
-            QLabel#SpreadHeadline {
-                background: transparent;
-                color: #1b130c;
-                font-family: "Georgia";
-                font-size: 22px;
-                font-weight: 1000;
-                letter-spacing: -0.2px;
-                padding: 0px 8px 8px 8px;
-            }
-
             QPushButton#PageTurnButton {
                 background-color: #f3e6c9;
                 border: 2px solid rgba(70, 50, 28, 210);
@@ -424,35 +414,14 @@ class OpenNewspaperDialog(QDialog):
         self.headline_label = QLabel(self.headline)
         self.headline_label.setObjectName("PopupHeadline")
         self.headline_label.setWordWrap(True)
-
-        # The headline now appears on the newspaper paper itself,
-        # rather than as dark text in the outer overlay header.
-        self.headline_label.hide()
+        root.addWidget(self.headline_label)
 
         self.spread_surface = ConnectedNewspaperSpread()
         self.spread_surface.setObjectName("ConnectedNewspaperSpread")
 
-        spread_surface_layout = QVBoxLayout(self.spread_surface)
-        spread_surface_layout.setContentsMargins(20, 14, 20, 12)
-        spread_surface_layout.setSpacing(0)
-
-        spread = QHBoxLayout()
+        spread = QHBoxLayout(self.spread_surface)
         spread.setContentsMargins(0, 0, 0, 0)
         spread.setSpacing(0)
-
-        # LEFT NEWSPAPER PAGE:
-        # headline gets space here only, then the left article text begins.
-        left_page_container = QWidget()
-        left_page_layout = QVBoxLayout(left_page_container)
-        left_page_layout.setContentsMargins(0, 0, 0, 0)
-        left_page_layout.setSpacing(0)
-
-        self.paper_headline = QLabel(self.headline)
-        self.paper_headline.setObjectName("SpreadHeadline")
-        self.paper_headline.setWordWrap(True)
-        self.paper_headline.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-
-        self.paper_headline_rule = PaperRule()
 
         self.left_page = QLabel()
         self.left_page.setObjectName("NewspaperPage")
@@ -462,12 +431,6 @@ class OpenNewspaperDialog(QDialog):
         self.left_page.setFocusPolicy(Qt.NoFocus)
         self.left_page.setAlignment(Qt.AlignLeft | Qt.AlignTop)
 
-        left_page_layout.addWidget(self.paper_headline, 0)
-        left_page_layout.addWidget(self.paper_headline_rule, 0)
-        left_page_layout.addWidget(self.left_page, 1)
-
-        # RIGHT NEWSPAPER PAGE:
-        # no headline space, so article text starts at the very top.
         self.right_page = QLabel()
         self.right_page.setObjectName("NewspaperPage")
         self.right_page.setWordWrap(True)
@@ -480,11 +443,9 @@ class OpenNewspaperDialog(QDialog):
         self.fold.setObjectName("NewspaperFold")
         self.fold.setFixedWidth(14)
 
-        spread.addWidget(left_page_container, 1)
+        spread.addWidget(self.left_page, 1)
         spread.addWidget(self.fold)
         spread.addWidget(self.right_page, 1)
-
-        spread_surface_layout.addLayout(spread, 1)
 
         root.addWidget(self.spread_surface, 1)
 
@@ -705,16 +666,6 @@ class OpenNewspaperDialog(QDialog):
         self.left_page.setText(left_text)
         self.right_page.setText(right_text)
 
-        # The article headline belongs only on the first newspaper spread.
-        # Later spreads begin with article text at the very top of both pages.
-        show_first_spread_headline = self.spread_index == 0
-
-        if hasattr(self, "paper_headline"):
-            self.paper_headline.setVisible(show_first_spread_headline)
-
-        if hasattr(self, "paper_headline_rule"):
-            self.paper_headline_rule.setVisible(show_first_spread_headline)
-
         total_pages = len(self.pages)
         total_spreads = max(1, (total_pages + 1) // 2)
 
@@ -786,7 +737,6 @@ class NewsCard(QWidget):
         self.article_dialog = None
         self.page2_widgets = []
         self.page2_widget_urls = {}
-        self.page2_widget_headlines = {}
 
         self.image_request_token = 0
         self.image_workers = set()
@@ -997,7 +947,6 @@ class NewsCard(QWidget):
 
         self.page2_widgets = []
         self.page2_widget_urls = {}
-        self.page2_widget_headlines = {}
 
         self.image.show()
         self.headline_label.show()
@@ -1221,10 +1170,6 @@ class NewsCard(QWidget):
                 self.page2_widget_urls[title_label] = article_url
                 self.page2_widget_urls[story_label] = article_url
 
-                self.page2_widget_headlines[row] = title
-                self.page2_widget_headlines[title_label] = title
-                self.page2_widget_headlines[story_label] = title
-
             page2_layout.addWidget(row, 1)
 
         # Put the four-row container between the paper rule and the footer.
@@ -1232,16 +1177,13 @@ class NewsCard(QWidget):
         self.page2_widgets.append(page2_container)
 
 
-    def open_article_popup(self, article_url=None, article_headline=None):
+    def open_article_popup(self, article_url=None):
         url = article_url or self.article_url
 
         if not url:
             return
 
-        headline = (
-            str(article_headline or "").strip()
-            or (self.headline_label.text() if hasattr(self.headline_label, "text") else "")
-        )
+        headline = self.headline_label.text() if hasattr(self.headline_label, "text") else ""
         source = self.plain_source_name(self.source) or self.source or "News"
 
         parent_window = self.window()
@@ -1282,14 +1224,9 @@ class NewsCard(QWidget):
     def eventFilter(self, watched, event):
         if event.type() == QEvent.MouseButtonPress:
             article_url = getattr(self, "page2_widget_urls", {}).get(watched, "")
-            article_headline = getattr(
-                self,
-                "page2_widget_headlines",
-                {},
-            ).get(watched, "")
 
             if article_url:
-                self.open_article_popup(article_url, article_headline)
+                self.open_article_popup(article_url)
                 return True
 
         return super().eventFilter(watched, event)

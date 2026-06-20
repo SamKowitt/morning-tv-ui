@@ -17,14 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from services.news_fetcher import (
-    NEWS_SOURCES,
-    NEWS_SOURCE_OPTIONS,
-    NewsArticle,
-    fetch_news_cards,
-    fetch_ranked_candidates,
-    get_news_source_display,
-)
+from services.news_fetcher import NEWS_SOURCES, NEWS_SOURCE_OPTIONS, fetch_news_cards, get_news_source_display
 from services.sports_games_fetcher import fetch_current_sports_games
 from services.sports_news_fetcher import fetch_espn_sports_articles
 from services.stock_fetcher import INDEX_SYMBOLS, STOCK_SYMBOLS, fetch_market_data, fetch_market_data_for_symbols
@@ -89,56 +82,6 @@ class NewsFetchWorker(QObject):
                 left_article,
                 right_article,
             )
-        except Exception as error:
-            self.failed.emit(self.request_id, str(error))
-
-
-
-class MoreNewsFetchWorker(QObject):
-    finished = Signal(int, str, object)
-    failed = Signal(int, str)
-
-    def __init__(self, request_id, source_key):
-        super().__init__()
-        self.request_id = request_id
-        self.source_key = source_key
-
-    def run(self):
-        try:
-            source_key, source_name, ranked_candidates = fetch_ranked_candidates(
-                self.source_key
-            )
-
-            # The main left card already shows the top article.
-            # Use the next four unique ranked stories for the replacement panel.
-            articles = []
-
-            for candidate in ranked_candidates[1:]:
-                article = NewsArticle(
-                    title=getattr(candidate, "title", "") or "",
-                    source=source_name,
-                    image_url=getattr(candidate, "image_url", "") or "",
-                    link=getattr(candidate, "link", "") or "",
-                    image_bytes=b"",
-                )
-
-                if article.title and article.link:
-                    articles.append(article)
-
-                if len(articles) >= 4:
-                    break
-
-            if not articles:
-                raise RuntimeError(
-                    f"No additional usable {source_name} headlines were found."
-                )
-
-            self.finished.emit(
-                self.request_id,
-                source_key,
-                articles,
-            )
-
         except Exception as error:
             self.failed.emit(self.request_id, str(error))
 
@@ -359,8 +302,6 @@ class DashboardWindow(QMainWindow):
         self.apple_calendar_days_ahead = self.load_saved_apple_calendar_days_ahead()
 
         self.news_request_id = 0
-        self.more_news_request_id = 0
-        self.calendar_has_no_events = False
 
         self.root = QWidget()
         self.root.setObjectName("RootWidget")
@@ -635,23 +576,7 @@ class DashboardWindow(QMainWindow):
         self.stocks_panel = StocksPanel()
         self.reminders = RemindersPanel()
 
-        self.more_news_card = NewsCard(
-            headline="Loading more headlines...",
-            source=get_news_source_display(self.left_news_source_key),
-            image_label="MORE HEADLINES",
-            variant="fox",
-        )
-
-        self.bottom_left_container = QWidget()
-        self.bottom_left_stack = QStackedLayout()
-        self.bottom_left_stack.setContentsMargins(0, 0, 0, 0)
-        self.bottom_left_container.setLayout(self.bottom_left_stack)
-
-        self.bottom_left_stack.addWidget(self.reminders)
-        self.bottom_left_stack.addWidget(self.more_news_card)
-        self.bottom_left_stack.setCurrentWidget(self.reminders)
-
-        layout.addWidget(self.bottom_left_container, 1)
+        layout.addWidget(self.reminders, 1)
         layout.addWidget(self.stocks_panel, 1)
 
         return layout
@@ -1803,9 +1728,6 @@ class DashboardWindow(QMainWindow):
         self.show_dashboard_page()
         self.start_news_fetch()
 
-        if self.calendar_has_no_events:
-            self.start_more_news_fetch()
-
         if self.weather_zip_code != old_weather_zip:
             self.refresh_weather_placeholders()
             self.start_weather_fetch()
@@ -2039,113 +1961,11 @@ class DashboardWindow(QMainWindow):
         print(f"Weather fetch failed: {message}")
 
 
-
-    def show_reminders_panel(self):
-        self.calendar_has_no_events = False
-
-        if hasattr(self, "bottom_left_stack"):
-            self.bottom_left_stack.setCurrentWidget(self.reminders)
-
-    def start_more_news_fetch(self):
-        if not getattr(self, "calendar_has_no_events", False):
-            return
-
-        self.more_news_request_id += 1
-        request_id = self.more_news_request_id
-        source_key = self.left_news_source_key
-
-        print(
-            f"Starting extra-news fetch request {request_id}: "
-            f"source={source_key}"
-        )
-
-        self.more_news_card.top_source_label.setText(
-            get_news_source_display(source_key)
-        )
-        self.more_news_card.update_article_list([])
-
-        if hasattr(self, "bottom_left_stack"):
-            self.bottom_left_stack.setCurrentWidget(self.more_news_card)
-
-        self.more_news_thread = QThread()
-        self.more_news_worker = MoreNewsFetchWorker(
-            request_id=request_id,
-            source_key=source_key,
-        )
-        self.more_news_worker.moveToThread(self.more_news_thread)
-
-        self.more_news_thread.started.connect(self.more_news_worker.run)
-
-        self.more_news_worker.finished.connect(self.on_more_news_loaded)
-        self.more_news_worker.failed.connect(self.on_more_news_failed)
-
-        self.more_news_worker.finished.connect(self.more_news_thread.quit)
-        self.more_news_worker.failed.connect(self.more_news_thread.quit)
-
-        self.more_news_thread.finished.connect(self.more_news_worker.deleteLater)
-        self.more_news_thread.finished.connect(self.more_news_thread.deleteLater)
-
-        self.more_news_thread.start()
-
-    def on_more_news_loaded(self, request_id, source_key, articles):
-        if request_id != self.more_news_request_id:
-            print(f"Ignoring stale extra-news request {request_id}")
-            return
-
-        if source_key != self.left_news_source_key:
-            print(
-                "Ignoring extra-news result because left source changed: "
-                f"result={source_key}, current={self.left_news_source_key}"
-            )
-            return
-
-        if not self.calendar_has_no_events:
-            return
-
-        articles = list(articles or [])[:4]
-
-        if not articles:
-            print(f"No extra articles returned for {source_key}")
-            self.show_reminders_panel()
-            self.reminders.set_calendar_error(
-                "No reminders or additional headlines available"
-            )
-            return
-
-        self.more_news_card.update_article_list(
-            articles,
-            page_label="MORE",
-        )
-
-        if hasattr(self, "bottom_left_stack"):
-            self.bottom_left_stack.setCurrentWidget(self.more_news_card)
-
-        print(
-            f"Showing {len(articles)} extra headlines "
-            f"for {get_news_source_display(source_key)}"
-        )
-
-    def on_more_news_failed(self, request_id, error_message):
-        if request_id != self.more_news_request_id:
-            return
-
-        print(f"Extra-news fetch failed: {error_message}")
-        self.show_reminders_panel()
-
-        if hasattr(self.reminders, "set_calendar_error"):
-            self.reminders.set_calendar_error(
-                "No reminders; additional headlines could not load"
-            )
-
-
     def start_apple_calendar_fetch(self):
         if not self.apple_calendar_is_configured():
             print("Apple Calendar is not configured.")
-            self.show_reminders_panel()
-
             if hasattr(self.reminders, "set_calendar_error"):
                 self.reminders.set_calendar_error("Connect Apple Calendar in Settings")
-
             return
 
         self.apple_calendar_thread = QThread()
@@ -2170,25 +1990,13 @@ class DashboardWindow(QMainWindow):
         self.apple_calendar_thread.start()
 
     def on_apple_calendar_loaded(self, events):
-        events = list(events or [])
-
         print(f"Apple Calendar events loaded: {len(events)}")
-
-        self.calendar_has_no_events = len(events) == 0
-
-        if self.calendar_has_no_events:
-            self.start_more_news_fetch()
-            return
-
-        self.show_reminders_panel()
 
         if hasattr(self.reminders, "update_calendar_events"):
             self.reminders.update_calendar_events(events)
 
     def on_apple_calendar_failed(self, error_message):
         print(f"Apple Calendar fetch failed: {error_message}")
-
-        self.show_reminders_panel()
 
         if hasattr(self.reminders, "set_calendar_error"):
             self.reminders.set_calendar_error("Unable to load Apple Calendar events")

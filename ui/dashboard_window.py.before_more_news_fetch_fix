@@ -17,14 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from services.news_fetcher import (
-    NEWS_SOURCES,
-    NEWS_SOURCE_OPTIONS,
-    NewsArticle,
-    fetch_news_cards,
-    fetch_ranked_candidates,
-    get_news_source_display,
-)
+from services.news_fetcher import NEWS_SOURCES, NEWS_SOURCE_OPTIONS, fetch_news_cards, get_news_source_display
 from services.sports_games_fetcher import fetch_current_sports_games
 from services.sports_news_fetcher import fetch_espn_sports_articles
 from services.stock_fetcher import INDEX_SYMBOLS, STOCK_SYMBOLS, fetch_market_data, fetch_market_data_for_symbols
@@ -105,40 +98,16 @@ class MoreNewsFetchWorker(QObject):
 
     def run(self):
         try:
-            source_key, source_name, ranked_candidates = fetch_ranked_candidates(
-                self.source_key
+            _lead_article, more_articles = fetch_news_cards(
+                left_source_key=self.source_key,
+                right_source_key=self.source_key,
             )
-
-            # The main left card already shows the top article.
-            # Use the next four unique ranked stories for the replacement panel.
-            articles = []
-
-            for candidate in ranked_candidates[1:]:
-                article = NewsArticle(
-                    title=getattr(candidate, "title", "") or "",
-                    source=source_name,
-                    image_url=getattr(candidate, "image_url", "") or "",
-                    link=getattr(candidate, "link", "") or "",
-                    image_bytes=b"",
-                )
-
-                if article.title and article.link:
-                    articles.append(article)
-
-                if len(articles) >= 4:
-                    break
-
-            if not articles:
-                raise RuntimeError(
-                    f"No additional usable {source_name} headlines were found."
-                )
 
             self.finished.emit(
                 self.request_id,
-                source_key,
-                articles,
+                self.source_key,
+                list(more_articles or [])[:4],
             )
-
         except Exception as error:
             self.failed.emit(self.request_id, str(error))
 
