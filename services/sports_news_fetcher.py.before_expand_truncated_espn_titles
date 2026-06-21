@@ -185,77 +185,6 @@ def fetch_espn_homepage_lead():
             _close_page(target_id)
 
 
-
-def resolve_truncated_espn_title(article):
-    """
-    ESPN RSS sometimes shortens headlines with "...".
-    Load only those affected article pages and recover the full visible title.
-    """
-    original_title = clean_text(getattr(article, "title", ""))
-    article_url = str(getattr(article, "link", "") or "").strip()
-
-    if not original_title.endswith("...") or not article_url:
-        return original_title
-
-    target_id = ""
-    ws_url = ""
-
-    try:
-        target_id, ws_url = _create_page()
-        _navigate(ws_url, article_url)
-
-        payload = _eval(
-            ws_url,
-            r"""
-(() => {
-    const clean = value => String(value || "")
-        .replace(/\s+/g, " ")
-        .replace(/\s+\|\s+ESPN$/i, "")
-        .replace(/\s+-\s+ESPN$/i, "")
-        .trim();
-
-    const h1 = document.querySelector("h1");
-    const ogTitle = document.querySelector('meta[property="og:title"]');
-    const twitterTitle = document.querySelector('meta[name="twitter:title"]');
-
-    return {
-        h1: clean(h1 ? (h1.innerText || h1.textContent) : ""),
-        ogTitle: clean(ogTitle ? ogTitle.content : ""),
-        twitterTitle: clean(twitterTitle ? twitterTitle.content : ""),
-        documentTitle: clean(document.title || "")
-    };
-})()
-""",
-            timeout=20,
-        )
-
-        if not isinstance(payload, dict):
-            return original_title
-
-        candidates = [
-            clean_text(payload.get("h1", "")),
-            clean_text(payload.get("ogTitle", "")),
-            clean_text(payload.get("twitterTitle", "")),
-            clean_text(payload.get("documentTitle", "")),
-        ]
-
-        for candidate in candidates:
-            if len(candidate) >= 20 and not candidate.endswith("..."):
-                print(
-                    "EXPANDED ESPN RSS TITLE: "
-                    f"{original_title} -> {candidate}"
-                )
-                return candidate
-
-    except Exception as error:
-        print(f"Could not expand ESPN RSS title: {original_title} -> {error}")
-
-    finally:
-        if target_id:
-            _close_page(target_id)
-
-    return original_title
-
 def fetch_espn_sports_articles(max_articles=4):
     """
     Sports Desk uses ESPN RSS story entries only.
@@ -292,8 +221,6 @@ def fetch_espn_sports_articles(max_articles=4):
 
                 if normalized_link in used_links:
                     continue
-
-                article.title = resolve_truncated_espn_title(article)
 
                 articles.append(article)
                 used_links.add(normalized_link)

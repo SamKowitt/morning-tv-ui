@@ -6,7 +6,6 @@ from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPen
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
-    QFrame,
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -364,14 +363,11 @@ class RemindersPanel(QWidget):
             }
 
             QLabel#RemindersTitle {
-                font-family: "Rockwell";
-                font-size: 22px;
+                font-family: "Georgia";
+                font-size: 21px;
                 font-weight: 1000;
                 color: #241a10;
-                letter-spacing: 1px;
-                padding: 6px 0px 0px 0px;
-                border: none;
-                border-bottom: 1px solid rgba(55, 42, 25, 185);
+                letter-spacing: 2px;
             }
 
             QLabel#TodayReminderGroupTitle,
@@ -401,12 +397,9 @@ class RemindersPanel(QWidget):
 
         title = QLabel("REMINDERS")
         title.setObjectName("RemindersTitle")
-        title.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-        title.setContentsMargins(0, 0, 0, 0)
-        title.setMinimumHeight(34)
-        title.setMaximumHeight(34)
+        title.setAlignment(Qt.AlignLeft)
 
-        title_row.addWidget(title, 1, Qt.AlignLeft | Qt.AlignBottom)
+        title_row.addWidget(title, 1)
         self.main_layout.addLayout(title_row)
 
         self.today_title = QLabel("TODAY")

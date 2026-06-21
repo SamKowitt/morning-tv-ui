@@ -369,9 +369,13 @@ class RemindersPanel(QWidget):
                 font-weight: 1000;
                 color: #241a10;
                 letter-spacing: 1px;
-                padding: 6px 0px 0px 0px;
+            }
+
+            QFrame#RemindersHeaderRule {
+                background: rgba(55, 42, 25, 185);
                 border: none;
-                border-bottom: 1px solid rgba(55, 42, 25, 185);
+                min-height: 1px;
+                max-height: 1px;
             }
 
             QLabel#TodayReminderGroupTitle,
@@ -401,13 +405,16 @@ class RemindersPanel(QWidget):
 
         title = QLabel("REMINDERS")
         title.setObjectName("RemindersTitle")
-        title.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-        title.setContentsMargins(0, 0, 0, 0)
-        title.setMinimumHeight(34)
-        title.setMaximumHeight(34)
+        title.setAlignment(Qt.AlignLeft)
 
-        title_row.addWidget(title, 1, Qt.AlignLeft | Qt.AlignBottom)
+        title_row.addWidget(title, 1)
         self.main_layout.addLayout(title_row)
+
+        header_rule = QFrame()
+        header_rule.setObjectName("RemindersHeaderRule")
+        header_rule.setFrameShape(QFrame.HLine)
+        header_rule.setFixedHeight(1)
+        self.main_layout.addWidget(header_rule)
 
         self.today_title = QLabel("TODAY")
         self.today_title.setObjectName("TodayReminderGroupTitle")

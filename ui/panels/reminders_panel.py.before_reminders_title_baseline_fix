@@ -369,7 +369,7 @@ class RemindersPanel(QWidget):
                 font-weight: 1000;
                 color: #241a10;
                 letter-spacing: 1px;
-                padding: 6px 0px 0px 0px;
+                padding: 0px 0px 1px 0px;
                 border: none;
                 border-bottom: 1px solid rgba(55, 42, 25, 185);
             }
@@ -401,7 +401,7 @@ class RemindersPanel(QWidget):
 
         title = QLabel("REMINDERS")
         title.setObjectName("RemindersTitle")
-        title.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        title.setAlignment(Qt.AlignLeft | Qt.AlignBottom)
         title.setContentsMargins(0, 0, 0, 0)
         title.setMinimumHeight(34)
         title.setMaximumHeight(34)
