@@ -62,7 +62,7 @@ class SportsNewsPanel(QWidget):
         painter.drawText(
             QRectF(inner.left(), footer_rule_y + 2, inner.width() / 2, 12),
             Qt.AlignLeft | Qt.AlignVCenter,
-            "SPORTS DESK",
+            "SPORTS ESPN",
         )
         painter.drawText(
             QRectF(inner.center().x(), footer_rule_y + 2, inner.width() / 2, 12),
@@ -89,7 +89,7 @@ class SportsNewsPanel(QWidget):
         painter.drawText(
             QRectF(inner.left(), inner.top() + 2, inner.width() * 0.72, 23),
             Qt.AlignLeft | Qt.AlignVCenter,
-            "SPORTS DESK",
+            "ESPN",
         )
 
         page_font = QFont("Georgia", 8)
@@ -277,7 +277,7 @@ class SportsNewsPanel(QWidget):
                 continue
 
             article = articles[index]
-            category = getattr(article, "category", "") or "SPORTS DESK"
+            category = getattr(article, "category", "") or "ESPN"
 
             kicker_font = QFont("Times New Roman", 7)
             kicker_font.setBold(True)
@@ -340,7 +340,7 @@ class SportsNewsPanel(QWidget):
 
         self.article_dialog = OpenNewspaperDialog(
             source="ESPN",
-            headline=str(article_headline or "").strip() or "Sports Desk",
+            headline=str(article_headline or "").strip() or "ESPN",
             article_url=article_url,
             parent=parent_window,
         )

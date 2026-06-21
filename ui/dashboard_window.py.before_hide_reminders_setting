@@ -385,7 +385,6 @@ class DashboardWindow(QMainWindow):
         )
 
         self.replace_market_tape_with_news = self.load_saved_market_news_setting()
-        self.hide_reminders = self.load_saved_hide_reminders_setting()
 
         self.weather_zip_code = self.load_saved_weather_zip()
 
@@ -519,9 +518,6 @@ class DashboardWindow(QMainWindow):
 
         self.start_apple_calendar_fetch()
 
-        if self.hide_reminders:
-            self.start_more_news_fetch()
-
     def valid_news_source_keys(self):
         return {source_key for source_key, _label in NEWS_SOURCE_OPTIONS}
 
@@ -550,19 +546,6 @@ class DashboardWindow(QMainWindow):
             "on",
         }
 
-    def load_saved_hide_reminders_setting(self):
-        raw_value = self.saved_settings.value("hide_reminders", False)
-
-        if isinstance(raw_value, bool):
-            return raw_value
-
-        return str(raw_value).strip().lower() in {
-            "1",
-            "true",
-            "yes",
-            "on",
-        }
-
     def save_news_source_settings(self):
         self.saved_settings.setValue("left_news_source_key", self.left_news_source_key)
         self.saved_settings.setValue("right_news_source_key", self.right_news_source_key)
@@ -570,7 +553,6 @@ class DashboardWindow(QMainWindow):
             "replace_market_tape_with_news",
             self.replace_market_tape_with_news,
         )
-        self.saved_settings.setValue("hide_reminders", self.hide_reminders)
         self.saved_settings.sync()
 
         print(
@@ -1661,43 +1643,6 @@ class DashboardWindow(QMainWindow):
 
         left_settings_col.addWidget(left_label)
         left_settings_col.addWidget(self.left_news_combo)
-
-        self.hide_reminders_checkbox = MarketTapeReplacementCheckbox(
-            "Hide reminders"
-        )
-        self.hide_reminders_checkbox.setObjectName("HideRemindersCheckbox")
-        self.hide_reminders_checkbox.setChecked(self.hide_reminders)
-        self.hide_reminders_checkbox.setCursor(Qt.PointingHandCursor)
-        self.hide_reminders_checkbox.setStyleSheet("""
-            QCheckBox#HideRemindersCheckbox {
-                color: #2d2114;
-                background: transparent;
-                font-size: 12px;
-                font-weight: 800;
-                spacing: 8px;
-                padding: 2px 0px 0px 0px;
-            }
-
-            QCheckBox#HideRemindersCheckbox::indicator {
-                width: 16px;
-                height: 16px;
-            }
-
-            QCheckBox#HideRemindersCheckbox::indicator:unchecked {
-                background: rgba(255, 248, 236, 0.78);
-                border: 1px solid rgba(83, 59, 33, 0.50);
-                border-radius: 3px;
-            }
-
-            QCheckBox#HideRemindersCheckbox::indicator:checked {
-                background: #72542d;
-                border: 1px solid #4d351b;
-                border-radius: 3px;
-                image: url(none);
-            }
-        """)
-        left_settings_col.addWidget(self.hide_reminders_checkbox)
-
         left_settings_col.addWidget(right_label)
         left_settings_col.addWidget(self.right_news_combo)
 
@@ -1936,9 +1881,6 @@ class DashboardWindow(QMainWindow):
                 self.replace_market_tape_with_news
             )
 
-        if hasattr(self, "hide_reminders_checkbox"):
-            self.hide_reminders_checkbox.setChecked(self.hide_reminders)
-
         self.weather_zip_input.setText(self.weather_zip_code)
         self.refresh_stock_settings_inputs()
         self.sports_team_setting_orders = self.copy_sports_team_orders(self.sports_team_orders)
@@ -1970,7 +1912,6 @@ class DashboardWindow(QMainWindow):
 
         old_weather_zip = self.weather_zip_code
         old_replace_market_tape_with_news = self.replace_market_tape_with_news
-        old_hide_reminders = self.hide_reminders
 
         old_apple_calendar_settings = (
             self.apple_calendar_email,
@@ -2004,7 +1945,6 @@ class DashboardWindow(QMainWindow):
         self.replace_market_tape_with_news = bool(
             self.replace_market_tape_checkbox.isChecked()
         )
-        self.hide_reminders = bool(self.hide_reminders_checkbox.isChecked())
 
         self.weather_zip_code = validated_location.zip_code
 
@@ -2025,10 +1965,8 @@ class DashboardWindow(QMainWindow):
         self.show_dashboard_page()
         self.start_news_fetch()
 
-        if self.hide_reminders or self.calendar_has_no_events:
+        if self.calendar_has_no_events:
             self.start_more_news_fetch()
-        elif old_hide_reminders:
-            self.start_apple_calendar_fetch()
 
         if self.replace_market_tape_with_news:
             self.start_market_news_fetch()
@@ -2279,10 +2217,7 @@ class DashboardWindow(QMainWindow):
             self.bottom_left_stack.setCurrentWidget(self.reminders)
 
     def start_more_news_fetch(self):
-        if not (
-            getattr(self, "calendar_has_no_events", False)
-            or getattr(self, "hide_reminders", False)
-        ):
+        if not getattr(self, "calendar_has_no_events", False):
             return
 
         self.more_news_request_id += 1
@@ -2334,10 +2269,7 @@ class DashboardWindow(QMainWindow):
             )
             return
 
-        if not (
-            self.calendar_has_no_events
-            or getattr(self, "hide_reminders", False)
-        ):
+        if not self.calendar_has_no_events:
             return
 
         articles = list(articles or [])[:4]
@@ -2414,7 +2346,7 @@ class DashboardWindow(QMainWindow):
 
         self.calendar_has_no_events = len(events) == 0
 
-        if self.calendar_has_no_events or self.hide_reminders:
+        if self.calendar_has_no_events:
             self.start_more_news_fetch()
             return
 
@@ -2425,10 +2357,6 @@ class DashboardWindow(QMainWindow):
 
     def on_apple_calendar_failed(self, error_message):
         print(f"Apple Calendar fetch failed: {error_message}")
-
-        if self.hide_reminders:
-            self.start_more_news_fetch()
-            return
 
         self.show_reminders_panel()
 
