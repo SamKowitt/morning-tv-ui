@@ -12,10 +12,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from services.sports_games_fetcher import (
-    fetch_espn_boxscore,
-    fetch_mlb_boxscore,
-)
+from services.sports_games_fetcher import fetch_mlb_boxscore
 from ui.newspaper_chrome import draw_stacked_newspaper_panel
 
 
@@ -81,7 +78,7 @@ class MLBBoxScoreDialog(QDialog):
                 border-radius: 0px;
                 padding: 13px;
                 font-family: "American Typewriter", "Courier New", monospace;
-                font-size: 18px;
+                font-size: 12px;
             }
 
             QWidget#BoxScoreFold {
@@ -255,9 +252,6 @@ class MLBBoxScoreDialog(QDialog):
             person = player.get("person", {}) or {}
             position = player.get("position", {}) or {}
             stats = (player.get("stats", {}) or {}).get("batting", {}) or {}
-            season_stats = (
-                (player.get("seasonStats", {}) or {}).get("batting", {}) or {}
-            )
 
             name = escape(str(person.get("fullName") or "Player"))
             pos = escape(str(position.get("abbreviation") or ""))
@@ -271,9 +265,9 @@ class MLBBoxScoreDialog(QDialog):
                 f"<td>{self._value(stats.get('homeRuns'))}</td>"
                 f"<td>{self._value(stats.get('baseOnBalls'))}</td>"
                 f"<td>{self._value(stats.get('strikeOuts'))}</td>"
-                f"<td>{self._value(stats.get('avg') or season_stats.get('avg'))}</td>"
-                f"<td>{self._value(stats.get('obp') or season_stats.get('obp'))}</td>"
-                f"<td>{self._value(stats.get('slg') or season_stats.get('slg'))}</td>"
+                f"<td>{self._value(stats.get('avg'))}</td>"
+                f"<td>{self._value(stats.get('obp'))}</td>"
+                f"<td>{self._value(stats.get('slg'))}</td>"
                 "</tr>"
             )
 
@@ -288,9 +282,6 @@ class MLBBoxScoreDialog(QDialog):
 
             person = player.get("person", {}) or {}
             stats = (player.get("stats", {}) or {}).get("pitching", {}) or {}
-            season_stats = (
-                (player.get("seasonStats", {}) or {}).get("pitching", {}) or {}
-            )
             name = escape(str(person.get("fullName") or "Pitcher"))
 
             pitches = stats.get("pitchesThrown")
@@ -310,7 +301,7 @@ class MLBBoxScoreDialog(QDialog):
                 f"<td>{self._value(stats.get('strikeOuts'))}</td>"
                 f"<td>{self._value(stats.get('homeRuns'))}</td>"
                 f"<td>{pitch_strike}</td>"
-                f"<td>{self._value(stats.get('era') or season_stats.get('era'))}</td>"
+                f"<td>{self._value(stats.get('era'))}</td>"
                 "</tr>"
             )
 
@@ -329,12 +320,12 @@ class MLBBoxScoreDialog(QDialog):
             }}
             h1 {{
                 font-family: Georgia, serif;
-                font-size: 32px;
+                font-size: 22px;
                 margin: 0 0 6px 0;
             }}
             h2 {{
                 font-family: Georgia, serif;
-                font-size: 22px;
+                font-size: 15px;
                 margin: 14px 0 5px 0;
                 border-bottom: 1px solid #80623c;
                 padding-bottom: 3px;
@@ -342,7 +333,7 @@ class MLBBoxScoreDialog(QDialog):
             table {{
                 border-collapse: collapse;
                 width: 100%;
-                font-size: 15px;
+                font-size: 10px;
             }}
             th {{
                 color: #3b2a18;
@@ -394,420 +385,6 @@ class MLBBoxScoreDialog(QDialog):
         if self.thread and self.thread.isRunning():
             self.thread.quit()
             self.thread.wait(500)
-        super().closeEvent(event)
-
-
-
-class ESPNBoxScoreWorker(QObject):
-    finished = Signal(object)
-    failed = Signal(str)
-
-    def __init__(self, league, game_id):
-        super().__init__()
-        self.league = str(league or "").upper()
-        self.game_id = str(game_id or "")
-
-    def run(self):
-        try:
-            self.finished.emit(fetch_espn_boxscore(self.league, self.game_id))
-        except Exception as error:
-            self.failed.emit(str(error))
-
-
-class ESPNBoxScoreDialog(QDialog):
-    """
-    Full-dashboard newspaper popup for NFL and NBA box scores.
-    Away team is always the left page. Home team is always the right page.
-    """
-
-    def __init__(self, league, game_id, fallback_title="", parent=None):
-        super().__init__(parent)
-
-        self.league = str(league or "").upper()
-        self.game_id = str(game_id or "")
-        self.fallback_title = str(fallback_title or "")
-        self.thread = None
-        self.worker = None
-
-        self.setWindowTitle(f"{self.league} Box Score")
-        self.setModal(False)
-        self.setWindowFlags(Qt.Widget | Qt.FramelessWindowHint)
-        self.setAttribute(Qt.WA_StyledBackground, True)
-
-        self.setStyleSheet("""
-            QDialog {
-                background: #2d2419;
-            }
-
-            QLabel#ESPNBoxScoreMasthead {
-                color: #f1dfbc;
-                background: transparent;
-                font-family: "Rockwell", "Georgia", serif;
-                font-size: 27px;
-                font-weight: 900;
-                letter-spacing: 1px;
-            }
-
-            QLabel#ESPNBoxScoreStatus {
-                color: #e8d8b6;
-                background: transparent;
-                font-family: "Times New Roman";
-                font-size: 13px;
-                font-weight: 900;
-                letter-spacing: 1px;
-            }
-
-            QTextEdit#ESPNBoxScorePage {
-                background: #f4e3bd;
-                color: #1b130c;
-                border: 1px solid rgba(70, 50, 28, 210);
-                border-radius: 0px;
-                padding: 13px;
-                font-family: "American Typewriter", "Courier New", monospace;
-                font-size: 15px;
-            }
-
-            QWidget#ESPNBoxScoreFold {
-                background: #d6bf91;
-                border-left: 1px solid rgba(70, 50, 28, 150);
-                border-right: 1px solid rgba(70, 50, 28, 150);
-            }
-
-            QPushButton#ESPNBoxScoreCloseButton {
-                background-color: #f3e6c9;
-                border: 2px solid rgba(70, 50, 28, 210);
-                border-radius: 5px;
-                color: #24170d;
-                font-family: "Georgia";
-                font-size: 18px;
-                font-weight: 900;
-                padding: 7px 18px;
-                min-width: 120px;
-                min-height: 34px;
-            }
-
-            QPushButton#ESPNBoxScoreCloseButton:hover {
-                background-color: #fff0cf;
-            }
-        """)
-
-        root = QVBoxLayout(self)
-        root.setContentsMargins(18, 16, 18, 16)
-        root.setSpacing(10)
-
-        header = QHBoxLayout()
-        header.setContentsMargins(0, 0, 0, 0)
-
-        self.masthead = QLabel(f"{self.league} BOX SCORE")
-        self.masthead.setObjectName("ESPNBoxScoreMasthead")
-
-        self.status = QLabel("Loading box score...")
-        self.status.setObjectName("ESPNBoxScoreStatus")
-        self.status.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-        header.addWidget(self.masthead, 1)
-        header.addWidget(self.status)
-        root.addLayout(header)
-
-        spread = QHBoxLayout()
-        spread.setContentsMargins(0, 0, 0, 0)
-        spread.setSpacing(0)
-
-        self.left_page = QTextEdit()
-        self.left_page.setObjectName("ESPNBoxScorePage")
-        self.left_page.setReadOnly(True)
-        self.left_page.setTextInteractionFlags(Qt.NoTextInteraction)
-        self.left_page.setHtml(self.loading_html("Away team"))
-
-        self.fold = QWidget()
-        self.fold.setObjectName("ESPNBoxScoreFold")
-        self.fold.setFixedWidth(14)
-
-        self.right_page = QTextEdit()
-        self.right_page.setObjectName("ESPNBoxScorePage")
-        self.right_page.setReadOnly(True)
-        self.right_page.setTextInteractionFlags(Qt.NoTextInteraction)
-        self.right_page.setHtml(self.loading_html("Home team"))
-
-        spread.addWidget(self.left_page, 1)
-        spread.addWidget(self.fold)
-        spread.addWidget(self.right_page, 1)
-        root.addLayout(spread, 1)
-
-        controls = QHBoxLayout()
-        controls.setContentsMargins(0, 0, 0, 0)
-
-        close_button = QPushButton("CLOSE")
-        close_button.setObjectName("ESPNBoxScoreCloseButton")
-        close_button.clicked.connect(self.close)
-
-        controls.addStretch(1)
-        controls.addWidget(close_button)
-        root.addLayout(controls)
-
-        self.start_fetch()
-
-    @staticmethod
-    def loading_html(title):
-        return (
-            "<div style='font-family:Georgia; font-size:26px; font-weight:bold;'>"
-            f"{escape(title)}</div>"
-            "<hr><div style='margin-top:28px; font-family:Georgia; font-size:18px;'>"
-            "Loading box score...</div>"
-        )
-
-    @staticmethod
-    def clean_value(value, fallback="—"):
-        if value is None or value == "":
-            return fallback
-        return escape(str(value))
-
-    def start_fetch(self):
-        self.thread = QThread(self)
-        self.worker = ESPNBoxScoreWorker(self.league, self.game_id)
-        self.worker.moveToThread(self.thread)
-
-        self.thread.started.connect(self.worker.run)
-        self.worker.finished.connect(self.apply_boxscore)
-        self.worker.failed.connect(self.apply_error)
-
-        self.worker.finished.connect(self.thread.quit)
-        self.worker.failed.connect(self.thread.quit)
-        self.thread.finished.connect(self.worker.deleteLater)
-        self.thread.finished.connect(self.thread.deleteLater)
-
-        self.thread.start()
-
-    def apply_error(self, message):
-        safe_message = escape(str(message))
-        html = (
-            "<div style='font-family:Georgia; font-size:26px; font-weight:bold;'>"
-            "Box score unavailable</div><hr>"
-            f"<div style='margin-top:20px; font-family:Georgia; font-size:18px;'>{safe_message}</div>"
-        )
-        self.left_page.setHtml(html)
-        self.right_page.setHtml(html)
-        self.status.setText("Could not load box score")
-
-    def team_side_map(self, payload):
-        sides = {}
-
-        competitions = (
-            (payload.get("header", {}) or {})
-            .get("competitions", [])
-            or []
-        )
-
-        if not competitions:
-            return sides
-
-        for competitor in competitions[0].get("competitors", []) or []:
-            team = competitor.get("team", {}) or {}
-            team_id = str(team.get("id", "") or "")
-
-            if team_id:
-                sides[team_id] = competitor.get("homeAway", "")
-
-        return sides
-
-    def grouped_team_stats(self, payload):
-        side_map = self.team_side_map(payload)
-        groups = {"away": [], "home": []}
-
-        for team_block in (
-            (payload.get("boxscore", {}) or {})
-            .get("players", [])
-            or []
-        ):
-            team = team_block.get("team", {}) or {}
-            team_id = str(team.get("id", "") or "")
-            side = side_map.get(team_id)
-
-            if side not in groups:
-                continue
-
-            groups[side].append(team_block)
-
-        return groups
-
-    def apply_boxscore(self, payload):
-        payload = payload or {}
-        grouped = self.grouped_team_stats(payload)
-
-        if not grouped["away"] or not grouped["home"]:
-            self.apply_error(
-                f"ESPN did not return both team box scores for this {self.league} game."
-            )
-            return
-
-        self.left_page.setHtml(self.team_page_html(grouped["away"]))
-        self.right_page.setHtml(self.team_page_html(grouped["home"]))
-
-        game_status = self.fallback_title or f"{self.league} LIVE / FINAL"
-        competitions = (
-            (payload.get("header", {}) or {})
-            .get("competitions", [])
-            or []
-        )
-
-        if competitions:
-            status = competitions[0].get("status", {}) or {}
-            detail = (
-                status.get("type", {}) or {}
-            ).get("detail") or status.get("displayClock")
-
-            if detail:
-                game_status = str(detail)
-
-        self.status.setText(game_status.upper())
-
-    def team_page_html(self, team_blocks):
-        first_team = team_blocks[0].get("team", {}) or {}
-        team_name = (
-            first_team.get("displayName")
-            or first_team.get("shortDisplayName")
-            or first_team.get("name")
-            or "Team"
-        )
-
-        sections = []
-
-        for team_block in team_blocks:
-            for stat_group in team_block.get("statistics", []) or []:
-                group_name = (
-                    stat_group.get("name")
-                    or stat_group.get("displayName")
-                    or "Statistics"
-                )
-
-                labels = (
-                    stat_group.get("labels")
-                    or stat_group.get("names")
-                    or []
-                )
-
-                athletes = stat_group.get("athletes", []) or []
-
-                if not athletes:
-                    continue
-
-                max_columns = min(len(labels), 8)
-                headers = labels[:max_columns]
-
-                rows = []
-                for athlete_entry in athletes:
-                    athlete = athlete_entry.get("athlete", {}) or {}
-                    athlete_name = athlete.get("displayName") or athlete.get("shortName") or "Player"
-                    position = (
-                        athlete.get("position", {}) or {}
-                    ).get("abbreviation", "")
-
-                    values = athlete_entry.get("stats", []) or []
-                    values = values[:max_columns]
-
-                    cells = "".join(
-                        f"<td>{self.clean_value(value)}</td>"
-                        for value in values
-                    )
-
-                    rows.append(
-                        "<tr>"
-                        f"<td class='name'>{escape(str(athlete_name))} "
-                        f"<span class='pos'>{escape(str(position))}</span></td>"
-                        f"{cells}"
-                        "</tr>"
-                    )
-
-                if not rows:
-                    continue
-
-                header_cells = "".join(
-                    f"<th>{escape(str(label))}</th>"
-                    for label in headers
-                )
-
-                sections.append(
-                    "<h2>"
-                    f"{escape(str(group_name)).upper()}"
-                    "</h2>"
-                    "<table>"
-                    "<tr>"
-                    "<th style='text-align:left'>PLAYER</th>"
-                    f"{header_cells}"
-                    "</tr>"
-                    f"{''.join(rows)}"
-                    "</table>"
-                )
-
-        if not sections:
-            sections.append(
-                "<div style='margin-top:24px; font-family:Georgia; font-size:18px;'>"
-                "Detailed player statistics are not available yet."
-                "</div>"
-            )
-
-        return f"""
-        <html>
-        <head>
-        <style>
-            body {{
-                color: #1b130c;
-                background: transparent;
-                margin: 0;
-                font-family: Arial, sans-serif;
-            }}
-            h1 {{
-                font-family: Georgia, serif;
-                font-size: 30px;
-                margin: 0 0 6px 0;
-            }}
-            h2 {{
-                font-family: Georgia, serif;
-                font-size: 20px;
-                margin: 16px 0 5px 0;
-                border-bottom: 1px solid #80623c;
-                padding-bottom: 3px;
-            }}
-            table {{
-                border-collapse: collapse;
-                width: 100%;
-                font-size: 14px;
-            }}
-            th {{
-                color: #3b2a18;
-                text-align: center;
-                border-bottom: 1px solid #80623c;
-                padding: 4px 3px;
-                font-weight: 700;
-            }}
-            td {{
-                text-align: center;
-                border-bottom: 1px solid #d2be95;
-                padding: 5px 3px;
-            }}
-            td.name {{
-                text-align: left;
-                font-weight: 600;
-                width: 34%;
-            }}
-            .pos {{
-                color: #66523a;
-                font-weight: normal;
-            }}
-        </style>
-        </head>
-        <body>
-            <h1>{escape(str(team_name))} Box Score</h1>
-            {''.join(sections)}
-        </body>
-        </html>
-        """
-
-    def closeEvent(self, event):
-        if self.thread and self.thread.isRunning():
-            self.thread.quit()
-            self.thread.wait(500)
-
         super().closeEvent(event)
 
 
@@ -1064,10 +641,7 @@ class SportsGamesPanel(QWidget):
                     game,
                     compact=len(games) >= 3,
                 )
-                if (
-                    game.get("is_clickable")
-                    and game.get("league") in {"MLB", "NFL", "NBA"}
-                ):
+                if game.get("is_clickable") and game.get("league") == "MLB":
                     self.clickable_rows.append((QRectF(row), game))
 
             if i < row_count - 1:
@@ -1223,16 +797,14 @@ class SportsGamesPanel(QWidget):
             point = event.position()
             for row, game in self.clickable_rows:
                 if row.contains(point):
-                    self.open_boxscore(game)
+                    self.open_mlb_boxscore(game)
                     event.accept()
                     return
         super().mousePressEvent(event)
 
-    def open_boxscore(self, game):
+    def open_mlb_boxscore(self, game):
         game_id = str(game.get("game_id", "") or "")
-        league = str(game.get("league", "") or "").upper()
-
-        if not game_id or league not in {"MLB", "NFL", "NBA"}:
+        if not game_id:
             return
 
         if self.boxscore_dialog is not None:
@@ -1242,19 +814,11 @@ class SportsGamesPanel(QWidget):
         title = str(game.get("matchup", "") or "")
         dashboard_window = self.window()
 
-        if league == "MLB":
-            self.boxscore_dialog = MLBBoxScoreDialog(
-                game_id,
-                title,
-                parent=dashboard_window,
-            )
-        else:
-            self.boxscore_dialog = ESPNBoxScoreDialog(
-                league,
-                game_id,
-                title,
-                parent=dashboard_window,
-            )
+        self.boxscore_dialog = MLBBoxScoreDialog(
+            game_id,
+            title,
+            parent=dashboard_window,
+        )
 
         self.boxscore_dialog.setGeometry(dashboard_window.rect())
         self.boxscore_dialog.show()

@@ -18,11 +18,6 @@ ESPN_SCOREBOARD_ENDPOINTS = {
     "NBA": "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard",
 }
 
-ESPN_SUMMARY_ENDPOINTS = {
-    "NFL": "https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary",
-    "NBA": "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary",
-}
-
 LEAGUE_META = {
     "MLB": {
         "emoji": "⚾",
@@ -464,25 +459,6 @@ def fetch_mlb_boxscore(game_pk):
     return fetch_json(url)
 
 
-def fetch_espn_boxscore(league, event_id):
-    """
-    Load one NFL or NBA game summary from ESPN only after a user clicks it.
-    The summary response contains the current/final player box score.
-    """
-    league = str(league or "").upper()
-    event_id = str(event_id or "").strip()
-
-    if league not in ESPN_SUMMARY_ENDPOINTS:
-        raise ValueError(f"Unsupported ESPN box-score league: {league}")
-
-    if not event_id:
-        raise ValueError("Missing ESPN event ID.")
-
-    url = f"{ESPN_SUMMARY_ENDPOINTS[league]}?event={event_id}"
-    print(f"Fetching {league} box score: {url}")
-    return fetch_json(url)
-
-
 def mlb_base_sort_key(game):
     status = get_mlb_game_status(game).lower()
 
@@ -773,24 +749,6 @@ def build_espn_detail(event):
     return ""
 
 
-def is_espn_boxscore_clickable(event):
-    """
-    ESPN provides usable live and final box scores for in-progress,
-    halftime, and completed NFL/NBA games.
-    """
-    status_name = get_espn_status_name(event)
-    event_id = str(event.get("id", "") or "").strip()
-
-    return bool(
-        event_id
-        and status_name in {
-            "STATUS_IN_PROGRESS",
-            "STATUS_HALFTIME",
-            "STATUS_FINAL",
-        }
-    )
-
-
 def espn_base_sort_key(event):
     status_name = get_espn_status_name(event)
 
@@ -906,9 +864,6 @@ def fetch_espn_games(league, max_games_per_league=3, favorite_teams=None):
                 matchup=build_espn_matchup(event),
                 time=format_espn_game_time(event),
                 detail=build_espn_detail(event),
-                league=league,
-                game_id=str(event.get("id", "") or ""),
-                is_clickable=is_espn_boxscore_clickable(event),
             )
         )
 
