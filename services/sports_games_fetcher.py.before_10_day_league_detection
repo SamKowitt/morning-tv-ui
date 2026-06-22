@@ -12,7 +12,6 @@ import time
 
 LOCAL_TIMEZONE = ZoneInfo("America/New_York")
 
-OFFSEASON_LOOKAHEAD_DAYS = 3
 
 BOXSCORE_CACHE_TTL_SECONDS = 300
 _boxscore_cache = {}
@@ -958,99 +957,6 @@ def fetch_espn_games(league, max_games_per_league=3, favorite_teams=None):
     return games
 
 
-
-# -----------------------------
-# League availability rules
-# -----------------------------
-
-def date_is_between(month_day, start_month_day, end_month_day):
-    """
-    Inclusive month/day comparison that supports seasons crossing New Year.
-    Values are tuples like (8, 1).
-    """
-    if start_month_day <= end_month_day:
-        return start_month_day <= month_day <= end_month_day
-
-    return month_day >= start_month_day or month_day <= end_month_day
-
-
-def league_is_in_primary_season(league, current_date=None):
-    if current_date is None:
-        current_date = datetime.now(LOCAL_TIMEZONE).date()
-
-    month_day = (current_date.month, current_date.day)
-
-    if league == "MLB":
-        return date_is_between(month_day, (4, 1), (10, 28))
-
-    if league == "NFL":
-        return date_is_between(month_day, (8, 1), (2, 15))
-
-    if league == "NBA":
-        return date_is_between(month_day, (10, 7), (6, 14))
-
-    return False
-
-
-def league_has_usable_game_in_next_days(
-    league,
-    lookahead_days=OFFSEASON_LOOKAHEAD_DAYS,
-):
-    """
-    Off-season fallback: return True only when a league has at least one
-    usable game today or within the next two calendar days.
-    """
-    today = datetime.now(LOCAL_TIMEZONE).date()
-    end_date = today + timedelta(days=lookahead_days - 1)
-
-    if league == "MLB":
-        try:
-            data = fetch_json(build_mlb_schedule_url(today, end_date))
-        except Exception as error:
-            print(f"MLB fallback schedule check failed: {error}")
-            return False
-
-        for date_block in data.get("dates", []) or []:
-            for game in date_block.get("games", []) or []:
-                if not should_include_mlb_game(game):
-                    continue
-
-                game_date = get_game_local_date(game.get("gameDate"))
-
-                if game_date and today <= game_date <= end_date:
-                    return True
-
-        return False
-
-    if league not in ESPN_SCOREBOARD_ENDPOINTS:
-        return False
-
-    for day_offset in range(lookahead_days):
-        date_value = today + timedelta(days=day_offset)
-
-        try:
-            events = fetch_espn_events_for_day(league, date_value)
-        except Exception as error:
-            print(
-                f"{league} fallback schedule check failed for "
-                f"{date_value:%Y-%m-%d}: {error}"
-            )
-            continue
-
-        for event in events:
-            # Rejects cancelled, postponed, delayed, suspended, forfeited,
-            # and STATUS_UNNECESSARY events.
-            if not should_include_espn_event(event):
-                continue
-
-            event_date = get_game_local_date(event.get("date"))
-
-            if event_date and today <= event_date <= end_date:
-                return True
-
-    return False
-
-
 # -----------------------------
 # Public fetch entry point
 # -----------------------------
@@ -1098,35 +1004,19 @@ def fetch_games_for_league(league, max_games_per_league=3, favorite_teams=None):
 
 
 def fetch_current_sports_games(max_games_per_league=3, favorite_teams=None):
+    today = datetime.now(LOCAL_TIMEZONE).date()
     favorite_teams = normalize_favorite_teams(favorite_teams)
+
+    print(f"Checking active sports leagues for month {today.month}...")
 
     leagues = []
 
     for league in ["MLB", "NFL", "NBA"]:
-        primary_season = league_is_in_primary_season(league)
-
-        if primary_season:
-            print(f"{league} is active by primary season dates.")
-        elif league in {"MLB", "NBA"}:
-            print(
-                f"{league} is outside its primary dates. Checking only the "
-                f"next {OFFSEASON_LOOKAHEAD_DAYS} days for usable games."
-            )
-
-            if not league_has_usable_game_in_next_days(league):
-                print(
-                    f"{league} skipped. No usable games found in the next "
-                    f"{OFFSEASON_LOOKAHEAD_DAYS} days."
-                )
-                continue
-
-            print(
-                f"{league} is active through its off-season "
-                f"{OFFSEASON_LOOKAHEAD_DAYS}-day schedule fallback."
-            )
-        else:
-            print(f"{league} skipped. Outside primary season dates.")
+        if not is_league_active_by_month(league, today):
+            print(f"{league} skipped. Month {today.month} is outside active months.")
             continue
+
+        print(f"{league} is active by month rule. Adding league to panel.")
 
         league_data = fetch_games_for_league(
             league=league,
@@ -1136,8 +1026,9 @@ def fetch_current_sports_games(max_games_per_league=3, favorite_teams=None):
 
         leagues.append(league_data)
 
-    leagues.sort(
-        key=lambda item: LEAGUE_META.get(item.league, {}).get("priority", 99)
+    leagues = sorted(
+        leagues,
+        key=lambda item: LEAGUE_META.get(item.league, {}).get("priority", 99),
     )
 
     print(f"Loaded active sports leagues: {[league.league for league in leagues]}")

@@ -17,11 +17,6 @@ class WeatherRow:
     time_label: str
     condition: str
     is_night: bool
-    forecast_start: str = ""
-    detailed_forecast: str = ""
-    wind_speed: str = ""
-    precipitation_probability: int | None = None
-    source: str = "NWS"
 
 
 ZIP_CODE = "44865"
@@ -370,14 +365,6 @@ def build_rows_from_nws_periods(periods, max_rows, alerts=None, observation=None
         if override and index <= 2:
             condition, icon = override
 
-        precipitation_data = period.get("probabilityOfPrecipitation", {}) or {}
-        precipitation_probability = precipitation_data.get("value")
-
-        try:
-            precipitation_probability = int(precipitation_probability)
-        except Exception:
-            precipitation_probability = None
-
         rows.append(
             WeatherRow(
                 temperature=temperature or "--",
@@ -385,11 +372,6 @@ def build_rows_from_nws_periods(periods, max_rows, alerts=None, observation=None
                 time_label=format_hour_label(start_time) or period.get("name", ""),
                 condition=condition,
                 is_night=not is_day,
-                forecast_start=start_time,
-                detailed_forecast=period.get("detailedForecast", "") or short_forecast,
-                wind_speed=period.get("windSpeed", "") or "",
-                precipitation_probability=precipitation_probability,
-                source="NWS",
             )
         )
 
@@ -506,7 +488,7 @@ def fetch_weather_rows_from_open_meteo(max_rows=9, location=None):
         "latitude": location.latitude,
         "longitude": location.longitude,
         "current": "temperature_2m,weather_code,is_day",
-        "hourly": "temperature_2m,weather_code,precipitation_probability,is_day,wind_speed_10m",
+        "hourly": "temperature_2m,weather_code,precipitation_probability,is_day",
         "temperature_unit": "fahrenheit",
         "timezone": location.timezone,
         "forecast_days": 2,
@@ -521,7 +503,6 @@ def fetch_weather_rows_from_open_meteo(max_rows=9, location=None):
     weather_codes = hourly.get("weather_code", [])
     precipitation_probabilities = hourly.get("precipitation_probability", [])
     is_day_values = hourly.get("is_day", [])
-    wind_speeds = hourly.get("wind_speed_10m", [])
 
     rows = []
 
@@ -545,19 +526,6 @@ def fetch_weather_rows_from_open_meteo(max_rows=9, location=None):
             is_day=is_day,
         )
 
-        wind_speed = (
-            wind_speeds[index]
-            if index < len(wind_speeds)
-            else None
-        )
-
-        try:
-            local_start = datetime.fromisoformat(time_value).replace(
-                tzinfo=ZoneInfo(location.timezone)
-            ).isoformat()
-        except Exception:
-            local_start = str(time_value or "")
-
         rows.append(
             WeatherRow(
                 temperature=temperature or "--",
@@ -565,19 +533,6 @@ def fetch_weather_rows_from_open_meteo(max_rows=9, location=None):
                 time_label=format_hour_label(time_value),
                 condition=condition,
                 is_night=not is_day,
-                forecast_start=local_start,
-                detailed_forecast="Open-Meteo hourly forecast",
-                wind_speed=(
-                    f"{round(float(wind_speed))} mph"
-                    if wind_speed is not None
-                    else ""
-                ),
-                precipitation_probability=(
-                    int(precipitation_probability)
-                    if precipitation_probability is not None
-                    else None
-                ),
-                source="Open-Meteo",
             )
         )
 

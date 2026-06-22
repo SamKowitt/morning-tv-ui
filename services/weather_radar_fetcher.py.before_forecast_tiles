@@ -1,0 +1,412 @@
+import io
+import json
+import math
+import os
+import ssl
+import urllib.parse
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import certifi
+from PIL import Image, ImageDraw
+
+
+SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
+
+CACHE_DIR = Path.home() / ".cache" / "MorningTVUI" / "weathercom_radar"
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+KEY_FILE = Path.home() / ".config" / "MorningTVUI" / "weathercom_tile_key.txt"
+
+TILE_ENDPOINT = "https://api.weather.com/v3/TileServer/tile"
+RADAR_PRODUCT = "twcRadarMosaic"
+
+ZOOM = 8
+TILE_SIZE = 256
+TILE_RADIUS = 1
+FRAME_COUNT = 12
+FRAME_SPACING_SECONDS = 300
+LOOP_CACHE_SECONDS = 420
+REQUEST_TIMEOUT_SECONDS = 20
+
+
+def _read_api_key():
+    key = os.environ.get("WEATHERCOM_TILE_API_KEY", "").strip()
+
+    if not key and KEY_FILE.exists():
+        try:
+            key = KEY_FILE.read_text(encoding="utf-8").strip()
+        except OSError:
+            key = ""
+
+    if not key:
+        raise RuntimeError(
+            "Weather.com radar key is missing. "
+            "Create ~/.config/MorningTVUI/weathercom_tile_key.txt first."
+        )
+
+    return key
+
+
+def _floor_to_radar_interval(value):
+    value = value.astimezone(timezone.utc)
+
+    return value.replace(
+        minute=(value.minute // 5) * 5,
+        second=0,
+        microsecond=0,
+    )
+
+
+def _radar_loop_end(selected_start_utc):
+    now_utc = _floor_to_radar_interval(datetime.now(timezone.utc))
+    selected_end = _floor_to_radar_interval(
+        selected_start_utc.astimezone(timezone.utc) + timedelta(hours=1)
+    )
+
+    if selected_end <= now_utc and selected_end >= now_utc - timedelta(hours=3):
+        return selected_end
+
+    return now_utc
+
+
+def _tile_coordinates(latitude, longitude, zoom):
+    latitude = max(-85.05112878, min(85.05112878, float(latitude)))
+    longitude = float(longitude)
+
+    world_size = 2 ** zoom
+
+    x = (longitude + 180.0) / 360.0 * world_size
+    latitude_radians = math.radians(latitude)
+
+    y = (
+        (
+            1.0
+            - math.asinh(math.tan(latitude_radians)) / math.pi
+        )
+        / 2.0
+        * world_size
+    )
+
+    return x, y
+
+
+def _download_tile(timestamp, tile_x, tile_y, zoom, api_key):
+    max_tile = (2 ** zoom) - 1
+
+    tile_x %= (2 ** zoom)
+
+    if tile_y < 0 or tile_y > max_tile:
+        return None
+
+    params = {
+        "product": RADAR_PRODUCT,
+        "ts": str(int(timestamp)),
+        "xyz": f"{tile_x}:{tile_y}:{zoom}",
+        "apiKey": api_key,
+    }
+
+    url = TILE_ENDPOINT + "?" + urllib.parse.urlencode(params)
+
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "MorningTVUI/1.0",
+            "Accept": "image/avif,image/webp,image/png,image/*,*/*;q=0.8",
+            "Referer": "https://weather.com/",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(
+            request,
+            timeout=REQUEST_TIMEOUT_SECONDS,
+            context=SSL_CONTEXT,
+        ) as response:
+            payload = response.read()
+
+        if len(payload) < 80:
+            return None
+
+        image = Image.open(io.BytesIO(payload)).convert("RGBA")
+        return image.copy()
+
+    except Exception:
+        return None
+
+
+def _render_frame(latitude, longitude, timestamp, api_key):
+    center_x_float, center_y_float = _tile_coordinates(
+        latitude,
+        longitude,
+        ZOOM,
+    )
+
+    center_x = int(math.floor(center_x_float))
+    center_y = int(math.floor(center_y_float))
+
+    start_x = center_x - TILE_RADIUS
+    start_y = center_y - TILE_RADIUS
+
+    tile_count = (TILE_RADIUS * 2) + 1
+    image_size = tile_count * TILE_SIZE
+
+    canvas = Image.new(
+        "RGBA",
+        (image_size, image_size),
+        (205, 220, 228, 255),
+    )
+
+    requests = []
+
+    with ThreadPoolExecutor(max_workers=7) as executor:
+        for row in range(tile_count):
+            for column in range(tile_count):
+                tile_x = start_x + column
+                tile_y = start_y + row
+
+                future = executor.submit(
+                    _download_tile,
+                    timestamp,
+                    tile_x,
+                    tile_y,
+                    ZOOM,
+                    api_key,
+                )
+
+                requests.append((future, row, column))
+
+        loaded_tiles = 0
+
+        for future, row, column in requests:
+            tile = future.result()
+
+            if tile is None:
+                continue
+
+            canvas.alpha_composite(
+                tile,
+                dest=(column * TILE_SIZE, row * TILE_SIZE),
+            )
+            loaded_tiles += 1
+
+    if loaded_tiles == 0:
+        return None
+
+    location_pixel_x = int(
+        (center_x_float - start_x) * TILE_SIZE
+    )
+    location_pixel_y = int(
+        (center_y_float - start_y) * TILE_SIZE
+    )
+
+    draw = ImageDraw.Draw(canvas, "RGBA")
+
+    draw.ellipse(
+        (
+            location_pixel_x - 8,
+            location_pixel_y - 8,
+            location_pixel_x + 8,
+            location_pixel_y + 8,
+        ),
+        fill=(15, 22, 28, 225),
+        outline=(255, 248, 226, 255),
+        width=2,
+    )
+
+    draw.line(
+        (
+            location_pixel_x - 14,
+            location_pixel_y,
+            location_pixel_x + 14,
+            location_pixel_y,
+        ),
+        fill=(255, 248, 226, 235),
+        width=1,
+    )
+
+    draw.line(
+        (
+            location_pixel_x,
+            location_pixel_y - 14,
+            location_pixel_x,
+            location_pixel_y + 14,
+        ),
+        fill=(255, 248, 226, 235),
+        width=1,
+    )
+
+    buffer = io.BytesIO()
+    canvas.convert("RGB").save(
+        buffer,
+        format="JPEG",
+        quality=90,
+        optimize=True,
+    )
+
+    return buffer.getvalue()
+
+
+def _cache_key(latitude, longitude, loop_end):
+    return (
+        f"{latitude:.3f}_{longitude:.3f}_"
+        f"z{ZOOM}_{int(loop_end.timestamp())}"
+    )
+
+
+def _load_cached_loop(cache_key):
+    manifest_path = CACHE_DIR / f"{cache_key}.json"
+
+    if not manifest_path.exists():
+        return None
+
+    try:
+        manifest = json.loads(
+            manifest_path.read_text(encoding="utf-8")
+        )
+
+        fetched_at = float(manifest.get("fetched_at", 0))
+
+        if datetime.now(timezone.utc).timestamp() - fetched_at > LOOP_CACHE_SECONDS:
+            return None
+
+        frames = []
+
+        for item in manifest.get("frames", []):
+            image_path = CACHE_DIR / item["file_name"]
+
+            if not image_path.exists():
+                return None
+
+            image_bytes = image_path.read_bytes()
+
+            if len(image_bytes) < 100:
+                return None
+
+            frames.append(
+                {
+                    "image_bytes": image_bytes,
+                    "valid_time": datetime.fromtimestamp(
+                        int(item["timestamp"]),
+                        tz=timezone.utc,
+                    ),
+                }
+            )
+
+        return frames if len(frames) >= 4 else None
+
+    except Exception:
+        return None
+
+
+def _save_cached_loop(cache_key, frames):
+    manifest_frames = []
+
+    for index, frame in enumerate(frames):
+        timestamp = int(frame["valid_time"].timestamp())
+        file_name = f"{cache_key}_{index:02d}.jpg"
+        image_path = CACHE_DIR / file_name
+
+        image_path.write_bytes(frame["image_bytes"])
+
+        manifest_frames.append(
+            {
+                "file_name": file_name,
+                "timestamp": timestamp,
+            }
+        )
+
+    manifest_path = CACHE_DIR / f"{cache_key}.json"
+
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "fetched_at": datetime.now(timezone.utc).timestamp(),
+                "frames": manifest_frames,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
+def _prune_cache():
+    cutoff = datetime.now(timezone.utc).timestamp() - (60 * 60 * 12)
+
+    try:
+        for path in CACHE_DIR.iterdir():
+            if path.is_file() and path.stat().st_mtime < cutoff:
+                path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def fetch_weathercom_radar_frames(
+    latitude,
+    longitude,
+    selected_start_utc,
+):
+    """
+    Fetch a 12-frame local Weather.com radar mosaic loop.
+
+    The selected forecast hour is used when it is recent/past.
+    Future forecast-hour selections show the newest available observed loop.
+    """
+
+    api_key = _read_api_key()
+
+    selected_start_utc = selected_start_utc.astimezone(timezone.utc)
+    loop_end = _radar_loop_end(selected_start_utc)
+
+    cache_key = _cache_key(latitude, longitude, loop_end)
+    cached_frames = _load_cached_loop(cache_key)
+
+    if cached_frames:
+        return cached_frames
+
+    frames = []
+
+    timestamps = [
+        int(
+            (
+                loop_end
+                - timedelta(
+                    seconds=FRAME_SPACING_SECONDS * offset
+                )
+            ).timestamp()
+        )
+        for offset in range(FRAME_COUNT - 1, -1, -1)
+    ]
+
+    for timestamp in timestamps:
+        image_bytes = _render_frame(
+            latitude=latitude,
+            longitude=longitude,
+            timestamp=timestamp,
+            api_key=api_key,
+        )
+
+        if not image_bytes:
+            continue
+
+        frames.append(
+            {
+                "image_bytes": image_bytes,
+                "valid_time": datetime.fromtimestamp(
+                    timestamp,
+                    tz=timezone.utc,
+                ),
+            }
+        )
+
+    if len(frames) < 4:
+        raise RuntimeError(
+            "Weather.com did not return enough usable radar frames."
+        )
+
+    _save_cached_loop(cache_key, frames)
+    _prune_cache()
+
+    return frames

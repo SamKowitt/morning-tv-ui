@@ -168,7 +168,6 @@ class MLBBoxScoreDialog(QDialog):
 
         controls.addStretch(1)
         controls.addWidget(self.close_button)
-        controls.addStretch(1)
         root.addLayout(controls)
 
         if cached_payload is not None:
@@ -713,7 +712,6 @@ class ESPNBoxScoreDialog(QDialog):
 
         controls.addStretch(1)
         controls.addWidget(close_button)
-        controls.addStretch(1)
         root.addLayout(controls)
 
         if cached_payload is not None:
@@ -1475,25 +1473,7 @@ class SportsGamesPanel(QWidget):
             self._clear_boxscore_dialog_if_current(current_dialog)
         )
 
-        parent_rect = dashboard_window.rect()
-
-        # Match the fixed wide/tall newspaper proportion used by all article
-        # popups instead of stretching box scores to a different shape.
-        aspect_ratio = 1120 / 650
-        max_width = int(parent_rect.width())
-        max_height = int(parent_rect.height())
-
-        width = max_width
-        height = int(width / aspect_ratio)
-
-        if height > max_height:
-            height = max_height
-            width = int(height * aspect_ratio)
-
-        x = int((parent_rect.width() - width) / 2)
-        y = int((parent_rect.height() - height) / 2)
-
-        dialog.setGeometry(x, y, width, height)
+        dialog.setGeometry(dashboard_window.rect())
         dialog.show()
         dialog.raise_()
         dialog.activateWindow()

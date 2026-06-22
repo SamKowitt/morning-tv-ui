@@ -1,0 +1,259 @@
+import io
+import ssl
+import urllib.parse
+import urllib.request
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import certifi
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import numpy as np
+import xarray as xr
+
+
+SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
+CACHE_DIR = Path.home() / ".cache" / "MorningTVUI" / "hrrr_radar"
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _latest_available_cycle(target_utc):
+    now_utc = datetime.now(timezone.utc).replace(
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
+
+    cycle = now_utc - timedelta(hours=2)
+
+    if target_utc < cycle:
+        cycle = target_utc - timedelta(hours=2)
+
+    return cycle.replace(minute=0, second=0, microsecond=0)
+
+
+def _forecast_hour_for_target(cycle, target_utc):
+    hours = (target_utc - cycle).total_seconds() / 3600
+    return max(0, min(18, int(round(hours))))
+
+
+def _download_reflectivity_grib(latitude, longitude, target_utc):
+    target_utc = target_utc.astimezone(timezone.utc)
+    cycle = _latest_available_cycle(target_utc)
+    forecast_hour = _forecast_hour_for_target(cycle, target_utc)
+    valid_time = cycle + timedelta(hours=forecast_hour)
+
+    cache_name = (
+        f"hrrr_refc_{cycle:%Y%m%d_%H}_f{forecast_hour:02d}_"
+        f"{latitude:.3f}_{longitude:.3f}.grib2"
+    )
+    output = CACHE_DIR / cache_name
+
+    if output.exists() and output.stat().st_size > 1000:
+        return output, valid_time, cycle, forecast_hour
+
+    lat_padding = 1.15
+    lon_padding = 1.60
+
+    params = {
+        "file": f"hrrr.t{cycle:%H}z.wrfsfcf{forecast_hour:02d}.grib2",
+        "lev_entire_atmosphere": "on",
+        "var_REFC": "on",
+        "subregion": "",
+        "leftlon": f"{longitude - lon_padding:.3f}",
+        "rightlon": f"{longitude + lon_padding:.3f}",
+        "toplat": f"{latitude + lat_padding:.3f}",
+        "bottomlat": f"{latitude - lat_padding:.3f}",
+        "dir": f"/hrrr.{cycle:%Y%m%d}/conus",
+    }
+
+    url = (
+        "https://nomads.ncep.noaa.gov/cgi-bin/filter_hrrr_2d.pl?"
+        + urllib.parse.urlencode(params)
+    )
+
+    request = urllib.request.Request(
+        url,
+        headers={"User-Agent": "MorningTVUI/1.0 local-dashboard"},
+    )
+
+    with urllib.request.urlopen(
+        request,
+        timeout=75,
+        context=SSL_CONTEXT,
+    ) as response:
+        payload = response.read()
+
+    if len(payload) < 1000:
+        raise RuntimeError("NOAA returned an incomplete HRRR reflectivity file.")
+
+    output.write_bytes(payload)
+    return output, valid_time, cycle, forecast_hour
+
+
+def _render_reflectivity_frame(
+    grib_path,
+    latitude,
+    longitude,
+    valid_time,
+    cycle,
+    forecast_hour,
+):
+    image_path = CACHE_DIR / (
+        f"hrrr_render_{cycle:%Y%m%d_%H}_f{forecast_hour:02d}_"
+        f"{latitude:.3f}_{longitude:.3f}.png"
+    )
+
+    if image_path.exists() and image_path.stat().st_size > 3000:
+        return image_path.read_bytes()
+
+    dataset = xr.open_dataset(
+        grib_path,
+        engine="cfgrib",
+        backend_kwargs={
+            "filter_by_keys": {"shortName": "refc"},
+            "indexpath": "",
+        },
+    )
+
+    try:
+        data_vars = list(dataset.data_vars)
+
+        if not data_vars:
+            raise RuntimeError("HRRR radar file had no reflectivity data.")
+
+        reflectivity = np.asarray(dataset[data_vars[0]].values, dtype=float)
+        latitudes = dataset["latitude"].values
+        longitudes = dataset["longitude"].values
+
+        finite_values = reflectivity[np.isfinite(reflectivity)]
+
+        max_reflectivity = (
+            float(np.nanmax(finite_values))
+            if finite_values.size
+            else 0.0
+        )
+
+        figure, axis = plt.subplots(figsize=(7.0, 6.2), dpi=125)
+        figure.patch.set_facecolor("#edf2f2")
+        axis.set_facecolor("#d8e7ea")
+
+        mesh = axis.pcolormesh(
+            longitudes,
+            latitudes,
+            reflectivity,
+            shading="auto",
+            cmap="turbo",
+            vmin=0,
+            vmax=65,
+        )
+
+        axis.scatter(
+            [longitude],
+            [latitude],
+            s=95,
+            marker="*",
+            c="#121212",
+            edgecolors="#fff8e8",
+            linewidths=1.0,
+            zorder=6,
+        )
+
+        axis.set_xlim(longitude - 1.45, longitude + 1.45)
+        axis.set_ylim(latitude - 1.03, latitude + 1.03)
+        axis.set_xlabel("Longitude", fontsize=8)
+        axis.set_ylabel("Latitude", fontsize=8)
+        axis.grid(alpha=0.24, linewidth=0.5)
+
+        local_time = valid_time.astimezone().strftime("%-I:%M %p")
+        axis.set_title(
+            f"HRRR Forecast Reflectivity — {local_time}",
+            fontsize=10,
+            fontweight="bold",
+        )
+
+        if max_reflectivity < 10:
+            axis.text(
+                0.5,
+                0.52,
+                "NO MODELED\nPRECIPITATION ECHOES",
+                transform=axis.transAxes,
+                ha="center",
+                va="center",
+                fontsize=14,
+                fontweight="bold",
+                color="#263238",
+                bbox={
+                    "boxstyle": "round,pad=0.55",
+                    "facecolor": "#fff8e8",
+                    "edgecolor": "#7d6b55",
+                    "alpha": 0.90,
+                },
+                zorder=7,
+            )
+
+        colorbar = figure.colorbar(mesh, ax=axis, shrink=0.84, pad=0.02)
+        colorbar.set_label("Reflectivity (dBZ)", fontsize=8)
+        colorbar.ax.tick_params(labelsize=7)
+
+        buffer = io.BytesIO()
+        figure.savefig(
+            buffer,
+            format="png",
+            bbox_inches="tight",
+            facecolor=figure.get_facecolor(),
+        )
+        plt.close(figure)
+
+        image_bytes = buffer.getvalue()
+        image_path.write_bytes(image_bytes)
+        return image_bytes
+
+    finally:
+        dataset.close()
+
+
+def fetch_forecast_radar_frames(latitude, longitude, selected_start_utc):
+    """
+    Returns the two genuine hourly HRRR forecast frames:
+    the selected hour and the following hour.
+
+    The UI smoothly crossfades between them. It does not claim that the
+    transition frames are separate NOAA model runs.
+    """
+    frames = []
+
+    selected_start_utc = selected_start_utc.astimezone(timezone.utc)
+
+    for offset in (0, 1):
+        target_time = selected_start_utc + timedelta(hours=offset)
+
+        (
+            grib_path,
+            valid_time,
+            cycle,
+            forecast_hour,
+        ) = _download_reflectivity_grib(
+            latitude=latitude,
+            longitude=longitude,
+            target_utc=target_time,
+        )
+
+        image_bytes = _render_reflectivity_frame(
+            grib_path=grib_path,
+            latitude=latitude,
+            longitude=longitude,
+            valid_time=valid_time,
+            cycle=cycle,
+            forecast_hour=forecast_hour,
+        )
+
+        frames.append(
+            {
+                "image_bytes": image_bytes,
+                "valid_time": valid_time,
+            }
+        )
+
+    return frames

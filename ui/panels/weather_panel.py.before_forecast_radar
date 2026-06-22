@@ -1,7 +1,7 @@
 import math
 import random
 
-from PySide6.QtCore import Qt, QTimer, QPointF, Signal
+from PySide6.QtCore import Qt, QTimer, QPointF
 from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPen, QPainterPath, QBrush
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QWidget
 
@@ -9,8 +9,6 @@ from ui.auto_fit_label import AutoFitLabel
 
 
 class WeatherRow(QWidget):
-    clicked = Signal()
-
     def __init__(self, temp, icon, hour, condition="clear", is_night=False, is_now=False):
         super().__init__()
 
@@ -34,7 +32,6 @@ class WeatherRow(QWidget):
 
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setMinimumHeight(48)
-        self.setCursor(Qt.PointingHandCursor)
 
         layout = QHBoxLayout()
         layout.setContentsMargins(14, 6, 14, 6)
@@ -77,14 +74,6 @@ class WeatherRow(QWidget):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.tick)
         self.timer.start(50)
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self.clicked.emit()
-            event.accept()
-            return
-
-        super().mousePressEvent(event)
 
     def tick(self):
         # Smooth medium-speed rainfall
@@ -963,8 +952,6 @@ class WeatherRow(QWidget):
 
 
 class WeatherPanel(QWidget):
-    hour_selected = Signal(object, int)
-
     def __init__(self):
         super().__init__()
 
@@ -976,7 +963,6 @@ class WeatherPanel(QWidget):
         self.setLayout(main)
 
         self.row_widgets = []
-        self.current_rows = []
 
         rows = [
             ("68", "☀️", "10am", "clear", False),
@@ -1000,18 +986,10 @@ class WeatherPanel(QWidget):
                 is_now=(index == 0),
             )
 
-            row_widget.clicked.connect(
-                lambda selected_index=index: self.emit_selected_hour(selected_index)
-            )
             self.row_widgets.append(row_widget)
             main.addWidget(row_widget, 1)
 
-    def emit_selected_hour(self, index):
-        if 0 <= index < len(self.current_rows):
-            self.hour_selected.emit(self.current_rows[index], index)
-
     def update_weather_rows(self, rows):
-        self.current_rows = list(rows or [])
         weather_row_widgets = []
 
         if hasattr(self, "row_widgets"):
@@ -1030,7 +1008,6 @@ class WeatherPanel(QWidget):
             if index >= len(weather_row_widgets):
                 break
 
-            weather_row_widgets[index].weather_data = row
             weather_row_widgets[index].update_weather(
                 temperature=row.temperature,
                 icon=row.icon,

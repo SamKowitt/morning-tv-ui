@@ -40,7 +40,6 @@ from services.article_text_fetcher import prefetch_article_text_payload
 from ui.styles import APP_STYLE
 from ui.panels.date_card import DateCard
 from ui.panels.weather_panel import WeatherPanel
-from ui.panels.weather_radar_dialog import WeatherRadarDialog
 from ui.panels.sports_news_panel import SportsNewsPanel
 from ui.panels.news_card import NewsCard
 from ui.panels.sports_games_panel import SportsGamesPanel
@@ -457,17 +456,7 @@ class DashboardWindow(QMainWindow):
         self.news_request_id = 0
         self.more_news_request_id = 0
         self.market_news_request_id = 0
-        self.market_news_thread = None
-        self.market_news_worker = None
-        self.stock_thread = None
-        self.stock_worker = None
         self.calendar_has_no_events = False
-
-        # Header Hide button states only. Never write either to QSettings.
-        self.session_reminders_hidden = False
-        self.session_market_tape_hidden = False
-        self.session_market_tape_restored = False
-
         self.sports_games_has_loaded = False
         self.sports_games_thread = None
         self.sports_games_worker = None
@@ -509,8 +498,6 @@ class DashboardWindow(QMainWindow):
         self.install_date_card_location_label()
 
         self.weather_panel = WeatherPanel()
-        self.weather_panel.hour_selected.connect(self.open_weather_radar_popup)
-        self.weather_radar_dialog = None
 
         left_column.addWidget(self.date_card, 22)
         left_column.addWidget(self.weather_panel, 78)
@@ -796,14 +783,7 @@ class DashboardWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
 
         self.stocks_panel = StocksPanel()
-        self.stocks_panel.hide_requested.connect(
-            self.hide_market_tape_for_current_session
-        )
-
         self.reminders = RemindersPanel()
-        self.reminders.hide_requested.connect(
-            self.hide_reminders_for_current_session
-        )
 
         self.more_news_card = NewsCard(
             headline="Loading more headlines...",
@@ -811,20 +791,12 @@ class DashboardWindow(QMainWindow):
             image_label="MORE HEADLINES",
             variant="fox",
         )
-        self.more_news_card.set_reminders_action_enabled(True)
-        self.more_news_card.reminders_requested.connect(
-            self.show_reminders_for_current_session
-        )
 
         self.market_news_card = NewsCard(
             headline="Loading more headlines...",
             source=get_news_source_display(self.right_news_source_key),
             image_label="MORE HEADLINES",
             variant="cnbc",
-        )
-        self.market_news_card.set_market_tape_action_enabled(True)
-        self.market_news_card.market_tape_requested.connect(
-            self.show_market_tape_for_current_session
         )
 
         self.bottom_left_container = QWidget()
@@ -1775,7 +1747,7 @@ class DashboardWindow(QMainWindow):
         left_settings_col.addWidget(self.left_news_combo)
 
         self.hide_reminders_checkbox = MarketTapeReplacementCheckbox(
-            "Always Hide Reminders"
+            "Hide reminders"
         )
         self.hide_reminders_checkbox.setObjectName("HideRemindersCheckbox")
         self.hide_reminders_checkbox.setChecked(self.hide_reminders)
@@ -1814,7 +1786,7 @@ class DashboardWindow(QMainWindow):
         left_settings_col.addWidget(self.right_news_combo)
 
         self.replace_market_tape_checkbox = MarketTapeReplacementCheckbox(
-            "Always Hide Market Tape"
+            "Replace Market Tape with additional articles"
         )
         self.replace_market_tape_checkbox.setObjectName(
             "ReplaceMarketTapeCheckbox"
@@ -2118,11 +2090,6 @@ class DashboardWindow(QMainWindow):
         )
         self.hide_reminders = bool(self.hide_reminders_checkbox.isChecked())
 
-        # Applying Settings establishes the newly selected persistent behavior
-        # for the active session too.
-        self.session_market_tape_hidden = False
-        self.session_market_tape_restored = False
-
         self.weather_zip_code = validated_location.zip_code
 
         self.weather_location_label = self.city_name_from_weather_location(validated_location)
@@ -2351,38 +2318,6 @@ class DashboardWindow(QMainWindow):
         card.read_label.setText("")
         card.image.set_pixmap_from_data(b"")
 
-    def open_weather_radar_popup(self, weather_row, row_index):
-        try:
-            location = validate_zip_code(self.weather_zip_code)
-        except Exception as error:
-            print(f"Forecast radar location lookup failed: {error}")
-            return
-
-        self.weather_radar_dialog = WeatherRadarDialog(
-            weather_row=weather_row,
-            row_index=row_index,
-            location=location,
-            parent=self,
-        )
-
-        parent_rect = self.rect()
-        aspect_ratio = 1120 / 650
-
-        width = parent_rect.width()
-        height = int(width / aspect_ratio)
-
-        if height > parent_rect.height():
-            height = parent_rect.height()
-            width = int(height * aspect_ratio)
-
-        x = int((parent_rect.width() - width) / 2)
-        y = int((parent_rect.height() - height) / 2)
-
-        self.weather_radar_dialog.setGeometry(x, y, width, height)
-        self.weather_radar_dialog.show()
-        self.weather_radar_dialog.raise_()
-        self.weather_radar_dialog.activateWindow()
-
     def start_weather_fetch(self):
         self.weather_thread = QThread()
         self.weather_worker = WeatherFetchWorker(zip_code=self.weather_zip_code)
@@ -2427,29 +2362,10 @@ class DashboardWindow(QMainWindow):
         if hasattr(self, "bottom_left_stack"):
             self.bottom_left_stack.setCurrentWidget(self.reminders)
 
-    def hide_reminders_for_current_session(self):
-        # Do not save this. The normal reminders panel returns next launch
-        # unless the separate Settings checkbox is enabled.
-        self.session_reminders_hidden = True
-        print("Reminders hidden for this session only.")
-        self.start_more_news_fetch()
-
-    def show_reminders_for_current_session(self):
-        # Header button on the left mini-news card.
-        # This also stays session-only and does not change Settings.
-        self.session_reminders_hidden = False
-        self.calendar_has_no_events = False
-
-        if hasattr(self, "bottom_left_stack"):
-            self.bottom_left_stack.setCurrentWidget(self.reminders)
-
-        print("Reminders restored for this session.")
-
     def start_more_news_fetch(self):
         if not (
             getattr(self, "calendar_has_no_events", False)
             or getattr(self, "hide_reminders", False)
-            or getattr(self, "session_reminders_hidden", False)
         ):
             return
 
@@ -2505,7 +2421,6 @@ class DashboardWindow(QMainWindow):
         if not (
             self.calendar_has_no_events
             or getattr(self, "hide_reminders", False)
-            or getattr(self, "session_reminders_hidden", False)
         ):
             return
 
@@ -2537,14 +2452,12 @@ class DashboardWindow(QMainWindow):
             return
 
         print(f"Extra-news fetch failed: {error_message}")
+        self.show_reminders_panel()
 
-        if not getattr(self, "session_reminders_hidden", False):
-            self.show_reminders_panel()
-
-            if hasattr(self.reminders, "set_calendar_error"):
-                self.reminders.set_calendar_error(
-                    "No reminders; additional headlines could not load"
-                )
+        if hasattr(self.reminders, "set_calendar_error"):
+            self.reminders.set_calendar_error(
+                "No reminders; additional headlines could not load"
+            )
 
 
     def start_apple_calendar_fetch(self):
@@ -2578,11 +2491,7 @@ class DashboardWindow(QMainWindow):
 
         self.calendar_has_no_events = len(events) == 0
 
-        if (
-            self.calendar_has_no_events
-            or self.hide_reminders
-            or self.session_reminders_hidden
-        ):
+        if self.calendar_has_no_events or self.hide_reminders:
             self.start_more_news_fetch()
             return
 
@@ -2594,7 +2503,7 @@ class DashboardWindow(QMainWindow):
     def on_apple_calendar_failed(self, error_message):
         print(f"Apple Calendar fetch failed: {error_message}")
 
-        if self.hide_reminders or self.session_reminders_hidden:
+        if self.hide_reminders:
             self.start_more_news_fetch()
             return
 
@@ -2604,49 +2513,12 @@ class DashboardWindow(QMainWindow):
             self.reminders.set_calendar_error("Unable to load Apple Calendar events")
 
 
-    def market_news_should_be_visible(self):
-        return bool(
-            getattr(self, "session_market_tape_hidden", False)
-            or (
-                getattr(self, "replace_market_tape_with_news", False)
-                and not getattr(self, "session_market_tape_restored", False)
-            )
-        )
-
     def show_market_tape_panel(self):
         if hasattr(self, "bottom_right_stack"):
             self.bottom_right_stack.setCurrentWidget(self.stocks_panel)
 
-    def hide_market_tape_for_current_session(self):
-        # Header Hide button only affects the current run of the app.
-        self.session_market_tape_hidden = True
-        self.session_market_tape_restored = False
-        print("Market Tape hidden for this session only.")
-        self.start_market_news_fetch()
-
-    def show_market_tape_for_current_session(self):
-        # Right mini-news header button. Does not modify the saved checkbox.
-        self.session_market_tape_hidden = False
-        self.session_market_tape_restored = True
-        self.show_market_tape_panel()
-        self.start_stock_fetch()
-        print("Market Tape restored for this session.")
-
-    def clear_market_news_fetch_references(self, thread, worker):
-        if self.market_news_thread is thread:
-            self.market_news_thread = None
-
-        if self.market_news_worker is worker:
-            self.market_news_worker = None
-
     def start_market_news_fetch(self):
-        if not self.market_news_should_be_visible():
-            return
-
-        active_thread = self.market_news_thread
-
-        if active_thread is not None and active_thread.isRunning():
-            print("Market Tape replacement fetch already running; ignoring repeat click.")
+        if not getattr(self, "replace_market_tape_with_news", False):
             return
 
         self.market_news_request_id += 1
@@ -2666,36 +2538,29 @@ class DashboardWindow(QMainWindow):
         if hasattr(self, "bottom_right_stack"):
             self.bottom_right_stack.setCurrentWidget(self.market_news_card)
 
-        thread = QThread()
-        worker = MoreNewsFetchWorker(
+        self.market_news_thread = QThread()
+        self.market_news_worker = MoreNewsFetchWorker(
             request_id=request_id,
             source_key=source_key,
         )
+        self.market_news_worker.moveToThread(self.market_news_thread)
 
-        self.market_news_thread = thread
-        self.market_news_worker = worker
+        self.market_news_thread.started.connect(self.market_news_worker.run)
 
-        worker.moveToThread(thread)
+        self.market_news_worker.finished.connect(self.on_market_news_loaded)
+        self.market_news_worker.failed.connect(self.on_market_news_failed)
 
-        thread.started.connect(worker.run)
+        self.market_news_worker.finished.connect(self.market_news_thread.quit)
+        self.market_news_worker.failed.connect(self.market_news_thread.quit)
 
-        worker.finished.connect(self.on_market_news_loaded)
-        worker.failed.connect(self.on_market_news_failed)
-
-        worker.finished.connect(thread.quit)
-        worker.failed.connect(thread.quit)
-
-        thread.finished.connect(worker.deleteLater)
-        thread.finished.connect(
-            lambda current_thread=thread, current_worker=worker:
-                self.clear_market_news_fetch_references(
-                    current_thread,
-                    current_worker,
-                )
+        self.market_news_thread.finished.connect(
+            self.market_news_worker.deleteLater
         )
-        thread.finished.connect(thread.deleteLater)
+        self.market_news_thread.finished.connect(
+            self.market_news_thread.deleteLater
+        )
 
-        thread.start()
+        self.market_news_thread.start()
 
     def on_market_news_loaded(self, request_id, source_key, articles):
         if request_id != self.market_news_request_id:
@@ -2709,7 +2574,7 @@ class DashboardWindow(QMainWindow):
             )
             return
 
-        if not self.market_news_should_be_visible():
+        if not self.replace_market_tape_with_news:
             return
 
         articles = list(articles or [])[:4]
@@ -2739,55 +2604,26 @@ class DashboardWindow(QMainWindow):
         print(f"Market Tape replacement failed: {error_message}")
         self.show_market_tape_panel()
 
-    def clear_stock_fetch_references(self, thread, worker):
-        if self.stock_thread is thread:
-            self.stock_thread = None
-
-        if self.stock_worker is worker:
-            self.stock_worker = None
-
     def start_stock_fetch(self):
-        active_thread = self.stock_thread
-
-        if active_thread is not None:
-            try:
-                if active_thread.isRunning():
-                    print("Market Tape refresh already running; skipping overlap.")
-                    return
-            except RuntimeError:
-                self.stock_thread = None
-                self.stock_worker = None
-
-        thread = QThread(self)
-        worker = StockFetchWorker(
+        self.stock_thread = QThread()
+        self.stock_worker = StockFetchWorker(
             index_symbols=self.stock_index_symbols,
             stock_symbols=self.stock_favorite_symbols,
         )
+        self.stock_worker.moveToThread(self.stock_thread)
 
-        self.stock_thread = thread
-        self.stock_worker = worker
+        self.stock_thread.started.connect(self.stock_worker.run)
 
-        worker.moveToThread(thread)
+        self.stock_worker.finished.connect(self.on_stock_data_loaded)
+        self.stock_worker.failed.connect(self.on_stock_data_failed)
 
-        thread.started.connect(worker.run)
+        self.stock_worker.finished.connect(self.stock_thread.quit)
+        self.stock_worker.failed.connect(self.stock_thread.quit)
 
-        worker.finished.connect(self.on_stock_data_loaded)
-        worker.failed.connect(self.on_stock_data_failed)
+        self.stock_thread.finished.connect(self.stock_worker.deleteLater)
+        self.stock_thread.finished.connect(self.stock_thread.deleteLater)
 
-        worker.finished.connect(thread.quit)
-        worker.failed.connect(thread.quit)
-
-        thread.finished.connect(worker.deleteLater)
-        thread.finished.connect(
-            lambda current_thread=thread, current_worker=worker:
-                self.clear_stock_fetch_references(
-                    current_thread,
-                    current_worker,
-                )
-        )
-        thread.finished.connect(thread.deleteLater)
-
-        thread.start()
+        self.stock_thread.start()
 
     def on_stock_data_loaded(self, market_data):
         self.stocks_panel.update_market_data(market_data)

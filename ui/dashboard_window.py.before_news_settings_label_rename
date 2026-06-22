@@ -40,7 +40,6 @@ from services.article_text_fetcher import prefetch_article_text_payload
 from ui.styles import APP_STYLE
 from ui.panels.date_card import DateCard
 from ui.panels.weather_panel import WeatherPanel
-from ui.panels.weather_radar_dialog import WeatherRadarDialog
 from ui.panels.sports_news_panel import SportsNewsPanel
 from ui.panels.news_card import NewsCard
 from ui.panels.sports_games_panel import SportsGamesPanel
@@ -509,8 +508,6 @@ class DashboardWindow(QMainWindow):
         self.install_date_card_location_label()
 
         self.weather_panel = WeatherPanel()
-        self.weather_panel.hour_selected.connect(self.open_weather_radar_popup)
-        self.weather_radar_dialog = None
 
         left_column.addWidget(self.date_card, 22)
         left_column.addWidget(self.weather_panel, 78)
@@ -1775,7 +1772,7 @@ class DashboardWindow(QMainWindow):
         left_settings_col.addWidget(self.left_news_combo)
 
         self.hide_reminders_checkbox = MarketTapeReplacementCheckbox(
-            "Always Hide Reminders"
+            "Hide reminders"
         )
         self.hide_reminders_checkbox.setObjectName("HideRemindersCheckbox")
         self.hide_reminders_checkbox.setChecked(self.hide_reminders)
@@ -1814,7 +1811,7 @@ class DashboardWindow(QMainWindow):
         left_settings_col.addWidget(self.right_news_combo)
 
         self.replace_market_tape_checkbox = MarketTapeReplacementCheckbox(
-            "Always Hide Market Tape"
+            "Replace Market Tape with additional articles"
         )
         self.replace_market_tape_checkbox.setObjectName(
             "ReplaceMarketTapeCheckbox"
@@ -2350,38 +2347,6 @@ class DashboardWindow(QMainWindow):
         card.headline_label.setText(f"Unable to load latest {label} headline.")
         card.read_label.setText("")
         card.image.set_pixmap_from_data(b"")
-
-    def open_weather_radar_popup(self, weather_row, row_index):
-        try:
-            location = validate_zip_code(self.weather_zip_code)
-        except Exception as error:
-            print(f"Forecast radar location lookup failed: {error}")
-            return
-
-        self.weather_radar_dialog = WeatherRadarDialog(
-            weather_row=weather_row,
-            row_index=row_index,
-            location=location,
-            parent=self,
-        )
-
-        parent_rect = self.rect()
-        aspect_ratio = 1120 / 650
-
-        width = parent_rect.width()
-        height = int(width / aspect_ratio)
-
-        if height > parent_rect.height():
-            height = parent_rect.height()
-            width = int(height * aspect_ratio)
-
-        x = int((parent_rect.width() - width) / 2)
-        y = int((parent_rect.height() - height) / 2)
-
-        self.weather_radar_dialog.setGeometry(x, y, width, height)
-        self.weather_radar_dialog.show()
-        self.weather_radar_dialog.raise_()
-        self.weather_radar_dialog.activateWindow()
 
     def start_weather_fetch(self):
         self.weather_thread = QThread()

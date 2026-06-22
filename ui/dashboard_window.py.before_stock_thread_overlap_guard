@@ -40,7 +40,6 @@ from services.article_text_fetcher import prefetch_article_text_payload
 from ui.styles import APP_STYLE
 from ui.panels.date_card import DateCard
 from ui.panels.weather_panel import WeatherPanel
-from ui.panels.weather_radar_dialog import WeatherRadarDialog
 from ui.panels.sports_news_panel import SportsNewsPanel
 from ui.panels.news_card import NewsCard
 from ui.panels.sports_games_panel import SportsGamesPanel
@@ -459,8 +458,6 @@ class DashboardWindow(QMainWindow):
         self.market_news_request_id = 0
         self.market_news_thread = None
         self.market_news_worker = None
-        self.stock_thread = None
-        self.stock_worker = None
         self.calendar_has_no_events = False
 
         # Header Hide button states only. Never write either to QSettings.
@@ -509,8 +506,6 @@ class DashboardWindow(QMainWindow):
         self.install_date_card_location_label()
 
         self.weather_panel = WeatherPanel()
-        self.weather_panel.hour_selected.connect(self.open_weather_radar_popup)
-        self.weather_radar_dialog = None
 
         left_column.addWidget(self.date_card, 22)
         left_column.addWidget(self.weather_panel, 78)
@@ -1775,7 +1770,7 @@ class DashboardWindow(QMainWindow):
         left_settings_col.addWidget(self.left_news_combo)
 
         self.hide_reminders_checkbox = MarketTapeReplacementCheckbox(
-            "Always Hide Reminders"
+            "Hide reminders"
         )
         self.hide_reminders_checkbox.setObjectName("HideRemindersCheckbox")
         self.hide_reminders_checkbox.setChecked(self.hide_reminders)
@@ -1814,7 +1809,7 @@ class DashboardWindow(QMainWindow):
         left_settings_col.addWidget(self.right_news_combo)
 
         self.replace_market_tape_checkbox = MarketTapeReplacementCheckbox(
-            "Always Hide Market Tape"
+            "Replace Market Tape with additional articles"
         )
         self.replace_market_tape_checkbox.setObjectName(
             "ReplaceMarketTapeCheckbox"
@@ -2351,38 +2346,6 @@ class DashboardWindow(QMainWindow):
         card.read_label.setText("")
         card.image.set_pixmap_from_data(b"")
 
-    def open_weather_radar_popup(self, weather_row, row_index):
-        try:
-            location = validate_zip_code(self.weather_zip_code)
-        except Exception as error:
-            print(f"Forecast radar location lookup failed: {error}")
-            return
-
-        self.weather_radar_dialog = WeatherRadarDialog(
-            weather_row=weather_row,
-            row_index=row_index,
-            location=location,
-            parent=self,
-        )
-
-        parent_rect = self.rect()
-        aspect_ratio = 1120 / 650
-
-        width = parent_rect.width()
-        height = int(width / aspect_ratio)
-
-        if height > parent_rect.height():
-            height = parent_rect.height()
-            width = int(height * aspect_ratio)
-
-        x = int((parent_rect.width() - width) / 2)
-        y = int((parent_rect.height() - height) / 2)
-
-        self.weather_radar_dialog.setGeometry(x, y, width, height)
-        self.weather_radar_dialog.show()
-        self.weather_radar_dialog.raise_()
-        self.weather_radar_dialog.activateWindow()
-
     def start_weather_fetch(self):
         self.weather_thread = QThread()
         self.weather_worker = WeatherFetchWorker(zip_code=self.weather_zip_code)
@@ -2739,55 +2702,26 @@ class DashboardWindow(QMainWindow):
         print(f"Market Tape replacement failed: {error_message}")
         self.show_market_tape_panel()
 
-    def clear_stock_fetch_references(self, thread, worker):
-        if self.stock_thread is thread:
-            self.stock_thread = None
-
-        if self.stock_worker is worker:
-            self.stock_worker = None
-
     def start_stock_fetch(self):
-        active_thread = self.stock_thread
-
-        if active_thread is not None:
-            try:
-                if active_thread.isRunning():
-                    print("Market Tape refresh already running; skipping overlap.")
-                    return
-            except RuntimeError:
-                self.stock_thread = None
-                self.stock_worker = None
-
-        thread = QThread(self)
-        worker = StockFetchWorker(
+        self.stock_thread = QThread()
+        self.stock_worker = StockFetchWorker(
             index_symbols=self.stock_index_symbols,
             stock_symbols=self.stock_favorite_symbols,
         )
+        self.stock_worker.moveToThread(self.stock_thread)
 
-        self.stock_thread = thread
-        self.stock_worker = worker
+        self.stock_thread.started.connect(self.stock_worker.run)
 
-        worker.moveToThread(thread)
+        self.stock_worker.finished.connect(self.on_stock_data_loaded)
+        self.stock_worker.failed.connect(self.on_stock_data_failed)
 
-        thread.started.connect(worker.run)
+        self.stock_worker.finished.connect(self.stock_thread.quit)
+        self.stock_worker.failed.connect(self.stock_thread.quit)
 
-        worker.finished.connect(self.on_stock_data_loaded)
-        worker.failed.connect(self.on_stock_data_failed)
+        self.stock_thread.finished.connect(self.stock_worker.deleteLater)
+        self.stock_thread.finished.connect(self.stock_thread.deleteLater)
 
-        worker.finished.connect(thread.quit)
-        worker.failed.connect(thread.quit)
-
-        thread.finished.connect(worker.deleteLater)
-        thread.finished.connect(
-            lambda current_thread=thread, current_worker=worker:
-                self.clear_stock_fetch_references(
-                    current_thread,
-                    current_worker,
-                )
-        )
-        thread.finished.connect(thread.deleteLater)
-
-        thread.start()
+        self.stock_thread.start()
 
     def on_stock_data_loaded(self, market_data):
         self.stocks_panel.update_market_data(market_data)

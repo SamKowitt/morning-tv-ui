@@ -1,7 +1,7 @@
 import random
 from datetime import datetime, timedelta
 
-from PySide6.QtCore import Qt, QTime, QTimer, QRectF, Signal
+from PySide6.QtCore import Qt, QTime, QTimer, QRectF
 from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPen
 from PySide6.QtWidgets import (
     QDialog,
@@ -341,8 +341,6 @@ class ReminderItem(QWidget):
 
 
 class RemindersPanel(QWidget):
-    hide_requested = Signal()
-
     def __init__(self):
         super().__init__()
 
@@ -382,22 +380,6 @@ class RemindersPanel(QWidget):
                 max-height: 1px;
             }
 
-            QPushButton#RemindersHideButton {
-                color: #5e3f1c;
-                background: rgba(255, 248, 236, 0.52);
-                border: 1px solid rgba(83, 59, 33, 0.38);
-                border-radius: 5px;
-                padding: 1px 7px;
-                font-family: "Times New Roman";
-                font-size: 9px;
-                font-weight: 900;
-            }
-
-            QPushButton#RemindersHideButton:hover {
-                background: rgba(255, 248, 236, 0.88);
-                border-color: rgba(83, 59, 33, 0.68);
-            }
-
             QLabel#TodayReminderGroupTitle,
             QLabel#UpcomingReminderGroupTitle {
                 font-family: "Times New Roman";
@@ -432,17 +414,6 @@ class RemindersPanel(QWidget):
         title.setMaximumHeight(30)
 
         title_row.addWidget(title, 1)
-
-        self.hide_button = QPushButton("Hide")
-        self.hide_button.setObjectName("RemindersHideButton")
-        self.hide_button.setCursor(Qt.PointingHandCursor)
-        self.hide_button.setFixedHeight(20)
-        self.hide_button.clicked.connect(self.hide_requested.emit)
-        title_row.addWidget(
-            self.hide_button,
-            0,
-            Qt.AlignRight | Qt.AlignVCenter,
-        )
 
         header_rule = QFrame()
         header_rule.setObjectName("RemindersHeaderRule")

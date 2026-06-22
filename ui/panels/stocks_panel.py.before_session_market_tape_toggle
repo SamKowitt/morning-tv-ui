@@ -1,6 +1,6 @@
-from PySide6.QtCore import Qt, QPointF, Signal
+from PySide6.QtCore import Qt, QPointF
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
-from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 class SparklineChart(QWidget):
     def __init__(self, values, months=None):
@@ -242,8 +242,6 @@ class StockTile(QWidget):
 
 
 class StocksPanel(QWidget):
-    hide_requested = Signal()
-
     def __init__(self):
         super().__init__()
 
@@ -275,31 +273,13 @@ class StocksPanel(QWidget):
         title_block.addWidget(title)
         title_block.addWidget(self.subtitle)
 
-        self.hide_button = QPushButton("Hide")
-        self.hide_button.setObjectName("MarketTapeHideButton")
-        self.hide_button.setCursor(Qt.PointingHandCursor)
-        self.hide_button.setFixedHeight(20)
-        self.hide_button.clicked.connect(self.hide_requested.emit)
-        self.hide_button.setStyleSheet("""
-            QPushButton#MarketTapeHideButton {
-                color: #f7f0df;
-                background: rgba(20, 35, 52, 0.72);
-                border: 1px solid rgba(255, 255, 255, 0.42);
-                border-radius: 5px;
-                padding: 1px 7px;
-                font-family: "Times New Roman";
-                font-size: 9px;
-                font-weight: 900;
-            }
-
-            QPushButton#MarketTapeHideButton:hover {
-                background: rgba(20, 35, 52, 0.95);
-                border-color: rgba(255, 255, 255, 0.78);
-            }
-        """)
+        self.badge = QLabel("LIVE")
+        self.badge.setObjectName("MarketTapeBadge")
+        self.badge.setAlignment(Qt.AlignCenter)
+        self.badge.setFixedWidth(52)
 
         header.addLayout(title_block, 1)
-        header.addWidget(self.hide_button)
+        header.addWidget(self.badge)
 
         main.addLayout(header)
 

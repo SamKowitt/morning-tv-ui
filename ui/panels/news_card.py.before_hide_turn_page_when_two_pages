@@ -981,11 +981,7 @@ class OpenNewspaperDialog(QDialog):
         self.prev_button.setVisible(has_previous)
         self.prev_button.setEnabled(has_previous)
 
-        # Articles that fit in the first two pages never show TURN PAGE.
-        # Longer articles keep it visible through the final spread, where it
-        # becomes greyed out because there is nowhere further to go.
-        article_has_more_than_two_pages = total_pages > 2
-        self.next_button.setVisible(article_has_more_than_two_pages)
+        self.next_button.show()
         self.next_button.setEnabled(has_next)
 
         if has_previous:

@@ -452,37 +452,6 @@ class ConnectedNewspaperSpread(QWidget):
         painter.drawLine(center_x, rect.top() + 2, center_x, rect.bottom() - 2)
 
 
-class BackPageButton(QPushButton):
-    """Navigation button with a manually positioned back-arrow glyph."""
-
-    def __init__(self, parent=None):
-        super().__init__("", parent)
-
-    def paintEvent(self, event):
-        # Draw the normal rounded button first.
-        super().paintEvent(event)
-
-        # Then draw only the arrow, raised slightly without clipping the frame.
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, True)
-
-        arrow_font = QFont("Georgia", 28)
-        arrow_font.setBold(True)
-
-        painter.setFont(arrow_font)
-        painter.setPen(QColor("#24170d"))
-
-        arrow_rect = QRectF(
-            0,
-            -2,
-            self.width(),
-            self.height(),
-        )
-
-        painter.drawText(arrow_rect, Qt.AlignCenter, "‹")
-        painter.end()
-
-
 class OpenNewspaperDialog(QDialog):
     def __init__(self, source, headline, article_url, parent=None):
         super().__init__(parent)
@@ -551,23 +520,35 @@ class OpenNewspaperDialog(QDialog):
                 padding: 0px 8px 8px 8px;
             }
 
-            QPushButton#PageTurnButton {
+            QPushButton#PageTurnButton,
+            QPushButton#PreviousPageTurnButton {
                 background-color: #f3e6c9;
                 border: 2px solid rgba(70, 50, 28, 210);
-                border-radius: 7px;
+                border-radius: 5px;
                 color: #24170d;
-                padding: 0px;
-                min-width: 172px;
-                max-width: 172px;
-                min-height: 42px;
-                max-height: 42px;
+                font-family: "Georgia";
+                font-size: 17px;
+                font-weight: 1000;
+                padding: 6px 10px;
+                min-width: 180px;
+                max-width: 180px;
+                min-height: 44px;
+                max-height: 44px;
             }
 
-            QPushButton#PageTurnButton:hover:enabled {
+            QPushButton#PreviousPageTurnButton {
+                font-size: 30px;
+                padding: 0px;
+                text-align: center;
+            }
+
+            QPushButton#PageTurnButton:hover:enabled,
+            QPushButton#PreviousPageTurnButton:hover:enabled {
                 background-color: #fff0cf;
             }
 
-            QPushButton#PageTurnButton:disabled {
+            QPushButton#PageTurnButton:disabled,
+            QPushButton#PreviousPageTurnButton:disabled {
                 background-color: rgba(243, 230, 201, 0.42);
                 border-color: rgba(70, 50, 28, 100);
                 color: rgba(36, 23, 13, 105);
@@ -696,42 +677,39 @@ class OpenNewspaperDialog(QDialog):
         self.close_button.setObjectName("ArticleCloseButton")
         self.close_button.clicked.connect(self.close)
 
-        button_width = 172
-        button_height = 42
-        button_gap = 18
-        holder_side_padding = 8
-
-        self.prev_button = BackPageButton()
-        self.prev_button.setObjectName("PageTurnButton")
-        self.prev_button.setFixedSize(button_width, button_height)
-        self.prev_button.setCursor(Qt.PointingHandCursor)
+        self.prev_button = QPushButton("‹")
+        self.prev_button.setObjectName("PreviousPageTurnButton")
+        self.prev_button.setFixedSize(180, 44)
+        self.prev_button.setStyleSheet("""
+            QPushButton {
+                padding: 0px;
+                text-align: center;
+                font-family: "Georgia";
+                font-size: 32px;
+                font-weight: 1000;
+            }
+        """)
         self.prev_button.clicked.connect(self.previous_spread)
 
         self.next_button = QPushButton("TURN PAGE  ›")
         self.next_button.setObjectName("PageTurnButton")
-        self.next_button.setFixedSize(button_width, button_height)
-        self.next_button.setCursor(Qt.PointingHandCursor)
-
-        next_font = QFont("Georgia", 16)
-        next_font.setBold(True)
-        self.next_button.setFont(next_font)
+        self.next_button.setFixedSize(180, 44)
         self.next_button.clicked.connect(self.next_spread)
 
-        navigation_width = (
-            (button_width * 2)
-            + button_gap
-            + (holder_side_padding * 2)
-        )
-        navigation_offset = 80
+        # Two identical 180px buttons plus a 16px gap.
+        # The matching left/right balance moves the pair left while
+        # keeping CLOSE perfectly centered.
+        navigation_width = 376
+        navigation_offset = 120
 
         left_balance = QWidget()
         left_balance.setFixedWidth(navigation_width + navigation_offset)
 
         navigation_holder = QWidget()
-        navigation_holder.setFixedSize(navigation_width, button_height)
+        navigation_holder.setFixedWidth(navigation_width)
 
         self.previous_button_slot = QWidget()
-        self.previous_button_slot.setFixedSize(button_width, button_height)
+        self.previous_button_slot.setFixedSize(180, 44)
 
         previous_slot_layout = QHBoxLayout(self.previous_button_slot)
         previous_slot_layout.setContentsMargins(0, 0, 0, 0)
@@ -739,13 +717,8 @@ class OpenNewspaperDialog(QDialog):
         previous_slot_layout.addWidget(self.prev_button)
 
         navigation_layout = QHBoxLayout(navigation_holder)
-        navigation_layout.setContentsMargins(
-            holder_side_padding,
-            0,
-            holder_side_padding,
-            0,
-        )
-        navigation_layout.setSpacing(button_gap)
+        navigation_layout.setContentsMargins(0, 0, 0, 0)
+        navigation_layout.setSpacing(16)
         navigation_layout.addWidget(self.previous_button_slot)
         navigation_layout.addWidget(self.next_button)
 
@@ -981,15 +954,11 @@ class OpenNewspaperDialog(QDialog):
         self.prev_button.setVisible(has_previous)
         self.prev_button.setEnabled(has_previous)
 
-        # Articles that fit in the first two pages never show TURN PAGE.
-        # Longer articles keep it visible through the final spread, where it
-        # becomes greyed out because there is nowhere further to go.
-        article_has_more_than_two_pages = total_pages > 2
-        self.next_button.setVisible(article_has_more_than_two_pages)
+        self.next_button.show()
         self.next_button.setEnabled(has_next)
 
         if has_previous:
-            self.prev_button.setText("")
+            self.prev_button.setText("‹")
 
         self.next_button.setText("TURN PAGE  ›")
 
