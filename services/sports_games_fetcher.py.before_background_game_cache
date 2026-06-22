@@ -6,46 +6,9 @@ from zoneinfo import ZoneInfo
 import json
 import ssl
 import urllib.request
-import threading
-import time
 
 
 LOCAL_TIMEZONE = ZoneInfo("America/New_York")
-
-
-BOXSCORE_CACHE_TTL_SECONDS = 300
-_boxscore_cache = {}
-_boxscore_cache_lock = threading.Lock()
-
-
-def _boxscore_cache_key(league, game_id):
-    return f"{str(league or '').upper()}:{str(game_id or '').strip()}"
-
-
-def get_cached_boxscore(league, game_id):
-    key = _boxscore_cache_key(league, game_id)
-
-    with _boxscore_cache_lock:
-        entry = _boxscore_cache.get(key)
-
-        if not entry:
-            return None
-
-        cached_at, payload = entry
-
-        if time.monotonic() - cached_at >= BOXSCORE_CACHE_TTL_SECONDS:
-            return None
-
-        return payload
-
-
-def _store_cached_boxscore(league, game_id, payload):
-    key = _boxscore_cache_key(league, game_id)
-
-    with _boxscore_cache_lock:
-        _boxscore_cache[key] = (time.monotonic(), payload)
-
-    return payload
 
 MLB_SCHEDULE_ENDPOINT = "https://statsapi.mlb.com/api/v1/schedule"
 MLB_BOXSCORE_ENDPOINT = "https://statsapi.mlb.com/api/v1/game/{game_pk}/boxscore"
@@ -486,12 +449,11 @@ def is_mlb_boxscore_clickable(game):
 
 
 def fetch_mlb_boxscore(game_pk):
-    cached = get_cached_boxscore("MLB", game_pk)
-
-    if cached is not None:
-        print(f"Using cached MLB box score: {game_pk}")
-        return cached
-
+    """
+    Return MLB's current/final box-score payload for one game.
+    This is intentionally separate from the schedule request so the dashboard
+    only loads a detailed box score after the user clicks a game.
+    """
     try:
         normalized_pk = int(game_pk)
     except (TypeError, ValueError) as error:
@@ -499,11 +461,14 @@ def fetch_mlb_boxscore(game_pk):
 
     url = MLB_BOXSCORE_ENDPOINT.format(game_pk=normalized_pk)
     print(f"Fetching MLB box score: {url}")
-
-    return _store_cached_boxscore("MLB", game_pk, fetch_json(url))
+    return fetch_json(url)
 
 
 def fetch_espn_boxscore(league, event_id):
+    """
+    Load one NFL or NBA game summary from ESPN only after a user clicks it.
+    The summary response contains the current/final player box score.
+    """
     league = str(league or "").upper()
     event_id = str(event_id or "").strip()
 
@@ -513,16 +478,9 @@ def fetch_espn_boxscore(league, event_id):
     if not event_id:
         raise ValueError("Missing ESPN event ID.")
 
-    cached = get_cached_boxscore(league, event_id)
-
-    if cached is not None:
-        print(f"Using cached {league} box score: {event_id}")
-        return cached
-
     url = f"{ESPN_SUMMARY_ENDPOINTS[league]}?event={event_id}"
     print(f"Fetching {league} box score: {url}")
-
-    return _store_cached_boxscore(league, event_id, fetch_json(url))
+    return fetch_json(url)
 
 
 def mlb_base_sort_key(game):

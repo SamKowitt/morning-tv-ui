@@ -480,10 +480,7 @@ class MLBBoxScoreDialog(QDialog):
             }}
             table {{
                 border-collapse: collapse;
-                width: 90%;
-                margin-left: 0;
-                margin-right: auto;
-                table-layout: fixed;
+                width: 240%;
                 font-size: 15px;
             }}
             th {{
@@ -501,6 +498,7 @@ class MLBBoxScoreDialog(QDialog):
             td.name {{
                 text-align: left;
                 font-weight: 600;
+                width: 34%;
             }}
             .pos {{
                 color: #66523a;
@@ -515,20 +513,12 @@ class MLBBoxScoreDialog(QDialog):
                 font-weight: 800;
                 background: rgba(90, 68, 43, 0.08);
             }}
-
         </style>
         </head>
         <body>
             <h1>{heading}</h1>
             <h2>HITTING</h2>
-            <table width='90%' align='left'>
-                <colgroup>
-                    <col width='24%'>
-                    <col width='7.6%'><col width='7.6%'><col width='7.6%'>
-                    <col width='7.6%'><col width='7.6%'><col width='7.6%'>
-                    <col width='7.6%'><col width='7.6%'><col width='7.6%'>
-                    <col width='7.6%'>
-                </colgroup>
+            <table>
                 <tr>
                     <th style='text-align:left'>HITTERS</th><th>AB</th><th>R</th><th>H</th>
                     <th>RBI</th><th>HR</th><th>BB</th><th>K</th><th>AVG</th><th>OBP</th><th>SLG</th>
@@ -537,13 +527,7 @@ class MLBBoxScoreDialog(QDialog):
             </table>
 
             <h2>PITCHING</h2>
-            <table width='90%' align='left'>
-                <colgroup>
-                    <col width='24%'>
-                    <col width='8.44%'><col width='8.44%'><col width='8.44%'>
-                    <col width='8.44%'><col width='8.44%'><col width='8.44%'>
-                    <col width='8.44%'><col width='8.44%'><col width='8.44%'>
-                </colgroup>
+            <table>
                 <tr>
                     <th style='text-align:left'>PITCHERS</th><th>IP</th><th>H</th><th>R</th>
                     <th>ER</th><th>BB</th><th>K</th><th>HR</th><th>PC-ST</th><th>ERA</th>

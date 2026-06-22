@@ -459,7 +459,6 @@ class DashboardWindow(QMainWindow):
         self.calendar_has_no_events = False
         self.sports_games_has_loaded = False
         self.sports_games_thread = None
-        self.sports_games_worker = None
         self.sports_boxscore_prefetch_thread = None
         self.sports_boxscore_prefetch_worker = None
 
@@ -800,12 +799,6 @@ class DashboardWindow(QMainWindow):
         )
 
         self.bottom_left_container = QWidget()
-        self.bottom_left_container.setMinimumWidth(0)
-        self.bottom_left_container.setSizePolicy(
-            QSizePolicy.Ignored,
-            QSizePolicy.Expanding,
-        )
-
         self.bottom_left_stack = QStackedLayout()
         self.bottom_left_stack.setContentsMargins(0, 0, 0, 0)
         self.bottom_left_container.setLayout(self.bottom_left_stack)
@@ -815,12 +808,6 @@ class DashboardWindow(QMainWindow):
         self.bottom_left_stack.setCurrentWidget(self.reminders)
 
         self.bottom_right_container = QWidget()
-        self.bottom_right_container.setMinimumWidth(0)
-        self.bottom_right_container.setSizePolicy(
-            QSizePolicy.Ignored,
-            QSizePolicy.Expanding,
-        )
-
         self.bottom_right_stack = QStackedLayout()
         self.bottom_right_stack.setContentsMargins(0, 0, 0, 0)
         self.bottom_right_container.setLayout(self.bottom_right_stack)
@@ -832,18 +819,6 @@ class DashboardWindow(QMainWindow):
             self.bottom_right_stack.setCurrentWidget(self.market_news_card)
         else:
             self.bottom_right_stack.setCurrentWidget(self.stocks_panel)
-
-        for widget in [
-            self.reminders,
-            self.more_news_card,
-            self.stocks_panel,
-            self.market_news_card,
-        ]:
-            widget.setMinimumWidth(0)
-            widget.setSizePolicy(
-                QSizePolicy.Ignored,
-                QSizePolicy.Expanding,
-            )
 
         layout.addWidget(self.bottom_left_container, 1)
         layout.addWidget(self.bottom_right_container, 1)
@@ -2670,9 +2645,8 @@ class DashboardWindow(QMainWindow):
                     return
             except RuntimeError:
                 self.sports_games_thread = None
-                self.sports_games_worker = None
 
-        self.sports_games_thread = QThread(self)
+        self.sports_games_thread = QThread()
         self.sports_games_worker = SportsGamesFetchWorker(
             sports_team_orders=self.sports_team_orders,
         )
@@ -2711,6 +2685,7 @@ class DashboardWindow(QMainWindow):
     def on_sports_games_failed(self, error_message):
         print(f"Sports games fetch failed: {error_message}")
 
+        # Preserve the existing Game Times panel during silent refreshes.
         if (
             not self.sports_games_has_loaded
             and hasattr(self.sports_games, "set_error")
@@ -2727,9 +2702,8 @@ class DashboardWindow(QMainWindow):
                     return
             except RuntimeError:
                 self.sports_boxscore_prefetch_thread = None
-                self.sports_boxscore_prefetch_worker = None
 
-        self.sports_boxscore_prefetch_thread = QThread(self)
+        self.sports_boxscore_prefetch_thread = QThread()
         self.sports_boxscore_prefetch_worker = SportsBoxscorePrefetchWorker(
             leagues
         )

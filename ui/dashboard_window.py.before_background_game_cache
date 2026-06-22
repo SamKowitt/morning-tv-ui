@@ -1,4 +1,4 @@
-from PySide6.QtCore import QStringListModel, QObject, QThread, Signal, Qt, QSettings, QEvent, QTimer
+from PySide6.QtCore import QStringListModel, QObject, QThread, Signal, Qt, QSettings, QEvent
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -26,11 +26,7 @@ from services.news_fetcher import (
     fetch_ranked_candidates,
     get_news_source_display,
 )
-from services.sports_games_fetcher import (
-    fetch_current_sports_games,
-    fetch_mlb_boxscore,
-    fetch_espn_boxscore,
-)
+from services.sports_games_fetcher import fetch_current_sports_games
 from services.sports_news_fetcher import fetch_espn_sports_articles
 from services.stock_fetcher import INDEX_SYMBOLS, STOCK_SYMBOLS, fetch_market_data, fetch_market_data_for_symbols
 from services.weather_fetcher import fetch_weather_rows, validate_zip_code
@@ -208,50 +204,6 @@ class SportsGamesFetchWorker(QObject):
             self.finished.emit(leagues)
         except Exception as error:
             self.failed.emit(str(error))
-
-class SportsBoxscorePrefetchWorker(QObject):
-    finished = Signal(int)
-    failed = Signal(str)
-
-    def __init__(self, leagues):
-        super().__init__()
-        self.leagues = leagues or []
-
-    def run(self):
-        warmed = 0
-
-        try:
-            for league_data in self.leagues:
-                league = str(
-                    getattr(league_data, "league", "") or ""
-                ).upper()
-
-                for game in getattr(league_data, "games", []) or []:
-                    if not bool(getattr(game, "is_clickable", False)):
-                        continue
-
-                    game_id = str(
-                        getattr(game, "game_id", "") or ""
-                    ).strip()
-
-                    if not game_id:
-                        continue
-
-                    if league == "MLB":
-                        fetch_mlb_boxscore(game_id)
-                    elif league in {"NFL", "NBA"}:
-                        fetch_espn_boxscore(league, game_id)
-                    else:
-                        continue
-
-                    warmed += 1
-                    print(f"Box-score preload ready: {league} {game_id}")
-
-            self.finished.emit(warmed)
-
-        except Exception as error:
-            self.failed.emit(str(error))
-
 
 class StockFetchWorker(QObject):
     finished = Signal(object)
@@ -457,17 +409,6 @@ class DashboardWindow(QMainWindow):
         self.more_news_request_id = 0
         self.market_news_request_id = 0
         self.calendar_has_no_events = False
-        self.sports_games_has_loaded = False
-        self.sports_games_thread = None
-        self.sports_games_worker = None
-        self.sports_boxscore_prefetch_thread = None
-        self.sports_boxscore_prefetch_worker = None
-
-        self.sports_games_refresh_timer = QTimer(self)
-        self.sports_games_refresh_timer.setInterval(5 * 60 * 1000)
-        self.sports_games_refresh_timer.timeout.connect(
-            self.start_sports_games_fetch
-        )
 
         self.root = QWidget()
         self.root.setObjectName("RootWidget")
@@ -568,7 +509,6 @@ class DashboardWindow(QMainWindow):
         self.start_news_fetch()
         self.start_sports_news_fetch()
         self.start_sports_games_fetch()
-        self.sports_games_refresh_timer.start()
 
         if self.replace_market_tape_with_news:
             self.start_market_news_fetch()
@@ -800,12 +740,6 @@ class DashboardWindow(QMainWindow):
         )
 
         self.bottom_left_container = QWidget()
-        self.bottom_left_container.setMinimumWidth(0)
-        self.bottom_left_container.setSizePolicy(
-            QSizePolicy.Ignored,
-            QSizePolicy.Expanding,
-        )
-
         self.bottom_left_stack = QStackedLayout()
         self.bottom_left_stack.setContentsMargins(0, 0, 0, 0)
         self.bottom_left_container.setLayout(self.bottom_left_stack)
@@ -815,12 +749,6 @@ class DashboardWindow(QMainWindow):
         self.bottom_left_stack.setCurrentWidget(self.reminders)
 
         self.bottom_right_container = QWidget()
-        self.bottom_right_container.setMinimumWidth(0)
-        self.bottom_right_container.setSizePolicy(
-            QSizePolicy.Ignored,
-            QSizePolicy.Expanding,
-        )
-
         self.bottom_right_stack = QStackedLayout()
         self.bottom_right_stack.setContentsMargins(0, 0, 0, 0)
         self.bottom_right_container.setLayout(self.bottom_right_stack)
@@ -832,18 +760,6 @@ class DashboardWindow(QMainWindow):
             self.bottom_right_stack.setCurrentWidget(self.market_news_card)
         else:
             self.bottom_right_stack.setCurrentWidget(self.stocks_panel)
-
-        for widget in [
-            self.reminders,
-            self.more_news_card,
-            self.stocks_panel,
-            self.market_news_card,
-        ]:
-            widget.setMinimumWidth(0)
-            widget.setSizePolicy(
-                QSizePolicy.Ignored,
-                QSizePolicy.Expanding,
-            )
 
         layout.addWidget(self.bottom_left_container, 1)
         layout.addWidget(self.bottom_right_container, 1)
@@ -2663,41 +2579,24 @@ class DashboardWindow(QMainWindow):
         print(f"ESPN sports news fetch failed: {error_message}")
 
     def start_sports_games_fetch(self):
-        if self.sports_games_thread is not None:
-            try:
-                if self.sports_games_thread.isRunning():
-                    print("Game Times refresh already running. Skipping overlap.")
-                    return
-            except RuntimeError:
-                self.sports_games_thread = None
-                self.sports_games_worker = None
-
-        self.sports_games_thread = QThread(self)
+        self.sports_games_thread = QThread()
         self.sports_games_worker = SportsGamesFetchWorker(
             sports_team_orders=self.sports_team_orders,
         )
         self.sports_games_worker.moveToThread(self.sports_games_thread)
 
         self.sports_games_thread.started.connect(self.sports_games_worker.run)
+
         self.sports_games_worker.finished.connect(self.on_sports_games_loaded)
         self.sports_games_worker.failed.connect(self.on_sports_games_failed)
 
         self.sports_games_worker.finished.connect(self.sports_games_thread.quit)
         self.sports_games_worker.failed.connect(self.sports_games_thread.quit)
 
-        self.sports_games_thread.finished.connect(
-            self.sports_games_worker.deleteLater
-        )
-        self.sports_games_thread.finished.connect(
-            self.clear_sports_games_thread
-        )
+        self.sports_games_thread.finished.connect(self.sports_games_worker.deleteLater)
+        self.sports_games_thread.finished.connect(self.sports_games_thread.deleteLater)
 
-        print("Starting silent Game Times refresh.")
         self.sports_games_thread.start()
-
-    def clear_sports_games_thread(self):
-        self.sports_games_worker = None
-        self.sports_games_thread = None
 
     def on_sports_games_loaded(self, leagues):
         print("Live sports games loaded.")
@@ -2705,71 +2604,11 @@ class DashboardWindow(QMainWindow):
         if hasattr(self.sports_games, "update_leagues"):
             self.sports_games.update_leagues(leagues)
 
-        self.sports_games_has_loaded = True
-        self.start_sports_boxscore_prefetch(leagues)
-
     def on_sports_games_failed(self, error_message):
         print(f"Sports games fetch failed: {error_message}")
 
-        if (
-            not self.sports_games_has_loaded
-            and hasattr(self.sports_games, "set_error")
-        ):
-            self.sports_games.set_error(
-                "Unable to load live MLB, NFL, and NBA games."
-            )
-
-    def start_sports_boxscore_prefetch(self, leagues):
-        if self.sports_boxscore_prefetch_thread is not None:
-            try:
-                if self.sports_boxscore_prefetch_thread.isRunning():
-                    print("Box-score preload already running. Skipping overlap.")
-                    return
-            except RuntimeError:
-                self.sports_boxscore_prefetch_thread = None
-                self.sports_boxscore_prefetch_worker = None
-
-        self.sports_boxscore_prefetch_thread = QThread(self)
-        self.sports_boxscore_prefetch_worker = SportsBoxscorePrefetchWorker(
-            leagues
-        )
-        self.sports_boxscore_prefetch_worker.moveToThread(
-            self.sports_boxscore_prefetch_thread
-        )
-
-        self.sports_boxscore_prefetch_thread.started.connect(
-            self.sports_boxscore_prefetch_worker.run
-        )
-
-        self.sports_boxscore_prefetch_worker.finished.connect(
-            lambda warmed: print(
-                f"Box-score preload complete: {warmed} game(s)."
-            )
-        )
-        self.sports_boxscore_prefetch_worker.failed.connect(
-            lambda error: print(f"Box-score preload failed: {error}")
-        )
-
-        self.sports_boxscore_prefetch_worker.finished.connect(
-            self.sports_boxscore_prefetch_thread.quit
-        )
-        self.sports_boxscore_prefetch_worker.failed.connect(
-            self.sports_boxscore_prefetch_thread.quit
-        )
-
-        self.sports_boxscore_prefetch_thread.finished.connect(
-            self.sports_boxscore_prefetch_worker.deleteLater
-        )
-        self.sports_boxscore_prefetch_thread.finished.connect(
-            self.clear_sports_boxscore_prefetch_thread
-        )
-
-        print("Starting background box-score preload.")
-        self.sports_boxscore_prefetch_thread.start()
-
-    def clear_sports_boxscore_prefetch_thread(self):
-        self.sports_boxscore_prefetch_worker = None
-        self.sports_boxscore_prefetch_thread = None
+        if hasattr(self.sports_games, "set_error"):
+            self.sports_games.set_error("Unable to load live MLB, NFL, and NBA games.")
 
     def start_news_fetch(self):
         self.news_request_id += 1

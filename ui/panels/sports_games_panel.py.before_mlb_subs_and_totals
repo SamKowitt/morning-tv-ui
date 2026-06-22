@@ -246,128 +246,36 @@ class MLBBoxScoreDialog(QDialog):
 
         self.status.setText(status_text.upper())
 
-    @staticmethod
-    def _mlb_player_sort_key(player):
-        raw_order = str(player.get("battingOrder", "") or "")
-
-        try:
-            order_number = int(raw_order)
-        except Exception:
-            order_number = 999999
-
-        return order_number
-
-    @staticmethod
-    def _mlb_batting_slot(player):
-        raw_order = str(player.get("battingOrder", "") or "")
-
-        try:
-            order_number = int(raw_order)
-        except Exception:
-            return ""
-
-        if order_number <= 0:
-            return ""
-
-        return str(order_number // 100)
-
-    @staticmethod
-    def _mlb_position_label(player):
-        labels = []
-
-        for position in player.get("allPositions", []) or []:
-            label = str(position.get("abbreviation", "") or "").strip()
-            if label and label not in labels:
-                labels.append(label)
-
-        if labels:
-            return "-".join(labels)
-
-        position = player.get("position", {}) or {}
-        return str(position.get("abbreviation", "") or "").strip()
-
-    @staticmethod
-    def _mlb_is_substitute(player, seen_slot_count):
-        game_status = player.get("gameStatus", {}) or {}
-
-        if bool(game_status.get("isSubstitute")):
-            return True
-
-        return seen_slot_count > 0
-
-    def _mlb_batting_players(self, team_data):
-        players_by_id = team_data.get("players", {}) or {}
-        ordered_players = []
-        seen = set()
-
-        for player_id in team_data.get("battingOrder", []) or []:
-            key = f"ID{player_id}"
-            player = players_by_id.get(key, {}) or {}
-
-            if player and key not in seen:
-                ordered_players.append(player)
-                seen.add(key)
-
-        # MLB includes substitution players in the players dict even when the
-        # raw battingOrder list does not include every substituted row.
-        extra_players = []
-        for key, player in players_by_id.items():
-            if key in seen:
-                continue
-
-            batting_stats = (player.get("stats", {}) or {}).get("batting", {}) or {}
-            has_batting_order = bool(player.get("battingOrder"))
-
-            if has_batting_order or batting_stats:
-                extra_players.append(player)
-                seen.add(key)
-
-        extra_players.sort(key=self._mlb_player_sort_key)
-        ordered_players.extend(extra_players)
-
-        ordered_players.sort(key=self._mlb_player_sort_key)
-        return ordered_players
-
     def team_page_html(self, team_data):
         team = team_data.get("team", {}) or {}
         team_name = str(team.get("name") or team.get("teamName") or "Team")
         abbreviation = str(team.get("abbreviation") or "")
-        team_stats = team_data.get("teamStats", {}) or {}
-        team_batting = team_stats.get("batting", {}) or {}
-        team_pitching = team_stats.get("pitching", {}) or {}
-        score = team_batting.get("runs", "")
+        score = team_data.get("teamStats", {}).get("batting", {}).get("runs", "")
 
         heading = escape(f"{team_name} Box Score")
         if score != "":
             heading += f" <span style='font-size:17px;'>({escape(str(score))})</span>"
 
         batting_rows = []
-        slot_seen_counts = {}
-        substitute_index = 0
+        batting_order = team_data.get("battingOrder", []) or []
 
-        for player in self._mlb_batting_players(team_data):
+        for player_id in batting_order:
+            player = self._player(team_data, player_id)
+            if not player:
+                continue
+
             person = player.get("person", {}) or {}
+            position = player.get("position", {}) or {}
             stats = (player.get("stats", {}) or {}).get("batting", {}) or {}
             season_stats = (
                 (player.get("seasonStats", {}) or {}).get("batting", {}) or {}
             )
 
             name = escape(str(person.get("fullName") or "Player"))
-            pos = escape(self._mlb_position_label(player))
-
-            slot = self._mlb_batting_slot(player)
-            seen_slot_count = slot_seen_counts.get(slot, 0)
-            slot_seen_counts[slot] = seen_slot_count + 1
-
-            prefix_html = ""
-            if self._mlb_is_substitute(player, seen_slot_count):
-                substitute_letter = chr(ord("a") + substitute_index)
-                substitute_index += 1
-                prefix_html = f"<span class='sub-prefix'>{substitute_letter} - </span>"
-
+            pos = escape(str(position.get("abbreviation") or ""))
             batting_rows.append(
                 "<tr>"
-                f"<td class='name'>{prefix_html}{name} <span class='pos'>{pos}</span></td>"
+                f"<td class='name'>{name} <span class='pos'>{pos}</span></td>"
                 f"<td>{self._value(stats.get('atBats'))}</td>"
                 f"<td>{self._value(stats.get('runs'))}</td>"
                 f"<td>{self._value(stats.get('hits'))}</td>"
@@ -383,20 +291,6 @@ class MLBBoxScoreDialog(QDialog):
 
         if not batting_rows:
             batting_rows.append("<tr><td colspan='11'>Batting statistics are not available yet.</td></tr>")
-
-        batting_rows.append(
-            "<tr class='team-total'>"
-            "<td class='name'>TEAM</td>"
-            f"<td>{self._value(team_batting.get('atBats'))}</td>"
-            f"<td>{self._value(team_batting.get('runs'))}</td>"
-            f"<td>{self._value(team_batting.get('hits'))}</td>"
-            f"<td>{self._value(team_batting.get('rbi'))}</td>"
-            f"<td>{self._value(team_batting.get('homeRuns'))}</td>"
-            f"<td>{self._value(team_batting.get('baseOnBalls'))}</td>"
-            f"<td>{self._value(team_batting.get('strikeOuts'))}</td>"
-            "<td></td><td></td><td></td>"
-            "</tr>"
-        )
 
         pitching_rows = []
         for player_id in team_data.get("pitchers", []) or []:
@@ -435,27 +329,6 @@ class MLBBoxScoreDialog(QDialog):
         if not pitching_rows:
             pitching_rows.append("<tr><td colspan='10'>Pitching statistics are not available yet.</td></tr>")
 
-        total_pitches = team_pitching.get("pitchesThrown")
-        total_strikes = team_pitching.get("strikes")
-        total_pitch_strike = "—"
-        if total_pitches not in (None, "") and total_strikes not in (None, ""):
-            total_pitch_strike = f"{escape(str(total_pitches))}-{escape(str(total_strikes))}"
-
-        pitching_rows.append(
-            "<tr class='team-total'>"
-            "<td class='name'>TEAM</td>"
-            f"<td>{self._value(team_pitching.get('inningsPitched'))}</td>"
-            f"<td>{self._value(team_pitching.get('hits'))}</td>"
-            f"<td>{self._value(team_pitching.get('runs'))}</td>"
-            f"<td>{self._value(team_pitching.get('earnedRuns'))}</td>"
-            f"<td>{self._value(team_pitching.get('baseOnBalls'))}</td>"
-            f"<td>{self._value(team_pitching.get('strikeOuts'))}</td>"
-            f"<td>{self._value(team_pitching.get('homeRuns'))}</td>"
-            f"<td>{total_pitch_strike}</td>"
-            "<td></td>"
-            "</tr>"
-        )
-
         return f"""
         <html>
         <head>
@@ -480,10 +353,7 @@ class MLBBoxScoreDialog(QDialog):
             }}
             table {{
                 border-collapse: collapse;
-                width: 90%;
-                margin-left: 0;
-                margin-right: auto;
-                table-layout: fixed;
+                width: 100%;
                 font-size: 15px;
             }}
             th {{
@@ -501,34 +371,18 @@ class MLBBoxScoreDialog(QDialog):
             td.name {{
                 text-align: left;
                 font-weight: 600;
+                width: 34%;
             }}
             .pos {{
                 color: #66523a;
                 font-weight: normal;
             }}
-            .sub-prefix {{
-                color: #66523a;
-                font-weight: normal;
-            }}
-            tr.team-total td {{
-                border-top: 2px solid #80623c;
-                font-weight: 800;
-                background: rgba(90, 68, 43, 0.08);
-            }}
-
         </style>
         </head>
         <body>
             <h1>{heading}</h1>
             <h2>HITTING</h2>
-            <table width='90%' align='left'>
-                <colgroup>
-                    <col width='24%'>
-                    <col width='7.6%'><col width='7.6%'><col width='7.6%'>
-                    <col width='7.6%'><col width='7.6%'><col width='7.6%'>
-                    <col width='7.6%'><col width='7.6%'><col width='7.6%'>
-                    <col width='7.6%'>
-                </colgroup>
+            <table>
                 <tr>
                     <th style='text-align:left'>HITTERS</th><th>AB</th><th>R</th><th>H</th>
                     <th>RBI</th><th>HR</th><th>BB</th><th>K</th><th>AVG</th><th>OBP</th><th>SLG</th>
@@ -537,13 +391,7 @@ class MLBBoxScoreDialog(QDialog):
             </table>
 
             <h2>PITCHING</h2>
-            <table width='90%' align='left'>
-                <colgroup>
-                    <col width='24%'>
-                    <col width='8.44%'><col width='8.44%'><col width='8.44%'>
-                    <col width='8.44%'><col width='8.44%'><col width='8.44%'>
-                    <col width='8.44%'><col width='8.44%'><col width='8.44%'>
-                </colgroup>
+            <table>
                 <tr>
                     <th style='text-align:left'>PITCHERS</th><th>IP</th><th>H</th><th>R</th>
                     <th>ER</th><th>BB</th><th>K</th><th>HR</th><th>PC-ST</th><th>ERA</th>
