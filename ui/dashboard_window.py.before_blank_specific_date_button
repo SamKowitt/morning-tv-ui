@@ -2287,14 +2287,9 @@ class DashboardWindow(QMainWindow):
         parent_layout.addSpacing(6)
         parent_layout.addWidget(button)
 
-    def clear_specific_date_button_value(self, button):
-        button.setProperty("selected_date_iso", "")
-        button.setText("")
-
     def set_specific_date_button_value(self, button, date_value):
         if not isinstance(date_value, QDate) or not date_value.isValid():
-            self.clear_specific_date_button_value(button)
-            return
+            date_value = QDate.currentDate()
 
         if date_value < QDate.currentDate():
             date_value = QDate.currentDate()
@@ -2523,7 +2518,10 @@ class DashboardWindow(QMainWindow):
                 border-color: rgba(142, 90, 28, 0.90);
             }
         """)
-        self.clear_specific_date_button_value(specific_date_button)
+        self.set_specific_date_button_value(
+            specific_date_button,
+            QDate.currentDate(),
+        )
 
         specific_row.addWidget(specific_label)
         specific_row.addWidget(specific_date_button)
@@ -2815,14 +2813,6 @@ class DashboardWindow(QMainWindow):
                 record["day"] = int(day)
 
         else:
-            if not specific_date.isValid():
-                QMessageBox.warning(
-                    popup["dialog"],
-                    "Missing Date",
-                    "Choose a specific date or select a recurring event schedule.",
-                )
-                return
-
             if specific_date < QDate.currentDate():
                 QMessageBox.warning(
                     popup["dialog"],
@@ -2838,8 +2828,9 @@ class DashboardWindow(QMainWindow):
         self.save_recurring_calendar_events()
 
         popup["title_input"].clear()
-        self.clear_specific_date_button_value(
+        self.set_specific_date_button_value(
             popup["specific_date_button"],
+            QDate.currentDate(),
         )
         popup["frequency_combo"].setCurrentIndex(0)
 

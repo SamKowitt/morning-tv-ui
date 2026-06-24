@@ -3,23 +3,11 @@ import json
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from PySide6.QtCore import (
-    QDate,
-    QStringListModel,
-    QObject,
-    QThread,
-    Signal,
-    Qt,
-    QSettings,
-    QEvent,
-    QTimer,
-)
+from PySide6.QtCore import QStringListModel, QObject, QThread, Signal, Qt, QSettings, QEvent, QTimer
 from PySide6.QtWidgets import (
-    QCalendarWidget,
     QCheckBox,
     QComboBox,
     QCompleter,
-    QDateEdit,
     QDialog,
     QFrame,
     QGraphicsOpacityEffect,
@@ -1802,14 +1790,8 @@ class DashboardWindow(QMainWindow):
             if not event_id or not title:
                 continue
 
-            if frequency not in {"weekly", "monthly", "annually", "specific"}:
+            if frequency not in {"weekly", "monthly", "annually"}:
                 continue
-
-            if frequency == "specific":
-                date_text = str(item.get("date", "") or "").strip()
-
-                if not date_text:
-                    continue
 
             valid_events.append(item)
 
@@ -2262,7 +2244,7 @@ class DashboardWindow(QMainWindow):
         )
 
     def build_recurring_calendar_section(self, parent_layout):
-        button = QPushButton("Add Calendar Event")
+        button = QPushButton("Additional Reoccuring Events")
         button.setCursor(Qt.PointingHandCursor)
         button.setMinimumHeight(34)
         button.setStyleSheet("""
@@ -2287,139 +2269,11 @@ class DashboardWindow(QMainWindow):
         parent_layout.addSpacing(6)
         parent_layout.addWidget(button)
 
-    def clear_specific_date_button_value(self, button):
-        button.setProperty("selected_date_iso", "")
-        button.setText("")
-
-    def set_specific_date_button_value(self, button, date_value):
-        if not isinstance(date_value, QDate) or not date_value.isValid():
-            self.clear_specific_date_button_value(button)
-            return
-
-        if date_value < QDate.currentDate():
-            date_value = QDate.currentDate()
-
-        button.setProperty(
-            "selected_date_iso",
-            date_value.toString(Qt.ISODate),
-        )
-        button.setText(date_value.toString("MMMM d, yyyy"))
-
-    def open_specific_date_picker(self):
-        popup = getattr(self, "_recurring_events_popup", None)
-
-        if not popup:
-            return
-
-        parent_dialog = popup["dialog"]
-        date_button = popup["specific_date_button"]
-
-        saved_value = str(
-            date_button.property("selected_date_iso") or ""
-        ).strip()
-
-        selected_date = QDate.fromString(saved_value, Qt.ISODate)
-
-        if not selected_date.isValid() or selected_date < QDate.currentDate():
-            selected_date = QDate.currentDate()
-
-        picker_dialog = QDialog(parent_dialog)
-        picker_dialog.setWindowTitle("Choose Specific Date")
-        picker_dialog.setModal(True)
-        picker_dialog.setStyleSheet("""
-            QDialog {
-                background-color: #f5ead7;
-                border: 2px solid rgba(83, 59, 33, 0.42);
-                border-radius: 12px;
-            }
-
-            QCalendarWidget QWidget {
-                alternate-background-color: #f7f0df;
-            }
-
-            QCalendarWidget QToolButton {
-                color: #2d2114;
-                background: #d8c7a4;
-                border: 1px solid rgba(83, 59, 33, 0.42);
-                border-radius: 5px;
-                font-weight: 900;
-                padding: 4px;
-            }
-
-            QCalendarWidget QAbstractItemView:enabled {
-                color: #2d2114;
-                background: #fffaf0;
-                selection-background-color: #8a5a24;
-                selection-color: #ffffff;
-            }
-        """)
-
-        picker_layout = QVBoxLayout()
-        picker_layout.setContentsMargins(14, 14, 14, 14)
-        picker_layout.setSpacing(10)
-        picker_dialog.setLayout(picker_layout)
-
-        calendar = QCalendarWidget()
-        calendar.setMinimumDate(QDate.currentDate())
-        calendar.setSelectedDate(selected_date)
-        calendar.setGridVisible(True)
-
-        picker_layout.addWidget(calendar)
-
-        button_row = QHBoxLayout()
-        button_row.addStretch(1)
-
-        cancel_button = QPushButton("Cancel")
-        select_button = QPushButton("Select Date")
-
-        cancel_button.setStyleSheet("""
-            QPushButton {
-                background: #d8c7a4;
-                color: #2d2114;
-                border: 1px solid rgba(83, 59, 33, 0.48);
-                border-radius: 7px;
-                padding: 5px 14px;
-                font-weight: 1000;
-            }
-        """)
-
-        select_button.setStyleSheet("""
-            QPushButton {
-                background: #397a42;
-                color: #ffffff;
-                border: 1px solid #24582d;
-                border-radius: 7px;
-                padding: 5px 14px;
-                font-weight: 1000;
-            }
-            QPushButton:hover {
-                background: #4a9855;
-            }
-        """)
-
-        cancel_button.clicked.connect(picker_dialog.reject)
-
-        def apply_selected_date():
-            self.set_specific_date_button_value(
-                date_button,
-                calendar.selectedDate(),
-            )
-            picker_dialog.accept()
-
-        select_button.clicked.connect(apply_selected_date)
-
-        button_row.addWidget(cancel_button)
-        button_row.addWidget(select_button)
-
-        picker_layout.addLayout(button_row)
-
-        picker_dialog.exec()
-
     def open_recurring_events_popup(self):
         dialog = QDialog(self)
-        dialog.setWindowTitle("Add Calendar Event")
+        dialog.setWindowTitle("Additional Reoccuring Events")
         dialog.setModal(True)
-        dialog.resize(820, 560)
+        dialog.resize(820, 520)
         dialog.setStyleSheet("""
             QDialog {
                 background-color: #f5ead7;
@@ -2435,19 +2289,11 @@ class DashboardWindow(QMainWindow):
                 letter-spacing: 0.8px;
             }
 
-            QLabel#RecurringDialogHint,
-            QLabel#CalendarChoiceLabel,
-            QLabel#CalendarOrLabel {
-                color: rgba(45, 33, 20, 0.76);
+            QLabel#RecurringDialogHint {
+                color: rgba(45, 33, 20, 0.72);
                 background: transparent;
                 font-size: 11px;
-                font-weight: 900;
-            }
-
-            QLabel#CalendarOrLabel {
-                font-size: 13px;
-                font-weight: 1000;
-                color: #72542d;
+                font-weight: 800;
             }
 
             QTableWidget {
@@ -2473,15 +2319,15 @@ class DashboardWindow(QMainWindow):
 
         root = QVBoxLayout()
         root.setContentsMargins(18, 16, 18, 16)
-        root.setSpacing(9)
+        root.setSpacing(10)
         dialog.setLayout(root)
 
-        title = QLabel("ADD CALENDAR EVENT")
+        title = QLabel("ADDITIONAL REOCCURING EVENTS")
         title.setObjectName("RecurringDialogTitle")
         title.setAlignment(Qt.AlignCenter)
 
         hint = QLabel(
-            "Choose one schedule type below. Saved events do not appear in Upcoming."
+            "These events are saved for future use and do not appear in Upcoming."
         )
         hint.setObjectName("RecurringDialogHint")
         hint.setAlignment(Qt.AlignCenter)
@@ -2489,59 +2335,14 @@ class DashboardWindow(QMainWindow):
         root.addWidget(title)
         root.addWidget(hint)
 
+        input_row = QHBoxLayout()
+        input_row.setContentsMargins(0, 0, 0, 0)
+        input_row.setSpacing(8)
+
         title_input = QLineEdit()
         title_input.setObjectName("SettingsLineEdit")
         title_input.setPlaceholderText("e.g., Trash Day")
-        title_input.setMinimumWidth(240)
-        root.addWidget(title_input)
-
-        specific_row = QHBoxLayout()
-        specific_row.setContentsMargins(0, 0, 0, 0)
-        specific_row.setSpacing(8)
-
-        specific_label = QLabel("Specific Date:")
-        specific_label.setObjectName("CalendarChoiceLabel")
-
-        specific_date_button = QPushButton()
-        specific_date_button.setCursor(Qt.PointingHandCursor)
-        specific_date_button.setMinimumWidth(190)
-        specific_date_button.setToolTip("Choose today or a future date")
-        specific_date_button.setStyleSheet("""
-            QPushButton {
-                background: #fff7e7;
-                color: #2d2114;
-                border: 1px solid rgba(166, 110, 38, 0.65);
-                border-radius: 10px;
-                padding: 8px 14px;
-                font-size: 14px;
-                font-weight: 900;
-                text-align: left;
-            }
-
-            QPushButton:hover {
-                background: #fff0d4;
-                border-color: rgba(142, 90, 28, 0.90);
-            }
-        """)
-        self.clear_specific_date_button_value(specific_date_button)
-
-        specific_row.addWidget(specific_label)
-        specific_row.addWidget(specific_date_button)
-        specific_row.addStretch(1)
-
-        root.addLayout(specific_row)
-
-        or_label = QLabel("OR")
-        or_label.setObjectName("CalendarOrLabel")
-        or_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        root.addWidget(or_label)
-
-        recurring_row = QHBoxLayout()
-        recurring_row.setContentsMargins(0, 0, 0, 0)
-        recurring_row.setSpacing(8)
-
-        recurring_label = QLabel("Reoccuring Event:")
-        recurring_label.setObjectName("CalendarChoiceLabel")
+        title_input.setMinimumWidth(220)
 
         frequency_combo = self.build_recurring_combo(
             "Frequency",
@@ -2558,11 +2359,11 @@ class DashboardWindow(QMainWindow):
         detail_layout.setSpacing(8)
         detail_holder.setLayout(detail_layout)
 
-        recurring_row.addWidget(recurring_label)
-        recurring_row.addWidget(frequency_combo)
-        recurring_row.addWidget(detail_holder, 1)
+        input_row.addWidget(title_input, 2)
+        input_row.addWidget(frequency_combo, 1)
+        input_row.addWidget(detail_holder, 2)
 
-        root.addLayout(recurring_row)
+        root.addLayout(input_row)
 
         actions = QHBoxLayout()
         actions.setContentsMargins(0, 0, 0, 0)
@@ -2586,6 +2387,24 @@ class DashboardWindow(QMainWindow):
             }
         """)
 
+        delete_button = QPushButton("Delete Selected")
+        delete_button.setCursor(Qt.PointingHandCursor)
+        delete_button.setMinimumHeight(30)
+        delete_button.setStyleSheet("""
+            QPushButton {
+                background: rgba(173, 41, 35, 0.16);
+                color: #9f211b;
+                border: 1px solid rgba(159, 33, 27, 0.68);
+                border-radius: 7px;
+                padding: 5px 14px;
+                font-size: 12px;
+                font-weight: 1000;
+            }
+            QPushButton:hover {
+                background: rgba(173, 41, 35, 0.28);
+            }
+        """)
+
         close_button = QPushButton("Close")
         close_button.setCursor(Qt.PointingHandCursor)
         close_button.setMinimumHeight(30)
@@ -2605,59 +2424,52 @@ class DashboardWindow(QMainWindow):
         """)
 
         actions.addWidget(add_button)
+        actions.addWidget(delete_button)
         actions.addStretch(1)
+        actions.addWidget(close_button)
+
         root.addLayout(actions)
 
         table = QTableWidget()
         table.setColumnCount(4)
         table.setHorizontalHeaderLabels(
-            ["Event", "Frequency", "Schedule", "Delete"]
+            ["Event", "Frequency", "Schedule", "ID"]
         )
-        table.setSelectionMode(QTableWidget.NoSelection)
-        table.setFocusPolicy(Qt.NoFocus)
+        table.setColumnHidden(3, True)
+        table.setSelectionBehavior(QTableWidget.SelectRows)
+        table.setSelectionMode(QTableWidget.SingleSelection)
         table.setEditTriggers(QTableWidget.NoEditTriggers)
         table.verticalHeader().setVisible(False)
-        table.horizontalHeader().setStretchLastSection(True)
-        table.setColumnWidth(0, 245)
+        table.horizontalHeader().setStretchLastSection(False)
+        table.setColumnWidth(0, 250)
         table.setColumnWidth(1, 120)
-        table.setColumnWidth(2, 245)
-        table.setColumnWidth(3, 105)
+        table.setColumnWidth(2, 230)
 
         root.addWidget(table, 1)
-
-        close_row = QHBoxLayout()
-        close_row.setContentsMargins(0, 0, 0, 0)
-        close_row.addStretch(1)
-        close_row.addWidget(close_button)
-        close_row.addStretch(1)
-
-        root.addLayout(close_row)
 
         popup = {
             "dialog": dialog,
             "title_input": title_input,
-            "specific_date_button": specific_date_button,
             "frequency_combo": frequency_combo,
             "detail_layout": detail_layout,
             "detail_widgets": [],
             "table": table,
-            "delete_buttons": [],
         }
 
         self._recurring_events_popup = popup
-
-        specific_date_button.clicked.connect(self.open_specific_date_picker)
 
         frequency_combo.currentIndexChanged.connect(
             lambda _index: self.refresh_recurring_popup_detail_fields()
         )
         add_button.clicked.connect(self.add_recurring_popup_event)
+        delete_button.clicked.connect(self.delete_selected_recurring_popup_event)
         close_button.clicked.connect(dialog.accept)
 
         self.refresh_recurring_popup_detail_fields()
         self.refresh_recurring_popup_table()
 
         dialog.exec()
+
         self._recurring_events_popup = None
 
     def refresh_recurring_popup_detail_fields(self):
@@ -2746,13 +2558,6 @@ class DashboardWindow(QMainWindow):
         title = popup["title_input"].text().strip()
         frequency = popup["frequency_combo"].currentData()
         detail_widgets = popup["detail_widgets"]
-        specific_date_text = str(
-            popup["specific_date_button"].property("selected_date_iso") or ""
-        ).strip()
-        specific_date = QDate.fromString(
-            specific_date_text,
-            Qt.ISODate,
-        )
 
         if not title:
             QMessageBox.warning(
@@ -2763,86 +2568,69 @@ class DashboardWindow(QMainWindow):
             popup["title_input"].setFocus()
             return
 
+        if frequency not in {"weekly", "monthly", "annually"}:
+            QMessageBox.warning(
+                popup["dialog"],
+                "Missing Frequency",
+                "Select Weekly, Monthly, or Annually.",
+            )
+            popup["frequency_combo"].setFocus()
+            return
+
         record = {
             "id": uuid.uuid4().hex,
             "title": title,
+            "frequency": frequency,
         }
 
-        if frequency in {"weekly", "monthly", "annually"}:
-            record["frequency"] = frequency
+        if frequency in {"weekly", "monthly"}:
+            if len(detail_widgets) != 1:
+                return
 
-            if frequency in {"weekly", "monthly"}:
-                if len(detail_widgets) != 1:
-                    return
+            day = detail_widgets[0].currentData()
 
-                day = detail_widgets[0].currentData()
-
-                if day in {"", None}:
-                    QMessageBox.warning(
-                        popup["dialog"],
-                        "Missing Schedule",
-                        "Select the recurring event day.",
-                    )
-                    detail_widgets[0].setFocus()
-                    return
-
-                record["day"] = day
-
-            elif frequency == "annually":
-                if len(detail_widgets) != 2:
-                    return
-
-                month = detail_widgets[0].currentData()
-                day = detail_widgets[1].currentData()
-
-                if month in {"", None} or day in {"", None}:
-                    QMessageBox.warning(
-                        popup["dialog"],
-                        "Missing Schedule",
-                        "Select both an annual month and day.",
-                    )
-                    return
-
-                if int(day) not in self.recurring_valid_days_for_month(month):
-                    QMessageBox.warning(
-                        popup["dialog"],
-                        "Invalid Date",
-                        "That annual date is not valid.",
-                    )
-                    return
-
-                record["month"] = int(month)
-                record["day"] = int(day)
-
-        else:
-            if not specific_date.isValid():
+            if day in {"", None}:
                 QMessageBox.warning(
                     popup["dialog"],
-                    "Missing Date",
-                    "Choose a specific date or select a recurring event schedule.",
+                    "Missing Schedule",
+                    "Select the day for this recurring event.",
+                )
+                detail_widgets[0].setFocus()
+                return
+
+            record["day"] = day
+
+        elif frequency == "annually":
+            if len(detail_widgets) != 2:
+                return
+
+            month = detail_widgets[0].currentData()
+            day = detail_widgets[1].currentData()
+
+            if month in {"", None} or day in {"", None}:
+                QMessageBox.warning(
+                    popup["dialog"],
+                    "Missing Schedule",
+                    "Select both a month and day.",
                 )
                 return
 
-            if specific_date < QDate.currentDate():
+            if int(day) not in self.recurring_valid_days_for_month(month):
                 QMessageBox.warning(
                     popup["dialog"],
-                    "Past Date",
-                    "Specific dates must be today or later.",
+                    "Invalid Date",
+                    "That annual date is not valid.",
                 )
                 return
 
-            record["frequency"] = "specific"
-            record["date"] = specific_date.toString("yyyy-MM-dd")
+            record["month"] = int(month)
+            record["day"] = int(day)
 
         self.recurring_calendar_events.append(record)
         self.save_recurring_calendar_events()
 
         popup["title_input"].clear()
-        self.clear_specific_date_button_value(
-            popup["specific_date_button"],
-        )
         popup["frequency_combo"].setCurrentIndex(0)
-
         self.refresh_recurring_popup_detail_fields()
         self.refresh_recurring_popup_table()
 
@@ -2867,9 +2655,6 @@ class DashboardWindow(QMainWindow):
 
             return f"{month_names.get(month, '')} {day}".strip()
 
-        if frequency == "specific":
-            return str(event.get("date", "") or "")
-
         return ""
 
     def refresh_recurring_popup_table(self):
@@ -2879,9 +2664,7 @@ class DashboardWindow(QMainWindow):
             return
 
         table = popup["table"]
-        table.clearContents()
         table.setRowCount(len(self.recurring_calendar_events))
-        popup["delete_buttons"] = []
 
         for row_index, event in enumerate(self.recurring_calendar_events):
             event_id = str(event.get("id", "") or "")
@@ -2892,51 +2675,40 @@ class DashboardWindow(QMainWindow):
             table.setItem(row_index, 0, QTableWidgetItem(title))
             table.setItem(row_index, 1, QTableWidgetItem(frequency))
             table.setItem(row_index, 2, QTableWidgetItem(schedule))
+            table.setItem(row_index, 3, QTableWidgetItem(event_id))
 
-            delete_button = QPushButton("Delete")
-            delete_button.setCursor(Qt.PointingHandCursor)
-            delete_button.setToolTip(f"Delete {title}")
-            delete_button.setFixedHeight(26)
-            delete_button.setProperty("calendar_event_id", event_id)
-            delete_button.setStyleSheet("""
-                QPushButton {
-                    background-color: #c62828;
-                    color: #ffffff;
-                    border: 1px solid #8e1616;
-                    border-radius: 6px;
-                    padding: 2px 10px;
-                    font-size: 10px;
-                    font-weight: 1000;
-                }
+        if table.rowCount():
+            table.selectRow(table.rowCount() - 1)
 
-                QPushButton:hover {
-                    background-color: #a91f1f;
-                }
+    def delete_selected_recurring_popup_event(self):
+        popup = getattr(self, "_recurring_events_popup", None)
 
-                QPushButton:pressed {
-                    background-color: #861818;
-                }
-            """)
+        if not popup:
+            return
 
-            delete_button.clicked.connect(
-                lambda _checked=False, button=delete_button:
-                    self.delete_recurring_popup_event(
-                        button.property("calendar_event_id")
-                    )
+        table = popup["table"]
+        row_index = table.currentRow()
+
+        if row_index < 0:
+            QMessageBox.information(
+                popup["dialog"],
+                "Select an Event",
+                "Select a saved event in the table before deleting it.",
             )
+            return
 
-            popup["delete_buttons"].append(delete_button)
-            table.setCellWidget(row_index, 3, delete_button)
+        id_item = table.item(row_index, 3)
 
-    def delete_recurring_popup_event(self, event_id):
-        event_id = str(event_id or "")
+        if id_item is None:
+            return
+
+        event_id = id_item.text()
 
         self.recurring_calendar_events = [
             event
             for event in self.recurring_calendar_events
             if str(event.get("id", "") or "") != event_id
         ]
-
         self.save_recurring_calendar_events()
         self.refresh_recurring_popup_table()
 
