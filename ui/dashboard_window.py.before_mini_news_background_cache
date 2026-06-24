@@ -503,12 +503,8 @@ class DashboardWindow(QMainWindow):
         self.news_request_id = 0
         self.more_news_request_id = 0
         self.market_news_request_id = 0
-
-        self.more_news_thread = None
-        self.more_news_worker = None
         self.market_news_thread = None
         self.market_news_worker = None
-
         self.stock_thread = None
         self.stock_worker = None
         self.calendar_has_no_events = False
@@ -528,12 +524,6 @@ class DashboardWindow(QMainWindow):
         self.sports_games_refresh_timer.setInterval(5 * 60 * 1000)
         self.sports_games_refresh_timer.timeout.connect(
             self.start_sports_games_fetch
-        )
-
-        self.mini_news_refresh_timer = QTimer(self)
-        self.mini_news_refresh_timer.setInterval(5 * 60 * 1000)
-        self.mini_news_refresh_timer.timeout.connect(
-            self.start_mini_news_background_refresh
         )
 
         self.root = QWidget()
@@ -646,17 +636,12 @@ class DashboardWindow(QMainWindow):
         self.position_settings_button()
 
         self.start_news_fetch()
-
-        # Warm both hidden mini-news panels and their article text immediately.
-        self.start_mini_news_background_refresh()
-        self.mini_news_refresh_timer.start()
-
         self.start_sports_news_fetch()
         self.start_sports_games_fetch()
         self.sports_games_refresh_timer.start()
 
         if self.replace_market_tape_with_news:
-            self.show_market_news_panel()
+            self.start_market_news_fetch()
         else:
             self.start_stock_fetch()
 
@@ -2223,12 +2208,8 @@ class DashboardWindow(QMainWindow):
         self.show_dashboard_page()
         self.start_news_fetch()
 
-        # Settings can change the two news sources, so refresh both mini-news
-        # caches immediately in the background.
-        self.start_mini_news_background_refresh()
-
         if self.hide_reminders or self.calendar_has_no_events:
-            self.show_more_news_panel()
+            self.start_more_news_fetch()
         elif old_hide_reminders:
             self.start_apple_calendar_fetch()
 
@@ -2674,20 +2655,12 @@ class DashboardWindow(QMainWindow):
         if hasattr(self, "bottom_left_stack"):
             self.bottom_left_stack.setCurrentWidget(self.reminders)
 
-    def show_more_news_panel(self):
-        if hasattr(self, "bottom_left_stack"):
-            self.bottom_left_stack.setCurrentWidget(self.more_news_card)
-
-    def show_market_news_panel(self):
-        if hasattr(self, "bottom_right_stack"):
-            self.bottom_right_stack.setCurrentWidget(self.market_news_card)
-
     def hide_reminders_for_current_session(self):
         # Do not save this. The normal reminders panel returns next launch
         # unless the separate Settings checkbox is enabled.
         self.session_reminders_hidden = True
-        self.show_more_news_panel()
         print("Reminders hidden for this session only.")
+        self.start_more_news_fetch()
 
     def show_reminders_for_current_session(self):
         # Header button on the left mini-news card.
@@ -2700,26 +2673,13 @@ class DashboardWindow(QMainWindow):
 
         print("Reminders restored for this session.")
 
-    def start_mini_news_background_refresh(self):
-        print("Refreshing both mini-news caches in the background.")
-        self.start_more_news_fetch(force=True)
-        self.start_market_news_fetch(force=True)
-
-    def start_more_news_fetch(self, force=False):
-        if not force and not (
+    def start_more_news_fetch(self):
+        if not (
             getattr(self, "calendar_has_no_events", False)
             or getattr(self, "hide_reminders", False)
             or getattr(self, "session_reminders_hidden", False)
         ):
             return
-
-        try:
-            if self.more_news_thread and self.more_news_thread.isRunning():
-                print("Left mini-news fetch already running; skipping overlap.")
-                return
-        except RuntimeError:
-            self.more_news_thread = None
-            self.more_news_worker = None
 
         self.more_news_request_id += 1
         request_id = self.more_news_request_id
@@ -2733,8 +2693,11 @@ class DashboardWindow(QMainWindow):
         self.more_news_card.top_source_label.setText(
             get_news_source_display(source_key)
         )
-        # Keep previously cached headlines visible while new data loads.
-        # Do not switch the visible dashboard panel during background refresh.
+        self.more_news_card.update_article_list([])
+
+        if hasattr(self, "bottom_left_stack"):
+            self.bottom_left_stack.setCurrentWidget(self.more_news_card)
+
         self.more_news_thread = QThread()
         self.more_news_worker = MoreNewsFetchWorker(
             request_id=request_id,
@@ -2767,6 +2730,13 @@ class DashboardWindow(QMainWindow):
             )
             return
 
+        if not (
+            self.calendar_has_no_events
+            or getattr(self, "hide_reminders", False)
+            or getattr(self, "session_reminders_hidden", False)
+        ):
+            return
+
         articles = list(articles or [])[:4]
 
         if not articles:
@@ -2782,8 +2752,11 @@ class DashboardWindow(QMainWindow):
             page_label="MORE",
         )
 
+        if hasattr(self, "bottom_left_stack"):
+            self.bottom_left_stack.setCurrentWidget(self.more_news_card)
+
         print(
-            f"Cached {len(articles)} extra headlines "
+            f"Showing {len(articles)} extra headlines "
             f"for {get_news_source_display(source_key)}"
         )
 
@@ -2793,7 +2766,13 @@ class DashboardWindow(QMainWindow):
 
         print(f"Extra-news fetch failed: {error_message}")
 
-        # Preserve the current panel and any previously cached headlines.
+        if not getattr(self, "session_reminders_hidden", False):
+            self.show_reminders_panel()
+
+            if hasattr(self.reminders, "set_calendar_error"):
+                self.reminders.set_calendar_error(
+                    "No reminders; additional headlines could not load"
+                )
 
 
     def start_apple_calendar_fetch(self):
@@ -2832,7 +2811,7 @@ class DashboardWindow(QMainWindow):
             or self.hide_reminders
             or self.session_reminders_hidden
         ):
-            self.show_more_news_panel()
+            self.start_more_news_fetch()
             return
 
         self.show_reminders_panel()
@@ -2844,7 +2823,7 @@ class DashboardWindow(QMainWindow):
         print(f"Apple Calendar fetch failed: {error_message}")
 
         if self.hide_reminders or self.session_reminders_hidden:
-            self.show_more_news_panel()
+            self.start_more_news_fetch()
             return
 
         self.show_reminders_panel()
@@ -2870,8 +2849,8 @@ class DashboardWindow(QMainWindow):
         # Header Hide button only affects the current run of the app.
         self.session_market_tape_hidden = True
         self.session_market_tape_restored = False
-        self.show_market_news_panel()
         print("Market Tape hidden for this session only.")
+        self.start_market_news_fetch()
 
     def show_market_tape_for_current_session(self):
         # Right mini-news header button. Does not modify the saved checkbox.
@@ -2888,8 +2867,8 @@ class DashboardWindow(QMainWindow):
         if self.market_news_worker is worker:
             self.market_news_worker = None
 
-    def start_market_news_fetch(self, force=False):
-        if not force and not self.market_news_should_be_visible():
+    def start_market_news_fetch(self):
+        if not self.market_news_should_be_visible():
             return
 
         active_thread = self.market_news_thread
@@ -2910,8 +2889,11 @@ class DashboardWindow(QMainWindow):
         self.market_news_card.top_source_label.setText(
             get_news_source_display(source_key)
         )
-        # Keep previously cached headlines visible while new data loads.
-        # Do not switch the visible dashboard panel during background refresh.
+        self.market_news_card.update_article_list([])
+
+        if hasattr(self, "bottom_right_stack"):
+            self.bottom_right_stack.setCurrentWidget(self.market_news_card)
+
         thread = QThread()
         worker = MoreNewsFetchWorker(
             request_id=request_id,
@@ -2955,6 +2937,9 @@ class DashboardWindow(QMainWindow):
             )
             return
 
+        if not self.market_news_should_be_visible():
+            return
+
         articles = list(articles or [])[:4]
 
         if not articles:
@@ -2967,8 +2952,11 @@ class DashboardWindow(QMainWindow):
             page_label="MORE",
         )
 
+        if hasattr(self, "bottom_right_stack"):
+            self.bottom_right_stack.setCurrentWidget(self.market_news_card)
+
         print(
-            f"Cached {len(articles)} Market Tape replacement headlines "
+            f"Showing {len(articles)} Market Tape replacement headlines "
             f"for {get_news_source_display(source_key)}"
         )
 
@@ -2977,7 +2965,7 @@ class DashboardWindow(QMainWindow):
             return
 
         print(f"Market Tape replacement failed: {error_message}")
-        # Preserve the current panel and any previously cached headlines.
+        self.show_market_tape_panel()
 
     def clear_stock_fetch_references(self, thread, worker):
         if self.stock_thread is thread:
