@@ -102,16 +102,12 @@ class WeatherRadarPreloadWorker(QObject):
         longitude,
         selected_windows,
         location_label="",
-        default_zoom=11,
-        background_zooms=None,
     ):
         super().__init__()
         self.latitude = latitude
         self.longitude = longitude
         self.selected_windows = selected_windows
         self.location_label = location_label
-        self.default_zoom = int(default_zoom)
-        self.background_zooms = list(background_zooms or [])
 
     def run(self):
         try:
@@ -120,8 +116,6 @@ class WeatherRadarPreloadWorker(QObject):
                 longitude=self.longitude,
                 selected_windows=self.selected_windows,
                 location_label=self.location_label,
-                default_zoom=self.default_zoom,
-                background_zooms=self.background_zooms,
             )
 
             self.finished.emit(
@@ -2588,8 +2582,6 @@ class DashboardWindow(QMainWindow):
             location_label=str(
                 getattr(self.weather_radar_location, "label", "") or ""
             ).strip(),
-            default_zoom=11,
-            background_zooms=[10, 9, 8, 7, 12, 13],
         )
 
         self.radar_preload_worker.moveToThread(
@@ -2622,9 +2614,8 @@ class DashboardWindow(QMainWindow):
         )
 
         print(
-            "Starting background radar preload: "
-            f"{len(selected_windows)} click windows at default zoom 11 first, "
-            "then zooms 10, 9, 8, 7, 12, and 13."
+            "Starting background radar preload for "
+            f"{len(selected_windows)} exact click windows."
         )
 
         self.radar_preload_thread.start()

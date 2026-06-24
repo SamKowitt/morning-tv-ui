@@ -36,8 +36,6 @@ OBSERVED_PRODUCT = "twcRadarMosaic"
 FORECAST_PRODUCT = "radarFcstV2"
 
 ZOOM = 11
-MIN_ZOOM = 7
-MAX_ZOOM = 13
 TILE_SIZE = 256
 
 # Visible output remains 4-by-3 tiles, matching the radar panel.
@@ -829,7 +827,7 @@ def fetch_weathercom_radar_frames(
     location_label="",
     zoom=ZOOM,
 ):
-    zoom = max(MIN_ZOOM, min(MAX_ZOOM, int(zoom)))
+    zoom = max(8, min(13, int(zoom)))
 
     weathercom_key = _read_weathercom_key()
     mapbox_key = _read_mapbox_key()
@@ -991,32 +989,10 @@ def preload_weathercom_radar_loops(
     longitude,
     selected_windows,
     location_label="",
-    default_zoom=ZOOM,
-    background_zooms=None,
 ):
     ready = 0
     failed = 0
     unique_windows = []
-
-    default_zoom = max(MIN_ZOOM, min(MAX_ZOOM, int(default_zoom)))
-
-    if background_zooms is None:
-        background_zooms = [
-            zoom
-            for zoom in range(MIN_ZOOM, MAX_ZOOM + 1)
-            if zoom != default_zoom
-        ]
-
-    ordered_background_zooms = []
-
-    for raw_zoom in background_zooms:
-        try:
-            zoom = max(MIN_ZOOM, min(MAX_ZOOM, int(raw_zoom)))
-        except (TypeError, ValueError):
-            continue
-
-        if zoom != default_zoom and zoom not in ordered_background_zooms:
-            ordered_background_zooms.append(zoom)
 
     for item in selected_windows or []:
         if not isinstance(item, (tuple, list)) or not item:
@@ -1041,64 +1017,37 @@ def preload_weathercom_radar_loops(
         if window not in unique_windows:
             unique_windows.append(window)
 
-    if not unique_windows:
-        return {
-            "ready": 0,
-            "failed": 0,
-            "requested": 0,
-        }
+    for selected_start_utc, selected_end_utc in unique_windows:
+        try:
+            frames = fetch_weathercom_radar_frames(
+                latitude=latitude,
+                longitude=longitude,
+                selected_start_utc=selected_start_utc,
+                selected_end_utc=selected_end_utc,
+                location_label=location_label,
+            )
 
-    # Priority one: make every normal popup window at the default zoom
-    # available before spending time on optional zoom levels.
-    preload_passes = [default_zoom] + ordered_background_zooms
+            ready += 1
 
-    for zoom in preload_passes:
-        pass_name = (
-            "default"
-            if zoom == default_zoom
-            else "background"
-        )
+            print(
+                "Radar preload ready:",
+                selected_start_utc.isoformat(),
+                "through",
+                selected_end_utc.isoformat(),
+                f"({len(frames)} actual frames)",
+            )
 
-        print(
-            f"Radar preload pass: {pass_name} zoom={zoom}, "
-            f"{len(unique_windows)} window(s)"
-        )
+        except Exception as error:
+            failed += 1
 
-        for selected_start_utc, selected_end_utc in unique_windows:
-            try:
-                frames = fetch_weathercom_radar_frames(
-                    latitude=latitude,
-                    longitude=longitude,
-                    selected_start_utc=selected_start_utc,
-                    selected_end_utc=selected_end_utc,
-                    location_label=location_label,
-                    zoom=zoom,
-                )
-
-                ready += 1
-
-                print(
-                    "Radar preload ready:",
-                    f"zoom={zoom}",
-                    selected_start_utc.isoformat(),
-                    "through",
-                    selected_end_utc.isoformat(),
-                    f"({len(frames)} actual frames)",
-                )
-
-            except Exception as error:
-                failed += 1
-
-                print(
-                    "Radar preload failed:",
-                    f"zoom={zoom}",
-                    selected_start_utc.isoformat(),
-                    error,
-                )
+            print(
+                "Radar preload failed:",
+                selected_start_utc.isoformat(),
+                error,
+            )
 
     return {
         "ready": ready,
         "failed": failed,
-        "requested": len(unique_windows) * len(preload_passes),
+        "requested": len(unique_windows),
     }
-

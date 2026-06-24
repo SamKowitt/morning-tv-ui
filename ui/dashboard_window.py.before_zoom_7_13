@@ -2589,7 +2589,7 @@ class DashboardWindow(QMainWindow):
                 getattr(self.weather_radar_location, "label", "") or ""
             ).strip(),
             default_zoom=11,
-            background_zooms=[10, 9, 8, 7, 12, 13],
+            background_zooms=[10, 9, 8, 7, 6, 12, 13],
         )
 
         self.radar_preload_worker.moveToThread(
@@ -2624,7 +2624,7 @@ class DashboardWindow(QMainWindow):
         print(
             "Starting background radar preload: "
             f"{len(selected_windows)} click windows at default zoom 11 first, "
-            "then zooms 10, 9, 8, 7, 12, and 13."
+            "then zooms 10, 9, 8, 7, 6, 12, and 13."
         )
 
         self.radar_preload_thread.start()

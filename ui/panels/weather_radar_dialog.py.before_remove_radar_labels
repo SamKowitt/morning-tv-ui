@@ -317,10 +317,6 @@ class WeatherRadarDialog(QDialog):
         self.pixmaps = []
         self.frame_index = 0
         self.worker = None
-        self.radar_fetch_in_progress = False
-
-        self.min_map_zoom = 7
-        self.max_map_zoom = 13
         self.is_playing = True
         self.default_map_zoom = 11
         self.map_zoom = self.default_map_zoom
@@ -468,12 +464,6 @@ class WeatherRadarDialog(QDialog):
                 font-weight: 1000;
                 padding: 0px;
             }
-
-            QPushButton#RadarZoomButton:disabled {
-                background-color: rgba(126, 117, 103, 0.62);
-                border-color: rgba(70, 50, 28, 0.34);
-                color: rgba(50, 39, 28, 0.42);
-            }
         """)
 
         root = QVBoxLayout(self)
@@ -499,6 +489,7 @@ class WeatherRadarDialog(QDialog):
         self.status_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
         header.addWidget(masthead, 1)
+        header.addWidget(self.status_label)
         root.addLayout(header)
 
         surface = RadarPaperSurface()
@@ -510,6 +501,9 @@ class WeatherRadarDialog(QDialog):
         left_layout = QVBoxLayout(left_page)
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(8)
+
+        left_title = QLabel("RADAR LOOP • ROADS • TOWNS")
+        left_title.setObjectName("RadarPageTitle")
 
         self.radar_view = RadarLoopView()
         self.radar_view.setObjectName("RadarLoopView")
@@ -550,8 +544,6 @@ class WeatherRadarDialog(QDialog):
             lambda: self.change_map_zoom(-1)
         )
 
-        self.update_zoom_buttons()
-
         zoom_column.addWidget(self.zoom_in_button)
         zoom_column.addWidget(self.zoom_out_button)
         zoom_top_row.addLayout(zoom_column)
@@ -576,6 +568,7 @@ class WeatherRadarDialog(QDialog):
         self.radar_legend_label.setWordWrap(False)
         self.radar_legend_label.setMinimumHeight(48)
 
+        left_layout.addWidget(left_title)
         left_layout.addWidget(self.radar_map_container, 1)
         left_layout.addWidget(self.radar_timeline)
         left_layout.addWidget(self.radar_legend_label)
@@ -680,26 +673,8 @@ class WeatherRadarDialog(QDialog):
 
         self.start_fetch()
 
-    def update_zoom_buttons(self):
-        loading = bool(self.radar_fetch_in_progress)
-
-        self.zoom_in_button.setEnabled(
-            not loading and self.map_zoom < self.max_map_zoom
-        )
-        self.zoom_out_button.setEnabled(
-            not loading and self.map_zoom > self.min_map_zoom
-        )
-
     def start_fetch(self):
-        try:
-            if self.worker and self.worker.isRunning():
-                return
-        except RuntimeError:
-            self.worker = None
-
         requested_zoom = self.map_zoom
-        self.radar_fetch_in_progress = True
-        self.update_zoom_buttons()
 
         try:
             from services.weather_radar_fetcher import (
@@ -724,8 +699,6 @@ class WeatherRadarDialog(QDialog):
                     cached_frames,
                     requested_zoom,
                 )
-                self.radar_fetch_in_progress = False
-                self.update_zoom_buttons()
                 return
 
         except Exception as error:
@@ -740,26 +713,13 @@ class WeatherRadarDialog(QDialog):
             map_zoom=requested_zoom,
         )
 
-        self.worker.ready.connect(self.on_radar_fetch_ready)
-        self.worker.failed.connect(self.on_radar_fetch_failed)
-        self.worker.finished.connect(self.on_radar_fetch_finished)
+        self.worker.ready.connect(
+            lambda frames, zoom=requested_zoom:
+                self.apply_frames_for_zoom(frames, zoom)
+        )
+        self.worker.failed.connect(self.show_error)
+        self.worker.finished.connect(self.worker.deleteLater)
         self.worker.start()
-
-    def on_radar_fetch_ready(self, frames):
-        self.apply_frames_for_zoom(frames, self.map_zoom)
-
-    def on_radar_fetch_failed(self, message):
-        self.show_error(message)
-
-    def on_radar_fetch_finished(self):
-        finished_worker = self.worker
-        self.worker = None
-        self.radar_fetch_in_progress = False
-        self.update_zoom_buttons()
-
-        if finished_worker is not None:
-            finished_worker.deleteLater()
-
 
     def apply_frames_for_zoom(self, frames, zoom):
         if int(zoom) != self.map_zoom:
@@ -768,24 +728,17 @@ class WeatherRadarDialog(QDialog):
         self.apply_frames(frames)
 
     def change_map_zoom(self, delta):
-        if self.radar_fetch_in_progress:
-            return
-
-        new_zoom = max(
-            self.min_map_zoom,
-            min(
-                self.max_map_zoom,
-                self.map_zoom + int(delta),
-            ),
-        )
+        new_zoom = max(8, min(13, self.map_zoom + int(delta)))
 
         if new_zoom == self.map_zoom:
-            self.update_zoom_buttons()
             return
 
         self.map_zoom = new_zoom
         self.radar_view.set_message(
             f"Refreshing radar map at zoom {self.map_zoom}…"
+        )
+        self.status_label.setText(
+            f"Loading same radar window at zoom {self.map_zoom}…"
         )
 
         self.start_fetch()
@@ -886,10 +839,9 @@ class WeatherRadarDialog(QDialog):
 
     def show_error(self, message):
         self.animation_timer.stop()
+        self.status_label.setText("Radar loop unavailable")
         self.radar_legend_label.setText("")
         self.radar_view.set_message(message)
-        self.radar_fetch_in_progress = False
-        self.update_zoom_buttons()
 
     def closeEvent(self, event):
         self.animation_timer.stop()

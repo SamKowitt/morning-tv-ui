@@ -319,7 +319,7 @@ class WeatherRadarDialog(QDialog):
         self.worker = None
         self.radar_fetch_in_progress = False
 
-        self.min_map_zoom = 7
+        self.min_map_zoom = 6
         self.max_map_zoom = 13
         self.is_playing = True
         self.default_map_zoom = 11
