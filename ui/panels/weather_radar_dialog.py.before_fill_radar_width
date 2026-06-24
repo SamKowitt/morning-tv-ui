@@ -82,8 +82,6 @@ class RadarLoopView(QWidget):
 
         target = self.rect().adjusted(6, 6, -6, -6)
 
-        # Preserve true map geometry. The fetcher supplies a 4x3 tile
-        # canvas that matches this panel shape without stretching.
         scaled = self.pixmap.scaled(
             target.size(),
             Qt.KeepAspectRatio,

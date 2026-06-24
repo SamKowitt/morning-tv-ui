@@ -82,18 +82,15 @@ class RadarLoopView(QWidget):
 
         target = self.rect().adjusted(6, 6, -6, -6)
 
-        # Preserve true map geometry. The fetcher supplies a 4x3 tile
-        # canvas that matches this panel shape without stretching.
+        # Fill the complete radar panel width instead of leaving
+        # unused light-blue space beside the square radar image.
         scaled = self.pixmap.scaled(
             target.size(),
-            Qt.KeepAspectRatio,
+            Qt.IgnoreAspectRatio,
             Qt.SmoothTransformation,
         )
 
-        x = target.x() + int((target.width() - scaled.width()) / 2)
-        y = target.y() + int((target.height() - scaled.height()) / 2)
-
-        painter.drawPixmap(x, y, scaled)
+        painter.drawPixmap(target.x(), target.y(), scaled)
 
 
 class RadarTimelineView(QWidget):
