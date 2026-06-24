@@ -1,0 +1,548 @@
+import io
+import json
+import math
+import os
+import ssl
+import urllib.error
+import urllib.parse
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import certifi
+from PIL import Image, ImageDraw
+
+
+SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
+
+CACHE_DIR = Path.home() / ".cache" / "MorningTVUI" / "weathercom_radar"
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+KEY_FILE = Path.home() / ".config" / "MorningTVUI" / "weathercom_tile_key.txt"
+
+TILE_ENDPOINT = "https://api.weather.com/v3/TileServer/tile"
+
+OBSERVED_PRODUCT = "twcRadarMosaic"
+FORECAST_PRODUCT = "radarFcstV2"
+
+ZOOM = 8
+TILE_SIZE = 256
+TILE_RADIUS = 1
+
+FRAME_COUNT = 12
+FRAME_SPACING_MINUTES = 5
+CACHE_SECONDS = 420
+REQUEST_TIMEOUT_SECONDS = 20
+
+FORECAST_RUN_SEARCH_MINUTES = 240
+FORECAST_RUN_STEP_MINUTES = 5
+
+
+def _read_api_key():
+    key = os.environ.get("WEATHERCOM_TILE_API_KEY", "").strip()
+
+    if not key and KEY_FILE.exists():
+        key = KEY_FILE.read_text(encoding="utf-8").strip()
+
+    if not key:
+        raise RuntimeError(
+            "Weather.com tile key is missing from "
+            "~/.config/MorningTVUI/weathercom_tile_key.txt"
+        )
+
+    return key
+
+
+def _floor_to_five_minutes(value):
+    value = value.astimezone(timezone.utc)
+
+    return value.replace(
+        minute=(value.minute // 5) * 5,
+        second=0,
+        microsecond=0,
+    )
+
+
+def _tile_coordinates(latitude, longitude, zoom):
+    latitude = max(-85.05112878, min(85.05112878, float(latitude)))
+    longitude = float(longitude)
+
+    world_size = 2 ** zoom
+    x = (longitude + 180.0) / 360.0 * world_size
+
+    latitude_radians = math.radians(latitude)
+    y = (
+        (
+            1.0
+            - math.asinh(math.tan(latitude_radians)) / math.pi
+        )
+        / 2.0
+        * world_size
+    )
+
+    return x, y
+
+
+def _fetch_tile_image(
+    product,
+    tile_timestamp,
+    forecast_timestamp,
+    tile_x,
+    tile_y,
+    zoom,
+    api_key,
+    quiet=False,
+):
+    max_tile = (2 ** zoom) - 1
+    tile_x %= (2 ** zoom)
+
+    if tile_y < 0 or tile_y > max_tile:
+        return None
+
+    params = {
+        "product": product,
+        "ts": str(int(tile_timestamp)),
+        "xyz": f"{tile_x}:{tile_y}:{zoom}",
+        "apiKey": api_key,
+    }
+
+    if forecast_timestamp is not None:
+        params["fts"] = str(int(forecast_timestamp))
+
+    url = TILE_ENDPOINT + "?" + urllib.parse.urlencode(params)
+
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "MorningTVUI/1.0",
+            "Accept": "image/webp,image/png,image/*,*/*;q=0.8",
+            "Referer": "https://weather.com/",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(
+            request,
+            timeout=REQUEST_TIMEOUT_SECONDS,
+            context=SSL_CONTEXT,
+        ) as response:
+            payload = response.read()
+
+        if len(payload) < 80:
+            if not quiet:
+                print(
+                    "Weather.com tile too small:",
+                    product,
+                    "ts=",
+                    tile_timestamp,
+                    "fts=",
+                    forecast_timestamp,
+                    "bytes=",
+                    len(payload),
+                )
+            return None
+
+        image = Image.open(io.BytesIO(payload)).convert("RGBA")
+        return image.copy()
+
+    except urllib.error.HTTPError as error:
+        if not quiet:
+            print(
+                "Weather.com HTTP error:",
+                error.code,
+                product,
+                "ts=",
+                tile_timestamp,
+                "fts=",
+                forecast_timestamp,
+            )
+        return None
+
+    except Exception as error:
+        if not quiet:
+            print(
+                "Weather.com tile error:",
+                type(error).__name__,
+                str(error),
+                product,
+                "ts=",
+                tile_timestamp,
+                "fts=",
+                forecast_timestamp,
+            )
+        return None
+
+
+def _render_frame(
+    latitude,
+    longitude,
+    product,
+    tile_timestamp,
+    forecast_timestamp,
+    api_key,
+):
+    center_x_float, center_y_float = _tile_coordinates(
+        latitude,
+        longitude,
+        ZOOM,
+    )
+
+    center_x = int(math.floor(center_x_float))
+    center_y = int(math.floor(center_y_float))
+
+    tile_count = (TILE_RADIUS * 2) + 1
+    image_size = tile_count * TILE_SIZE
+
+    start_x = center_x - TILE_RADIUS
+    start_y = center_y - TILE_RADIUS
+
+    canvas = Image.new(
+        "RGBA",
+        (image_size, image_size),
+        (205, 220, 228, 255),
+    )
+
+    jobs = []
+
+    with ThreadPoolExecutor(max_workers=7) as executor:
+        for row in range(tile_count):
+            for column in range(tile_count):
+                jobs.append(
+                    (
+                        executor.submit(
+                            _fetch_tile_image,
+                            product,
+                            tile_timestamp,
+                            forecast_timestamp,
+                            start_x + column,
+                            start_y + row,
+                            ZOOM,
+                            api_key,
+                            True,
+                        ),
+                        row,
+                        column,
+                    )
+                )
+
+        loaded_tiles = 0
+
+        for future, row, column in jobs:
+            tile = future.result()
+
+            if tile is None:
+                continue
+
+            canvas.alpha_composite(
+                tile,
+                dest=(column * TILE_SIZE, row * TILE_SIZE),
+            )
+            loaded_tiles += 1
+
+    if loaded_tiles == 0:
+        return None
+
+    location_x = int((center_x_float - start_x) * TILE_SIZE)
+    location_y = int((center_y_float - start_y) * TILE_SIZE)
+
+    draw = ImageDraw.Draw(canvas, "RGBA")
+
+    draw.ellipse(
+        (
+            location_x - 8,
+            location_y - 8,
+            location_x + 8,
+            location_y + 8,
+        ),
+        fill=(18, 20, 24, 235),
+        outline=(255, 248, 226, 255),
+        width=2,
+    )
+
+    draw.line(
+        (location_x - 14, location_y, location_x + 14, location_y),
+        fill=(255, 248, 226, 235),
+        width=1,
+    )
+
+    draw.line(
+        (location_x, location_y - 14, location_x, location_y + 14),
+        fill=(255, 248, 226, 235),
+        width=1,
+    )
+
+    buffer = io.BytesIO()
+
+    canvas.convert("RGB").save(
+        buffer,
+        format="JPEG",
+        quality=90,
+        optimize=True,
+    )
+
+    return buffer.getvalue()
+
+
+def _forecast_probe_tile(latitude, longitude):
+    center_x, center_y = _tile_coordinates(
+        latitude,
+        longitude,
+        ZOOM,
+    )
+
+    return int(math.floor(center_x)), int(math.floor(center_y))
+
+
+def _discover_forecast_run(
+    latitude,
+    longitude,
+    selected_start_utc,
+    api_key,
+):
+    probe_x, probe_y = _forecast_probe_tile(latitude, longitude)
+
+    selected_start_utc = _floor_to_five_minutes(selected_start_utc)
+    now_utc = _floor_to_five_minutes(datetime.now(timezone.utc))
+
+    requested_times = [
+        selected_start_utc + timedelta(
+            minutes=FRAME_SPACING_MINUTES * offset
+        )
+        for offset in range(FRAME_COUNT)
+    ]
+
+    test_offsets = (0, 30, 55)
+
+    print(
+        "Discovering Weather.com forecast run for:",
+        selected_start_utc.isoformat(),
+    )
+
+    for minutes_back in range(
+        0,
+        FORECAST_RUN_SEARCH_MINUTES + 1,
+        FORECAST_RUN_STEP_MINUTES,
+    ):
+        base_time = now_utc - timedelta(minutes=minutes_back)
+
+        successes = 0
+
+        for minutes_forward in test_offsets:
+            target_time = selected_start_utc + timedelta(
+                minutes=minutes_forward
+            )
+
+            image = _fetch_tile_image(
+                product=FORECAST_PRODUCT,
+                tile_timestamp=int(base_time.timestamp()),
+                forecast_timestamp=int(target_time.timestamp()),
+                tile_x=probe_x,
+                tile_y=probe_y,
+                zoom=ZOOM,
+                api_key=api_key,
+                quiet=True,
+            )
+
+            if image is not None:
+                successes += 1
+
+        if successes >= 2:
+            print(
+                "Weather.com forecast run found:",
+                base_time.isoformat(),
+                "valid probe frames:",
+                successes,
+            )
+            return base_time, requested_times
+
+    raise RuntimeError(
+        "Weather.com did not expose a valid forecast run for the "
+        "selected hour. Check Terminal output for forecast-run probes."
+    )
+
+
+def _cache_key(latitude, longitude, product, base_time, selected_time):
+    return (
+        f"{latitude:.3f}_{longitude:.3f}_{product}_z{ZOOM}_"
+        f"base{int(base_time.timestamp())}_"
+        f"target{int(selected_time.timestamp())}"
+    )
+
+
+def _load_cached_loop(cache_key):
+    manifest_path = CACHE_DIR / f"{cache_key}.json"
+
+    if not manifest_path.exists():
+        return None
+
+    try:
+        manifest = json.loads(
+            manifest_path.read_text(encoding="utf-8")
+        )
+
+        fetched_at = float(manifest.get("fetched_at", 0))
+
+        if datetime.now(timezone.utc).timestamp() - fetched_at > CACHE_SECONDS:
+            return None
+
+        frames = []
+
+        for item in manifest.get("frames", []):
+            image_path = CACHE_DIR / item["file_name"]
+
+            if not image_path.exists():
+                return None
+
+            image_bytes = image_path.read_bytes()
+
+            if len(image_bytes) < 100:
+                return None
+
+            frames.append(
+                {
+                    "image_bytes": image_bytes,
+                    "valid_time": datetime.fromtimestamp(
+                        int(item["valid_timestamp"]),
+                        tz=timezone.utc,
+                    ),
+                    "radar_type": item["radar_type"],
+                    "base_time": datetime.fromtimestamp(
+                        int(item["base_timestamp"]),
+                        tz=timezone.utc,
+                    ),
+                }
+            )
+
+        return frames if len(frames) >= 4 else None
+
+    except Exception:
+        return None
+
+
+def _save_cached_loop(cache_key, frames):
+    manifest_frames = []
+
+    for index, frame in enumerate(frames):
+        file_name = f"{cache_key}_{index:02d}.jpg"
+        image_path = CACHE_DIR / file_name
+
+        image_path.write_bytes(frame["image_bytes"])
+
+        manifest_frames.append(
+            {
+                "file_name": file_name,
+                "valid_timestamp": int(frame["valid_time"].timestamp()),
+                "base_timestamp": int(frame["base_time"].timestamp()),
+                "radar_type": frame["radar_type"],
+            }
+        )
+
+    (CACHE_DIR / f"{cache_key}.json").write_text(
+        json.dumps(
+            {
+                "fetched_at": datetime.now(timezone.utc).timestamp(),
+                "frames": manifest_frames,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
+def _prune_cache():
+    cutoff = datetime.now(timezone.utc).timestamp() - (60 * 60 * 12)
+
+    try:
+        for path in CACHE_DIR.iterdir():
+            if path.is_file() and path.stat().st_mtime < cutoff:
+                path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def fetch_weathercom_radar_frames(
+    latitude,
+    longitude,
+    selected_start_utc,
+):
+    api_key = _read_api_key()
+
+    selected_start_utc = _floor_to_five_minutes(selected_start_utc)
+    now_utc = _floor_to_five_minutes(datetime.now(timezone.utc))
+
+    is_future = selected_start_utc > now_utc
+
+    if is_future:
+        product = FORECAST_PRODUCT
+        radar_type = "PREDICTED RADAR"
+
+        base_time, valid_times = _discover_forecast_run(
+            latitude=latitude,
+            longitude=longitude,
+            selected_start_utc=selected_start_utc,
+            api_key=api_key,
+        )
+    else:
+        product = OBSERVED_PRODUCT
+        radar_type = "OBSERVED RADAR"
+        base_time = selected_start_utc
+
+        valid_times = [
+            selected_start_utc + timedelta(
+                minutes=FRAME_SPACING_MINUTES * offset
+            )
+            for offset in range(FRAME_COUNT)
+        ]
+
+    cache_key = _cache_key(
+        latitude,
+        longitude,
+        product,
+        base_time,
+        selected_start_utc,
+    )
+
+    cached = _load_cached_loop(cache_key)
+
+    if cached:
+        return cached
+
+    frames = []
+
+    for valid_time in valid_times:
+        image_bytes = _render_frame(
+            latitude=latitude,
+            longitude=longitude,
+            product=product,
+            tile_timestamp=int(base_time.timestamp())
+            if is_future
+            else int(valid_time.timestamp()),
+            forecast_timestamp=int(valid_time.timestamp())
+            if is_future
+            else None,
+            api_key=api_key,
+        )
+
+        if not image_bytes:
+            continue
+
+        frames.append(
+            {
+                "image_bytes": image_bytes,
+                "valid_time": valid_time,
+                "radar_type": radar_type,
+                "base_time": base_time,
+            }
+        )
+
+    if len(frames) < 4:
+        raise RuntimeError(
+            "Weather.com returned fewer than four usable "
+            f"{'forecast' if is_future else 'observed'} radar frames."
+        )
+
+    _save_cached_loop(cache_key, frames)
+    _prune_cache()
+
+    return frames

@@ -3082,10 +3082,7 @@ class DashboardWindow(QMainWindow):
             self.sports_games.update_leagues(leagues)
 
         self.sports_games_has_loaded = True
-
-        # Disabled temporarily: this background worker is causing a native
-        # Qt/Python crash while fetching MLB box scores during startup.
-        print("Background box-score preload disabled to prevent startup crash.")
+        self.start_sports_boxscore_prefetch(leagues)
 
     def on_sports_games_failed(self, error_message):
         print(f"Sports games fetch failed: {error_message}")
@@ -3254,22 +3251,6 @@ class DashboardWindow(QMainWindow):
         self.cnbc_card.headline_label.setText(
             f"Unable to load latest {right_label} headline."
         )
-
-    def closeEvent(self, event):
-        # Do not allow a live radar preload QThread to be destroyed while
-        # its background fetch is still running.
-        try:
-            thread = getattr(self, "radar_preload_thread", None)
-
-            if thread and thread.isRunning():
-                print("Waiting for radar preload thread to stop...")
-                thread.quit()
-                thread.wait(5000)
-
-        except RuntimeError:
-            pass
-
-        super().closeEvent(event)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

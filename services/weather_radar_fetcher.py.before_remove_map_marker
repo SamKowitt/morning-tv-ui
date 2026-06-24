@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import certifi
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 
 SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
@@ -263,11 +263,11 @@ def _fetch_mapbox_tile(tile_x, tile_y, zoom, api_key):
         return None
 
 
-def _map_geometry(latitude, longitude, zoom=ZOOM):
+def _map_geometry(latitude, longitude):
     center_x_float, center_y_float = _tile_coordinates(
         latitude,
         longitude,
-        zoom,
+        ZOOM,
     )
 
     center_x = int(math.floor(center_x_float))
@@ -285,16 +285,11 @@ def _map_geometry(latitude, longitude, zoom=ZOOM):
     }
 
 
-def _load_basemap_canvas(
-    latitude,
-    longitude,
-    mapbox_key,
-    zoom=ZOOM,
-):
-    geometry = _map_geometry(latitude, longitude, zoom)
+def _load_basemap_canvas(latitude, longitude, mapbox_key):
+    geometry = _map_geometry(latitude, longitude)
 
     cache_name = (
-        f"basemap_canvas_streets_v12_z{zoom}_"
+        f"basemap_canvas_streets_v12_z{ZOOM}_"
         f"{geometry['start_x']}_{geometry['start_y']}.png"
     )
 
@@ -331,7 +326,7 @@ def _load_basemap_canvas(
                             _fetch_mapbox_tile,
                             tile_x,
                             tile_y,
-                            zoom,
+                            ZOOM,
                             mapbox_key,
                         ),
                         row,
@@ -375,15 +370,13 @@ def _render_frame(
     weathercom_key,
     mapbox_key,
     location_label="",
-    zoom=ZOOM,
 ):
-    geometry = _map_geometry(latitude, longitude, zoom)
+    geometry = _map_geometry(latitude, longitude)
 
     canvas = _load_basemap_canvas(
         latitude,
         longitude,
         mapbox_key,
-        zoom=zoom,
     )
 
     jobs = []
@@ -400,7 +393,7 @@ def _render_frame(
                             forecast_timestamp,
                             geometry["start_x"] + column,
                             geometry["start_y"] + row,
-                            zoom,
+                            ZOOM,
                             weathercom_key,
                             True,
                         ),
@@ -427,6 +420,102 @@ def _render_frame(
     if loaded_tiles == 0:
         return None
 
+    location_x = int(
+        (
+            geometry["center_x_float"]
+            - geometry["start_x"]
+        )
+        * TILE_SIZE
+    )
+
+    location_y = int(
+        (
+            geometry["center_y_float"]
+            - geometry["start_y"]
+        )
+        * TILE_SIZE
+    )
+
+    draw = ImageDraw.Draw(canvas, "RGBA")
+
+    draw.ellipse(
+        (
+            location_x - 8,
+            location_y - 8,
+            location_x + 8,
+            location_y + 8,
+        ),
+        fill=(18, 20, 24, 235),
+        outline=(255, 248, 226, 255),
+        width=2,
+    )
+
+    draw.line(
+        (
+            location_x - 14,
+            location_y,
+            location_x + 14,
+            location_y,
+        ),
+        fill=(255, 248, 226, 235),
+        width=1,
+    )
+
+    draw.line(
+        (
+            location_x,
+            location_y - 14,
+            location_x,
+            location_y + 14,
+        ),
+        fill=(255, 248, 226, 235),
+        width=1,
+    )
+
+    map_label = str(location_label or "").strip()
+
+    if "—" in map_label:
+        map_label = map_label.split("—", 1)[1].strip()
+
+    if not map_label:
+        map_label = "Saved location"
+
+    label_font = ImageFont.load_default()
+    label_box = draw.textbbox(
+        (0, 0),
+        map_label,
+        font=label_font,
+    )
+
+    label_width = label_box[2] - label_box[0]
+    label_height = label_box[3] - label_box[1]
+
+    label_left = min(
+        canvas.width - label_width - 12,
+        location_x + 14,
+    )
+    label_top = max(8, location_y - label_height - 10)
+
+    draw.rounded_rectangle(
+        (
+            label_left - 5,
+            label_top - 4,
+            label_left + label_width + 5,
+            label_top + label_height + 4,
+        ),
+        radius=4,
+        fill=(19, 22, 28, 220),
+        outline=(255, 248, 226, 235),
+        width=1,
+    )
+
+    draw.text(
+        (label_left, label_top),
+        map_label,
+        font=label_font,
+        fill=(255, 248, 226, 255),
+    )
+
     buffer = io.BytesIO()
 
     canvas.convert("RGB").save(
@@ -439,11 +528,11 @@ def _render_frame(
     return buffer.getvalue()
 
 
-def _forecast_probe_tile(latitude, longitude, zoom=ZOOM):
+def _forecast_probe_tile(latitude, longitude):
     center_x, center_y = _tile_coordinates(
         latitude,
         longitude,
-        zoom,
+        ZOOM,
     )
 
     return int(math.floor(center_x)), int(math.floor(center_y))
@@ -454,13 +543,8 @@ def _discover_forecast_run(
     longitude,
     selected_start_utc,
     weathercom_key,
-    zoom=ZOOM,
 ):
-    probe_x, probe_y = _forecast_probe_tile(
-        latitude,
-        longitude,
-        zoom,
-    )
+    probe_x, probe_y = _forecast_probe_tile(latitude, longitude)
 
     selected_start_utc = _floor_to_five_minutes(
         selected_start_utc
@@ -491,7 +575,7 @@ def _discover_forecast_run(
                 int(target_time.timestamp()),
                 probe_x,
                 probe_y,
-                zoom,
+                ZOOM,
                 weathercom_key,
                 True,
             )
@@ -508,16 +592,10 @@ def _discover_forecast_run(
     )
 
 
-def _cache_key(
-    latitude,
-    longitude,
-    selected_start,
-    selected_end,
-    zoom=ZOOM,
-):
+def _cache_key(latitude, longitude, selected_start, selected_end):
     return (
-        f"{latitude:.3f}_{longitude:.3f}_radar_cadence_v5_"
-        f"z{int(zoom)}_start{int(selected_start.timestamp())}_"
+        f"{latitude:.3f}_{longitude:.3f}_radar_cadence_v4_"
+        f"z{ZOOM}_start{int(selected_start.timestamp())}_"
         f"end{int(selected_end.timestamp())}"
     )
 
@@ -680,7 +758,6 @@ def _render_observed_frame(
     weathercom_key,
     mapbox_key,
     location_label="",
-    zoom=ZOOM,
 ):
     image_bytes = _render_frame(
         latitude=latitude,
@@ -691,7 +768,6 @@ def _render_observed_frame(
         weathercom_key=weathercom_key,
         mapbox_key=mapbox_key,
         location_label=location_label,
-        zoom=zoom,
     )
 
     if not image_bytes:
@@ -713,7 +789,6 @@ def _render_predicted_frame(
     weathercom_key,
     mapbox_key,
     location_label="",
-    zoom=ZOOM,
 ):
     image_bytes = _render_frame(
         latitude=latitude,
@@ -724,7 +799,6 @@ def _render_predicted_frame(
         weathercom_key=weathercom_key,
         mapbox_key=mapbox_key,
         location_label=location_label,
-        zoom=zoom,
     )
 
     if not image_bytes:
@@ -739,23 +813,10 @@ def _render_predicted_frame(
 
 
 def _normalize_radar_window(selected_start_utc, selected_end_utc=None):
-    selected_start_utc = _floor_to_five_minutes(
-        selected_start_utc
+    selected_start_utc, selected_end_utc = _normalize_radar_window(
+        selected_start_utc,
+        selected_end_utc,
     )
-
-    if selected_end_utc is None:
-        selected_end_utc = selected_start_utc + timedelta(
-            minutes=LOOP_DURATION_MINUTES
-        )
-    else:
-        selected_end_utc = _floor_to_five_minutes(
-            selected_end_utc
-        )
-
-    if selected_end_utc < selected_start_utc:
-        raise ValueError(
-            "Radar end time must be after the radar start time."
-        )
 
     return selected_start_utc, selected_end_utc
 
@@ -765,7 +826,6 @@ def load_cached_weathercom_radar_frames(
     longitude,
     selected_start_utc,
     selected_end_utc=None,
-    zoom=ZOOM,
 ):
     selected_start_utc, selected_end_utc = _normalize_radar_window(
         selected_start_utc,
@@ -778,7 +838,6 @@ def load_cached_weathercom_radar_frames(
             longitude,
             selected_start_utc,
             selected_end_utc,
-            zoom=zoom,
         )
     )
 
@@ -789,10 +848,7 @@ def fetch_weathercom_radar_frames(
     selected_start_utc,
     selected_end_utc=None,
     location_label="",
-    zoom=ZOOM,
 ):
-    zoom = max(8, min(13, int(zoom)))
-
     weathercom_key = _read_weathercom_key()
     mapbox_key = _read_mapbox_key()
 
@@ -823,7 +879,6 @@ def fetch_weathercom_radar_frames(
         longitude,
         selected_start_utc,
         selected_end_utc,
-        zoom=zoom,
     )
 
     cached = _load_cached_loop(cache_key)
@@ -856,7 +911,6 @@ def fetch_weathercom_radar_frames(
             longitude=longitude,
             selected_start_utc=predicted_times[0],
             weathercom_key=weathercom_key,
-            zoom=zoom,
         )
 
     print(
@@ -878,7 +932,6 @@ def fetch_weathercom_radar_frames(
             weathercom_key=weathercom_key,
             mapbox_key=mapbox_key,
             location_label=location_label,
-            zoom=zoom,
         )
 
         if frame:
@@ -903,7 +956,6 @@ def fetch_weathercom_radar_frames(
             weathercom_key=weathercom_key,
             mapbox_key=mapbox_key,
             location_label=location_label,
-            zoom=zoom,
         )
 
         if frame:

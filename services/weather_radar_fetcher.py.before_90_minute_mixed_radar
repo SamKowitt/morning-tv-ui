@@ -1,4 +1,3 @@
-import hashlib
 import io
 import json
 import math
@@ -12,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import certifi
-from PIL import Image
+from PIL import Image, ImageDraw
 
 
 SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
@@ -35,13 +34,12 @@ MAPBOX_TILE_ENDPOINT = (
 OBSERVED_PRODUCT = "twcRadarMosaic"
 FORECAST_PRODUCT = "radarFcstV2"
 
-ZOOM = 11
+ZOOM = 9
 TILE_SIZE = 256
 TILE_RADIUS = 1
 
-OBSERVED_FRAME_SPACING_MINUTES = 5
-PREDICTED_FRAME_SPACING_MINUTES = 15
-LOOP_DURATION_MINUTES = 90
+FRAME_COUNT = 12
+FRAME_SPACING_MINUTES = 5
 RADAR_CACHE_SECONDS = 300
 BASEMAP_CACHE_SECONDS = 60 * 60 * 24 * 30
 REQUEST_TIMEOUT_SECONDS = 20
@@ -263,11 +261,11 @@ def _fetch_mapbox_tile(tile_x, tile_y, zoom, api_key):
         return None
 
 
-def _map_geometry(latitude, longitude, zoom=ZOOM):
+def _map_geometry(latitude, longitude):
     center_x_float, center_y_float = _tile_coordinates(
         latitude,
         longitude,
-        zoom,
+        ZOOM,
     )
 
     center_x = int(math.floor(center_x_float))
@@ -285,16 +283,11 @@ def _map_geometry(latitude, longitude, zoom=ZOOM):
     }
 
 
-def _load_basemap_canvas(
-    latitude,
-    longitude,
-    mapbox_key,
-    zoom=ZOOM,
-):
-    geometry = _map_geometry(latitude, longitude, zoom)
+def _load_basemap_canvas(latitude, longitude, mapbox_key):
+    geometry = _map_geometry(latitude, longitude)
 
     cache_name = (
-        f"basemap_canvas_streets_v12_z{zoom}_"
+        f"basemap_canvas_streets_v12_z{ZOOM}_"
         f"{geometry['start_x']}_{geometry['start_y']}.png"
     )
 
@@ -331,7 +324,7 @@ def _load_basemap_canvas(
                             _fetch_mapbox_tile,
                             tile_x,
                             tile_y,
-                            zoom,
+                            ZOOM,
                             mapbox_key,
                         ),
                         row,
@@ -374,16 +367,13 @@ def _render_frame(
     forecast_timestamp,
     weathercom_key,
     mapbox_key,
-    location_label="",
-    zoom=ZOOM,
 ):
-    geometry = _map_geometry(latitude, longitude, zoom)
+    geometry = _map_geometry(latitude, longitude)
 
     canvas = _load_basemap_canvas(
         latitude,
         longitude,
         mapbox_key,
-        zoom=zoom,
     )
 
     jobs = []
@@ -400,7 +390,7 @@ def _render_frame(
                             forecast_timestamp,
                             geometry["start_x"] + column,
                             geometry["start_y"] + row,
-                            zoom,
+                            ZOOM,
                             weathercom_key,
                             True,
                         ),
@@ -427,6 +417,58 @@ def _render_frame(
     if loaded_tiles == 0:
         return None
 
+    location_x = int(
+        (
+            geometry["center_x_float"]
+            - geometry["start_x"]
+        )
+        * TILE_SIZE
+    )
+
+    location_y = int(
+        (
+            geometry["center_y_float"]
+            - geometry["start_y"]
+        )
+        * TILE_SIZE
+    )
+
+    draw = ImageDraw.Draw(canvas, "RGBA")
+
+    draw.ellipse(
+        (
+            location_x - 8,
+            location_y - 8,
+            location_x + 8,
+            location_y + 8,
+        ),
+        fill=(18, 20, 24, 235),
+        outline=(255, 248, 226, 255),
+        width=2,
+    )
+
+    draw.line(
+        (
+            location_x - 14,
+            location_y,
+            location_x + 14,
+            location_y,
+        ),
+        fill=(255, 248, 226, 235),
+        width=1,
+    )
+
+    draw.line(
+        (
+            location_x,
+            location_y - 14,
+            location_x,
+            location_y + 14,
+        ),
+        fill=(255, 248, 226, 235),
+        width=1,
+    )
+
     buffer = io.BytesIO()
 
     canvas.convert("RGB").save(
@@ -439,11 +481,11 @@ def _render_frame(
     return buffer.getvalue()
 
 
-def _forecast_probe_tile(latitude, longitude, zoom=ZOOM):
+def _forecast_probe_tile(latitude, longitude):
     center_x, center_y = _tile_coordinates(
         latitude,
         longitude,
-        zoom,
+        ZOOM,
     )
 
     return int(math.floor(center_x)), int(math.floor(center_y))
@@ -454,13 +496,8 @@ def _discover_forecast_run(
     longitude,
     selected_start_utc,
     weathercom_key,
-    zoom=ZOOM,
 ):
-    probe_x, probe_y = _forecast_probe_tile(
-        latitude,
-        longitude,
-        zoom,
-    )
+    probe_x, probe_y = _forecast_probe_tile(latitude, longitude)
 
     selected_start_utc = _floor_to_five_minutes(
         selected_start_utc
@@ -470,7 +507,7 @@ def _discover_forecast_run(
         datetime.now(timezone.utc)
     )
 
-    test_offsets = (0, 15, 30)
+    test_offsets = (0, 30, 55)
 
     for minutes_back in range(
         0,
@@ -491,7 +528,7 @@ def _discover_forecast_run(
                 int(target_time.timestamp()),
                 probe_x,
                 probe_y,
-                zoom,
+                ZOOM,
                 weathercom_key,
                 True,
             )
@@ -508,17 +545,11 @@ def _discover_forecast_run(
     )
 
 
-def _cache_key(
-    latitude,
-    longitude,
-    selected_start,
-    selected_end,
-    zoom=ZOOM,
-):
+def _cache_key(latitude, longitude, product, base_time, selected_time):
     return (
-        f"{latitude:.3f}_{longitude:.3f}_radar_cadence_v5_"
-        f"z{int(zoom)}_start{int(selected_start.timestamp())}_"
-        f"end{int(selected_end.timestamp())}"
+        f"{latitude:.3f}_{longitude:.3f}_{product}_z{ZOOM}_"
+        f"base{int(base_time.timestamp())}_"
+        f"target{int(selected_time.timestamp())}"
     )
 
 
@@ -625,174 +656,11 @@ def _prune_cache():
         pass
 
 
-def _ceil_to_next_quarter_hour(value):
-    value = value.astimezone(timezone.utc).replace(
-        second=0,
-        microsecond=0,
-    )
-
-    remainder = value.minute % PREDICTED_FRAME_SPACING_MINUTES
-
-    if remainder == 0:
-        return value
-
-    return value + timedelta(
-        minutes=PREDICTED_FRAME_SPACING_MINUTES - remainder
-    )
-
-
-def _build_observed_times(selected_start_utc, selected_end_utc, now_utc):
-    latest_observed = min(selected_end_utc, now_utc)
-
-    if selected_start_utc > latest_observed:
-        return []
-
-    times = []
-    value = selected_start_utc
-
-    while value <= latest_observed:
-        times.append(value)
-        value += timedelta(minutes=OBSERVED_FRAME_SPACING_MINUTES)
-
-    return times
-
-
-def _build_predicted_times(selected_start_utc, selected_end_utc, now_utc):
-    first_future_time = max(
-        selected_start_utc,
-        now_utc + timedelta(minutes=1),
-    )
-
-    value = _ceil_to_next_quarter_hour(first_future_time)
-    times = []
-
-    while value <= selected_end_utc:
-        times.append(value)
-        value += timedelta(minutes=PREDICTED_FRAME_SPACING_MINUTES)
-
-    return times
-
-
-def _render_observed_frame(
-    latitude,
-    longitude,
-    valid_time,
-    weathercom_key,
-    mapbox_key,
-    location_label="",
-    zoom=ZOOM,
-):
-    image_bytes = _render_frame(
-        latitude=latitude,
-        longitude=longitude,
-        product=OBSERVED_PRODUCT,
-        tile_timestamp=int(valid_time.timestamp()),
-        forecast_timestamp=None,
-        weathercom_key=weathercom_key,
-        mapbox_key=mapbox_key,
-        location_label=location_label,
-        zoom=zoom,
-    )
-
-    if not image_bytes:
-        return None
-
-    return {
-        "image_bytes": image_bytes,
-        "valid_time": valid_time,
-        "radar_type": "OBSERVED RADAR",
-        "base_time": valid_time,
-    }
-
-
-def _render_predicted_frame(
-    latitude,
-    longitude,
-    valid_time,
-    forecast_base_time,
-    weathercom_key,
-    mapbox_key,
-    location_label="",
-    zoom=ZOOM,
-):
-    image_bytes = _render_frame(
-        latitude=latitude,
-        longitude=longitude,
-        product=FORECAST_PRODUCT,
-        tile_timestamp=int(forecast_base_time.timestamp()),
-        forecast_timestamp=int(valid_time.timestamp()),
-        weathercom_key=weathercom_key,
-        mapbox_key=mapbox_key,
-        location_label=location_label,
-        zoom=zoom,
-    )
-
-    if not image_bytes:
-        return None
-
-    return {
-        "image_bytes": image_bytes,
-        "valid_time": valid_time,
-        "radar_type": "PREDICTED RADAR",
-        "base_time": forecast_base_time,
-    }
-
-
-def _normalize_radar_window(selected_start_utc, selected_end_utc=None):
-    selected_start_utc = _floor_to_five_minutes(
-        selected_start_utc
-    )
-
-    if selected_end_utc is None:
-        selected_end_utc = selected_start_utc + timedelta(
-            minutes=LOOP_DURATION_MINUTES
-        )
-    else:
-        selected_end_utc = _floor_to_five_minutes(
-            selected_end_utc
-        )
-
-    if selected_end_utc < selected_start_utc:
-        raise ValueError(
-            "Radar end time must be after the radar start time."
-        )
-
-    return selected_start_utc, selected_end_utc
-
-
-def load_cached_weathercom_radar_frames(
-    latitude,
-    longitude,
-    selected_start_utc,
-    selected_end_utc=None,
-    zoom=ZOOM,
-):
-    selected_start_utc, selected_end_utc = _normalize_radar_window(
-        selected_start_utc,
-        selected_end_utc,
-    )
-
-    return _load_cached_loop(
-        _cache_key(
-            latitude,
-            longitude,
-            selected_start_utc,
-            selected_end_utc,
-            zoom=zoom,
-        )
-    )
-
-
 def fetch_weathercom_radar_frames(
     latitude,
     longitude,
     selected_start_utc,
-    selected_end_utc=None,
-    location_label="",
-    zoom=ZOOM,
 ):
-    zoom = max(8, min(13, int(zoom)))
-
     weathercom_key = _read_weathercom_key()
     mapbox_key = _read_mapbox_key()
 
@@ -800,150 +668,83 @@ def fetch_weathercom_radar_frames(
         selected_start_utc
     )
 
-    if selected_end_utc is None:
-        selected_end_utc = selected_start_utc + timedelta(
-            minutes=LOOP_DURATION_MINUTES
-        )
-    else:
-        selected_end_utc = _floor_to_five_minutes(
-            selected_end_utc
-        )
-
-    if selected_end_utc < selected_start_utc:
-        raise ValueError(
-            "Radar end time must be after the radar start time."
-        )
-
     now_utc = _floor_to_five_minutes(
         datetime.now(timezone.utc)
     )
 
+    is_future = selected_start_utc > now_utc
+
+    if is_future:
+        product = FORECAST_PRODUCT
+        radar_type = "PREDICTED RADAR"
+
+        base_time = _discover_forecast_run(
+            latitude,
+            longitude,
+            selected_start_utc,
+            weathercom_key,
+        )
+    else:
+        product = OBSERVED_PRODUCT
+        radar_type = "OBSERVED RADAR"
+        base_time = selected_start_utc
+
     cache_key = _cache_key(
         latitude,
         longitude,
+        product,
+        base_time,
         selected_start_utc,
-        selected_end_utc,
-        zoom=zoom,
     )
 
     cached = _load_cached_loop(cache_key)
 
     if cached:
-        print(
-            "Radar cache hit:",
-            selected_start_utc.isoformat(),
-            f"({len(cached)} actual frames)",
-        )
         return cached
-
-    observed_times = _build_observed_times(
-        selected_start_utc,
-        selected_end_utc,
-        now_utc,
-    )
-
-    predicted_times = _build_predicted_times(
-        selected_start_utc,
-        selected_end_utc,
-        now_utc,
-    )
-
-    forecast_base_time = None
-
-    if predicted_times:
-        forecast_base_time = _discover_forecast_run(
-            latitude=latitude,
-            longitude=longitude,
-            selected_start_utc=predicted_times[0],
-            weathercom_key=weathercom_key,
-            zoom=zoom,
-        )
-
-    print(
-        "Radar loop request:",
-        selected_start_utc.isoformat(),
-        "through",
-        selected_end_utc.isoformat(),
-        f"observed={len(observed_times)} at 5 minutes,",
-        f"predicted={len(predicted_times)} at 15 minutes",
-    )
 
     frames = []
 
-    for valid_time in observed_times:
-        frame = _render_observed_frame(
-            latitude=latitude,
-            longitude=longitude,
-            valid_time=valid_time,
-            weathercom_key=weathercom_key,
-            mapbox_key=mapbox_key,
-            location_label=location_label,
-            zoom=zoom,
+    for index in range(FRAME_COUNT):
+        valid_time = selected_start_utc + timedelta(
+            minutes=FRAME_SPACING_MINUTES * index
         )
 
-        if frame:
-            frames.append(frame)
-            print(
-                "Radar frame:",
-                valid_time.isoformat(),
-                "OBSERVED RADAR",
-            )
-        else:
-            print(
-                "Observed frame unavailable:",
-                valid_time.isoformat(),
-            )
-
-    for valid_time in predicted_times:
-        frame = _render_predicted_frame(
+        image_bytes = _render_frame(
             latitude=latitude,
             longitude=longitude,
-            valid_time=valid_time,
-            forecast_base_time=forecast_base_time,
+            product=product,
+            tile_timestamp=int(
+                base_time.timestamp()
+                if is_future
+                else valid_time.timestamp()
+            ),
+            forecast_timestamp=int(valid_time.timestamp())
+            if is_future
+            else None,
             weathercom_key=weathercom_key,
             mapbox_key=mapbox_key,
-            location_label=location_label,
-            zoom=zoom,
         )
 
-        if frame:
-            frames.append(frame)
-            print(
-                "Radar frame:",
-                valid_time.isoformat(),
-                "PREDICTED RADAR",
-            )
-        else:
-            print(
-                "Predicted frame unavailable:",
-                valid_time.isoformat(),
-            )
+        if not image_bytes:
+            continue
 
-    frames.sort(key=lambda item: item["valid_time"])
+        frames.append(
+            {
+                "image_bytes": image_bytes,
+                "valid_time": valid_time,
+                "radar_type": radar_type,
+                "base_time": base_time,
+            }
+        )
 
     if len(frames) < 4:
         raise RuntimeError(
             "Weather.com returned fewer than four usable "
-            "frames for this 90-minute radar window."
+            f"{'forecast' if is_future else 'observed'} radar frames."
         )
 
     _save_cached_loop(cache_key, frames)
     _prune_cache()
-
-    observed_count = sum(
-        1
-        for frame in frames
-        if frame["radar_type"] == "OBSERVED RADAR"
-    )
-
-    predicted_count = len(frames) - observed_count
-
-    print(
-        "Radar loop complete:",
-        f"{len(frames)} actual frames",
-        f"observed={observed_count}",
-        f"predicted={predicted_count}",
-    )
 
     return frames
 
@@ -951,44 +752,28 @@ def fetch_weathercom_radar_frames(
 def preload_weathercom_radar_loops(
     latitude,
     longitude,
-    selected_windows,
-    location_label="",
+    selected_start_times,
 ):
     ready = 0
     failed = 0
-    unique_windows = []
 
-    for item in selected_windows or []:
-        if not isinstance(item, (tuple, list)) or not item:
+    unique_times = []
+
+    for value in selected_start_times:
+        if not isinstance(value, datetime):
             continue
 
-        selected_start_utc = item[0]
-        selected_end_utc = item[1] if len(item) > 1 else None
+        value = _floor_to_five_minutes(value)
 
-        if not isinstance(selected_start_utc, datetime):
-            continue
+        if value not in unique_times:
+            unique_times.append(value)
 
-        try:
-            selected_start_utc, selected_end_utc = _normalize_radar_window(
-                selected_start_utc,
-                selected_end_utc,
-            )
-        except Exception:
-            continue
-
-        window = (selected_start_utc, selected_end_utc)
-
-        if window not in unique_windows:
-            unique_windows.append(window)
-
-    for selected_start_utc, selected_end_utc in unique_windows:
+    for selected_start_utc in unique_times:
         try:
             frames = fetch_weathercom_radar_frames(
                 latitude=latitude,
                 longitude=longitude,
                 selected_start_utc=selected_start_utc,
-                selected_end_utc=selected_end_utc,
-                location_label=location_label,
             )
 
             ready += 1
@@ -996,9 +781,7 @@ def preload_weathercom_radar_loops(
             print(
                 "Radar preload ready:",
                 selected_start_utc.isoformat(),
-                "through",
-                selected_end_utc.isoformat(),
-                f"({len(frames)} actual frames)",
+                f"({len(frames)} frames)",
             )
 
         except Exception as error:
@@ -1013,5 +796,5 @@ def preload_weathercom_radar_loops(
     return {
         "ready": ready,
         "failed": failed,
-        "requested": len(unique_windows),
+        "requested": len(unique_times),
     }

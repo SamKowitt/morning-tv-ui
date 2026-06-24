@@ -1,6 +1,5 @@
 import math
 import random
-from datetime import datetime, timedelta, timezone
 
 from PySide6.QtCore import Qt, QTimer, QPointF, Signal
 from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPen, QPainterPath, QBrush
@@ -978,7 +977,6 @@ class WeatherPanel(QWidget):
 
         self.row_widgets = []
         self.current_rows = []
-        self.visible_rows = []
 
         rows = [
             ("68", "☀️", "10am", "clear", False),
@@ -1008,88 +1006,35 @@ class WeatherPanel(QWidget):
             self.row_widgets.append(row_widget)
             main.addWidget(row_widget, 1)
 
-    def _next_full_hour_rows(self):
-        parsed_rows = []
-
-        for original_index, row in enumerate(self.current_rows):
-            raw_start = str(
-                getattr(row, "forecast_start", "") or ""
-            ).strip()
-
-            try:
-                start_time = datetime.fromisoformat(
-                    raw_start.replace("Z", "+00:00")
-                )
-
-                if start_time.tzinfo is None:
-                    start_time = start_time.replace(tzinfo=timezone.utc)
-
-                parsed_rows.append(
-                    (original_index, row, start_time)
-                )
-
-            except Exception:
-                continue
-
-        if not parsed_rows:
-            return []
-
-        local_zone = parsed_rows[0][2].tzinfo
-        now_local = datetime.now(local_zone)
-
-        next_full_hour = now_local.replace(
-            minute=0,
-            second=0,
-            microsecond=0,
-        ) + timedelta(hours=1)
-
-        return [
-            (original_index, row)
-            for original_index, row, start_time in parsed_rows
-            if start_time >= next_full_hour
-        ]
-
     def emit_selected_hour(self, index):
-        if 0 <= index < len(self.visible_rows):
-            original_index, row = self.visible_rows[index]
-            self.hour_selected.emit(row, original_index)
+        if 0 <= index < len(self.current_rows):
+            self.hour_selected.emit(self.current_rows[index], index)
 
     def update_weather_rows(self, rows):
         self.current_rows = list(rows or [])
-        self.visible_rows = self._next_full_hour_rows()
+        weather_row_widgets = []
 
-        weather_row_widgets = list(self.row_widgets or [])
+        if hasattr(self, "row_widgets"):
+            weather_row_widgets = self.row_widgets
+        else:
+            # Fallback: find any child widget that has the update_weather method.
+            for child in self.findChildren(QWidget):
+                if hasattr(child, "update_weather"):
+                    weather_row_widgets.append(child)
 
         if not weather_row_widgets:
             print("Weather panel update skipped: no weather row widgets found.")
             return
 
-        for index, weather_row_widget in enumerate(weather_row_widgets):
-            if index >= len(self.visible_rows):
-                weather_row_widget.hide()
-                continue
+        for index, row in enumerate(rows):
+            if index >= len(weather_row_widgets):
+                break
 
-            _original_index, row = self.visible_rows[index]
-
-            weather_row_widget.show()
-            weather_row_widget.is_now = False
-            weather_row_widget.weather_data = row
-            weather_row_widget.update_weather(
+            weather_row_widgets[index].weather_data = row
+            weather_row_widgets[index].update_weather(
                 temperature=row.temperature,
                 icon=row.icon,
                 time_label=row.time_label,
                 condition=row.condition,
                 is_night=row.is_night,
             )
-
-        first_label = (
-            self.visible_rows[0][1].time_label
-            if self.visible_rows
-            else "none"
-        )
-
-        print(
-            "Weather forecast list begins at:",
-            first_label,
-        )
-

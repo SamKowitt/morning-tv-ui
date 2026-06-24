@@ -450,16 +450,11 @@ class WeatherRadarDialog(QDialog):
             }
 
             QPushButton#RadarZoomButton {
-                min-width: 38px;
-                min-height: 38px;
-                max-width: 38px;
-                max-height: 38px;
-                background-color: rgba(255, 240, 207, 0.96);
-                border: 2px solid rgba(70, 50, 28, 0.96);
-                border-radius: 6px;
-                color: #24170d;
-                font-size: 25px;
-                font-weight: 1000;
+                min-width: 34px;
+                min-height: 34px;
+                max-width: 34px;
+                max-height: 34px;
+                font-size: 23px;
                 padding: 0px;
             }
         """)
@@ -549,11 +544,6 @@ class WeatherRadarDialog(QDialog):
         zoom_overlay_layout.addStretch(1)
 
         self.radar_map_stack.addWidget(zoom_overlay)
-
-        # StackAll keeps both widgets visible, but explicitly selecting the
-        # overlay guarantees the buttons paint above the radar image.
-        self.radar_map_stack.setCurrentWidget(zoom_overlay)
-        zoom_overlay.raise_()
 
         self.radar_timeline = RadarTimelineView()
         self.radar_timeline.setObjectName("RadarTimelineView")

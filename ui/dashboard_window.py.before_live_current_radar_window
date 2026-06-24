@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from PySide6.QtCore import QStringListModel, QObject, QThread, Signal, Qt, QSettings, QEvent, QTimer
 from PySide6.QtWidgets import (
@@ -96,26 +96,18 @@ class WeatherRadarPreloadWorker(QObject):
     finished = Signal(int, int, int)
     failed = Signal(str)
 
-    def __init__(
-        self,
-        latitude,
-        longitude,
-        selected_windows,
-        location_label="",
-    ):
+    def __init__(self, latitude, longitude, selected_start_times):
         super().__init__()
         self.latitude = latitude
         self.longitude = longitude
-        self.selected_windows = selected_windows
-        self.location_label = location_label
+        self.selected_start_times = selected_start_times
 
     def run(self):
         try:
             report = preload_weathercom_radar_loops(
                 latitude=self.latitude,
                 longitude=self.longitude,
-                selected_windows=self.selected_windows,
-                location_label=self.location_label,
+                selected_start_times=self.selected_start_times,
             )
 
             self.finished.emit(
@@ -2416,22 +2408,12 @@ class DashboardWindow(QMainWindow):
             print("Current radar unavailable: weather data has not loaded yet.")
             return
 
-        now_utc = datetime.now(timezone.utc)
-
         self.open_weather_radar_popup(
             weather_row=self.weather_rows[0],
             row_index=0,
-            selected_start_utc=now_utc - timedelta(minutes=15),
-            selected_end_utc=now_utc + timedelta(minutes=90),
         )
 
-    def open_weather_radar_popup(
-        self,
-        weather_row,
-        row_index,
-        selected_start_utc=None,
-        selected_end_utc=None,
-    ):
+    def open_weather_radar_popup(self, weather_row, row_index):
         location = self.weather_radar_location
 
         if location is None:
@@ -2447,8 +2429,6 @@ class DashboardWindow(QMainWindow):
             row_index=row_index,
             location=location,
             parent=self,
-            selected_start_utc=selected_start_utc,
-            selected_end_utc=selected_end_utc,
         )
 
         parent_rect = self.rect()
@@ -2532,20 +2512,8 @@ class DashboardWindow(QMainWindow):
             self.radar_preload_thread = None
             self.radar_preload_worker = None
 
-        selected_windows = []
-        now_utc = datetime.now(timezone.utc)
+        selected_start_times = []
 
-        # This is the exact window used when the top-left current-weather
-        # card is clicked: now -15 minutes through now +90 minutes.
-        selected_windows.append(
-            (
-                now_utc - timedelta(minutes=15),
-                now_utc + timedelta(minutes=90),
-            )
-        )
-
-        # These are the exact 90-minute windows used by every forecast-hour
-        # card in the weather column.
         for row in self.weather_rows:
             raw_value = str(
                 getattr(row, "forecast_start", "") or ""
@@ -2564,24 +2532,20 @@ class DashboardWindow(QMainWindow):
                 else:
                     value = value.astimezone(timezone.utc)
 
-                selected_windows.append(
-                    (
-                        value,
-                        value + timedelta(minutes=90),
-                    )
-                )
+                selected_start_times.append(value)
 
             except Exception:
                 continue
+
+        if not selected_start_times:
+            print("Radar preload skipped: no weather timestamps.")
+            return
 
         self.radar_preload_thread = QThread()
         self.radar_preload_worker = WeatherRadarPreloadWorker(
             latitude=self.weather_radar_location.latitude,
             longitude=self.weather_radar_location.longitude,
-            selected_windows=selected_windows,
-            location_label=str(
-                getattr(self.weather_radar_location, "label", "") or ""
-            ).strip(),
+            selected_start_times=selected_start_times,
         )
 
         self.radar_preload_worker.moveToThread(
@@ -2595,6 +2559,7 @@ class DashboardWindow(QMainWindow):
         self.radar_preload_worker.finished.connect(
             self.on_weather_radar_preload_finished
         )
+
         self.radar_preload_worker.failed.connect(
             self.on_weather_radar_preload_failed
         )
@@ -2602,6 +2567,7 @@ class DashboardWindow(QMainWindow):
         self.radar_preload_worker.finished.connect(
             self.radar_preload_thread.quit
         )
+
         self.radar_preload_worker.failed.connect(
             self.radar_preload_thread.quit
         )
@@ -2609,13 +2575,14 @@ class DashboardWindow(QMainWindow):
         self.radar_preload_thread.finished.connect(
             self.radar_preload_worker.deleteLater
         )
+
         self.radar_preload_thread.finished.connect(
             self.radar_preload_thread.deleteLater
         )
 
         print(
             "Starting background radar preload for "
-            f"{len(selected_windows)} exact click windows."
+            f"{len(selected_start_times)} weather hours."
         )
 
         self.radar_preload_thread.start()
@@ -3082,10 +3049,7 @@ class DashboardWindow(QMainWindow):
             self.sports_games.update_leagues(leagues)
 
         self.sports_games_has_loaded = True
-
-        # Disabled temporarily: this background worker is causing a native
-        # Qt/Python crash while fetching MLB box scores during startup.
-        print("Background box-score preload disabled to prevent startup crash.")
+        self.start_sports_boxscore_prefetch(leagues)
 
     def on_sports_games_failed(self, error_message):
         print(f"Sports games fetch failed: {error_message}")
@@ -3254,22 +3218,6 @@ class DashboardWindow(QMainWindow):
         self.cnbc_card.headline_label.setText(
             f"Unable to load latest {right_label} headline."
         )
-
-    def closeEvent(self, event):
-        # Do not allow a live radar preload QThread to be destroyed while
-        # its background fetch is still running.
-        try:
-            thread = getattr(self, "radar_preload_thread", None)
-
-            if thread and thread.isRunning():
-                print("Waiting for radar preload thread to stop...")
-                thread.quit()
-                thread.wait(5000)
-
-        except RuntimeError:
-            pass
-
-        super().closeEvent(event)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

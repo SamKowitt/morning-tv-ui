@@ -17,7 +17,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QVBoxLayout,
-    QStackedLayout,
     QWidget,
 )
 
@@ -206,6 +205,11 @@ class RadarTimelineView(QWidget):
                 painter.setBrush(marker_color)
                 painter.drawEllipse(x - 6, line_y - 6, 12, 12)
 
+                painter.setPen(QPen(QColor("#211308"), 2))
+                painter.drawLine(x, 5, x, line_y - 8)
+
+                painter.setBrush(QColor("#211308"))
+                painter.drawEllipse(x - 3, 3, 6, 6)
             else:
                 painter.setPen(QPen(QColor("#684723"), 1))
                 painter.setBrush(QColor("#f6e4bd"))
@@ -261,8 +265,6 @@ class RadarFetchWorker(QThread):
         longitude,
         selected_start_utc,
         selected_end_utc=None,
-        location_label="",
-        map_zoom=11,
     ):
         super().__init__()
 
@@ -270,8 +272,6 @@ class RadarFetchWorker(QThread):
         self.longitude = longitude
         self.selected_start_utc = selected_start_utc
         self.selected_end_utc = selected_end_utc
-        self.location_label = location_label
-        self.map_zoom = int(map_zoom)
 
     def run(self):
         try:
@@ -284,8 +284,6 @@ class RadarFetchWorker(QThread):
                 longitude=self.longitude,
                 selected_start_utc=self.selected_start_utc,
                 selected_end_utc=self.selected_end_utc,
-                location_label=self.location_label,
-                zoom=self.map_zoom,
             )
 
             self.ready.emit(frames)
@@ -308,16 +306,11 @@ class WeatherRadarDialog(QDialog):
 
         self.weather_row = weather_row
         self.location = location
-        self.location_label = str(
-            getattr(location, "label", "") or ""
-        ).strip()
         self.frames = []
         self.pixmaps = []
         self.frame_index = 0
         self.worker = None
         self.is_playing = True
-        self.default_map_zoom = 11
-        self.map_zoom = self.default_map_zoom
 
         self.local_zone = ZoneInfo(
             getattr(location, "timezone", "America/New_York")
@@ -425,8 +418,7 @@ class WeatherRadarDialog(QDialog):
             }
 
             QPushButton#RadarControlButton,
-            QPushButton#RadarCloseButton,
-            QPushButton#RadarZoomButton {
+            QPushButton#RadarCloseButton {
                 background-color: #f3e6c9;
                 border: 2px solid rgba(70, 50, 28, 210);
                 border-radius: 5px;
@@ -440,27 +432,12 @@ class WeatherRadarDialog(QDialog):
             }
 
             QPushButton#RadarControlButton:hover,
-            QPushButton#RadarCloseButton:hover,
-            QPushButton#RadarZoomButton:hover {
+            QPushButton#RadarCloseButton:hover {
                 background-color: #fff0cf;
             }
 
             QPushButton#RadarCloseButton {
                 min-width: 120px;
-            }
-
-            QPushButton#RadarZoomButton {
-                min-width: 38px;
-                min-height: 38px;
-                max-width: 38px;
-                max-height: 38px;
-                background-color: rgba(255, 240, 207, 0.96);
-                border: 2px solid rgba(70, 50, 28, 0.96);
-                border-radius: 6px;
-                color: #24170d;
-                font-size: 25px;
-                font-weight: 1000;
-                padding: 0px;
             }
         """)
 
@@ -506,55 +483,6 @@ class WeatherRadarDialog(QDialog):
         self.radar_view = RadarLoopView()
         self.radar_view.setObjectName("RadarLoopView")
 
-        self.radar_map_container = QWidget()
-        self.radar_map_stack = QStackedLayout()
-        self.radar_map_stack.setContentsMargins(0, 0, 0, 0)
-        self.radar_map_stack.setStackingMode(QStackedLayout.StackAll)
-        self.radar_map_container.setLayout(self.radar_map_stack)
-        self.radar_map_stack.addWidget(self.radar_view)
-
-        zoom_overlay = QWidget()
-        zoom_overlay.setStyleSheet("background: transparent;")
-
-        zoom_overlay_layout = QVBoxLayout(zoom_overlay)
-        zoom_overlay_layout.setContentsMargins(10, 10, 10, 10)
-        zoom_overlay_layout.setSpacing(6)
-
-        zoom_top_row = QHBoxLayout()
-        zoom_top_row.setContentsMargins(0, 0, 0, 0)
-        zoom_top_row.addStretch(1)
-
-        zoom_column = QVBoxLayout()
-        zoom_column.setContentsMargins(0, 0, 0, 0)
-        zoom_column.setSpacing(5)
-
-        self.zoom_in_button = QPushButton("+")
-        self.zoom_in_button.setObjectName("RadarZoomButton")
-        self.zoom_in_button.setToolTip("Zoom in")
-        self.zoom_in_button.clicked.connect(
-            lambda: self.change_map_zoom(1)
-        )
-
-        self.zoom_out_button = QPushButton("−")
-        self.zoom_out_button.setObjectName("RadarZoomButton")
-        self.zoom_out_button.setToolTip("Zoom out")
-        self.zoom_out_button.clicked.connect(
-            lambda: self.change_map_zoom(-1)
-        )
-
-        zoom_column.addWidget(self.zoom_in_button)
-        zoom_column.addWidget(self.zoom_out_button)
-        zoom_top_row.addLayout(zoom_column)
-        zoom_overlay_layout.addLayout(zoom_top_row)
-        zoom_overlay_layout.addStretch(1)
-
-        self.radar_map_stack.addWidget(zoom_overlay)
-
-        # StackAll keeps both widgets visible, but explicitly selecting the
-        # overlay guarantees the buttons paint above the radar image.
-        self.radar_map_stack.setCurrentWidget(zoom_overlay)
-        zoom_overlay.raise_()
-
         self.radar_timeline = RadarTimelineView()
         self.radar_timeline.setObjectName("RadarTimelineView")
 
@@ -567,7 +495,7 @@ class WeatherRadarDialog(QDialog):
         self.radar_legend_label.setMinimumHeight(48)
 
         left_layout.addWidget(left_title)
-        left_layout.addWidget(self.radar_map_container, 1)
+        left_layout.addWidget(self.radar_view, 1)
         left_layout.addWidget(self.radar_timeline)
         left_layout.addWidget(self.radar_legend_label)
 
@@ -672,74 +600,17 @@ class WeatherRadarDialog(QDialog):
         self.start_fetch()
 
     def start_fetch(self):
-        requested_zoom = self.map_zoom
-
-        try:
-            from services.weather_radar_fetcher import (
-                load_cached_weathercom_radar_frames,
-            )
-
-            cached_frames = load_cached_weathercom_radar_frames(
-                latitude=self.location.latitude,
-                longitude=self.location.longitude,
-                selected_start_utc=self.selected_start_utc,
-                selected_end_utc=self.selected_end_utc,
-                zoom=requested_zoom,
-            )
-
-            if cached_frames:
-                print(
-                    "Opening radar directly from cache:",
-                    f"zoom={requested_zoom},",
-                    f"{len(cached_frames)} frame(s)",
-                )
-                self.apply_frames_for_zoom(
-                    cached_frames,
-                    requested_zoom,
-                )
-                return
-
-        except Exception as error:
-            print(f"Radar cache lookup skipped: {error}")
-
         self.worker = RadarFetchWorker(
             latitude=self.location.latitude,
             longitude=self.location.longitude,
             selected_start_utc=self.selected_start_utc,
             selected_end_utc=self.selected_end_utc,
-            location_label=self.location_label,
-            map_zoom=requested_zoom,
         )
 
-        self.worker.ready.connect(
-            lambda frames, zoom=requested_zoom:
-                self.apply_frames_for_zoom(frames, zoom)
-        )
+        self.worker.ready.connect(self.apply_frames)
         self.worker.failed.connect(self.show_error)
         self.worker.finished.connect(self.worker.deleteLater)
         self.worker.start()
-
-    def apply_frames_for_zoom(self, frames, zoom):
-        if int(zoom) != self.map_zoom:
-            return
-
-        self.apply_frames(frames)
-
-    def change_map_zoom(self, delta):
-        new_zoom = max(8, min(13, self.map_zoom + int(delta)))
-
-        if new_zoom == self.map_zoom:
-            return
-
-        self.map_zoom = new_zoom
-        self.radar_view.set_message(
-            f"Refreshing radar map at zoom {self.map_zoom}…"
-        )
-        self.status_label.setText(
-            f"Loading same radar window at zoom {self.map_zoom}…"
-        )
-
-        self.start_fetch()
 
     def apply_frames(self, frames):
         incoming_frames = list(frames or [])

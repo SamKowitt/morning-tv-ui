@@ -19,32 +19,44 @@ class AutoFitLabel(QLabel):
         self.max_size = max_size
         self.bold = bold
         self.fit_alignment = alignment
-        self.auto_fit_enabled = True
+        self.matched_point_size = None
 
         self.setAlignment(alignment)
         self.setWordWrap(word_wrap)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-
-        if self.auto_fit_enabled:
-            self.fit_text()
+        self.fit_text()
 
     def setText(self, text):
         super().setText(text)
+        self.fit_text()
 
-        if self.auto_fit_enabled:
+    def set_matched_point_size(self, point_size):
+        try:
+            point_size = int(point_size)
+        except (TypeError, ValueError):
+            self.matched_point_size = None
             self.fit_text()
+            return
 
-    def set_auto_fit_enabled(self, enabled):
-        self.auto_fit_enabled = bool(enabled)
+        self.matched_point_size = max(
+            self.min_size,
+            min(self.max_size, point_size),
+        )
 
-        if self.auto_fit_enabled:
-            self.fit_text()
+        self.fit_text()
 
-    def best_fit_point_size(self):
+    def fit_text(self):
         if not self.text() or self.width() <= 4 or self.height() <= 4:
-            return self.min_size
+            return
+
+        if self.matched_point_size is not None:
+            final_font = QFont(self.font())
+            final_font.setPointSize(self.matched_point_size)
+            final_font.setBold(self.bold)
+            self.setFont(final_font)
+            return
 
         available_width = max(1, self.width() - 6)
         available_height = max(1, self.height() - 6)
@@ -71,37 +83,13 @@ class AutoFitLabel(QLabel):
                 self.text(),
             )
 
-            if (
-                rect.width() <= available_width
-                and rect.height() <= available_height
-            ):
+            if rect.width() <= available_width and rect.height() <= available_height:
                 best = mid
                 low = mid + 1
             else:
                 high = mid - 1
 
-        return best
-
-    def set_point_size_safely(self, point_size):
-        point_size = max(
-            self.min_size,
-            min(self.max_size, int(point_size)),
-        )
-
-        current_font = self.font()
-
-        if (
-            current_font.pointSize() == point_size
-            and current_font.bold() == self.bold
-        ):
-            return
-
-        updated_font = QFont(current_font)
-        updated_font.setPointSize(point_size)
-        updated_font.setBold(self.bold)
-        self.setFont(updated_font)
-
-    def fit_text(self):
-        self.set_point_size_safely(
-            self.best_fit_point_size()
-        )
+        final_font = QFont(self.font())
+        final_font.setPointSize(best)
+        final_font.setBold(self.bold)
+        self.setFont(final_font)

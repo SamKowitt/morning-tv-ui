@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QColor, QFont, QPalette
+from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QLabel, QHBoxLayout, QStackedLayout, QVBoxLayout, QWidget, QSizePolicy
 
 from ui.auto_fit_label import AutoFitLabel
@@ -46,14 +46,6 @@ class DateCard(QWidget):
             word_wrap=False,
         )
         self.current_time_label.setObjectName("DateCurrentTimeWeather")
-
-        # Keep MON and the clock identical in size. These are deliberately
-        # fixed instead of independently auto-fitted.
-        self.day_label.set_auto_fit_enabled(False)
-        self.current_time_label.set_auto_fit_enabled(False)
-
-        self.day_label.setMinimumHeight(40)
-        self.current_time_label.setMinimumHeight(40)
 
         self.bottom_widget = QWidget()
         self.bottom_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -119,9 +111,9 @@ class DateCard(QWidget):
         bottom_row.addLayout(date_block, 64)
         bottom_row.addLayout(weather_block, 36)
 
-        overlay_layout.addWidget(self.day_label, 1)
-        overlay_layout.addWidget(self.current_time_label, 1)
-        overlay_layout.addStretch(2)
+        overlay_layout.addWidget(self.day_label, 0)
+        overlay_layout.addWidget(self.current_time_label, 0)
+        overlay_layout.addStretch(1)
         overlay_layout.addWidget(self.bottom_widget, 0)
 
         self.stacked = QStackedLayout()
@@ -185,19 +177,14 @@ class DateCard(QWidget):
         self.overlay.raise_()
 
     def sync_day_and_time_font_sizes(self):
-        # Match the two top lines exactly. The point size scales with the
-        # card height but is never reduced because the clock text is wider.
-        point_size = max(24, min(46, int(self.height() * 0.18)))
+        self.day_label.fit_text()
 
-        for label in [
-            self.day_label,
-            self.current_time_label,
-        ]:
-            font = QFont(label.font())
-            font.setPointSize(point_size)
-            font.setBold(True)
-            label.setFont(font)
+        day_point_size = self.day_label.font().pointSize()
 
+        if day_point_size > 0:
+            self.current_time_label.set_matched_point_size(
+                day_point_size
+            )
 
     def refresh_clock(self):
         self.update_date()

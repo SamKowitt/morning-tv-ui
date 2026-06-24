@@ -3082,10 +3082,7 @@ class DashboardWindow(QMainWindow):
             self.sports_games.update_leagues(leagues)
 
         self.sports_games_has_loaded = True
-
-        # Disabled temporarily: this background worker is causing a native
-        # Qt/Python crash while fetching MLB box scores during startup.
-        print("Background box-score preload disabled to prevent startup crash.")
+        self.start_sports_boxscore_prefetch(leagues)
 
     def on_sports_games_failed(self, error_message):
         print(f"Sports games fetch failed: {error_message}")
