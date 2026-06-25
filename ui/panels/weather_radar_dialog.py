@@ -54,17 +54,35 @@ class RadarLoopView(QWidget):
 
         self.pixmap = QPixmap()
         self.message = "Loading local radar loop…"
+        self.spinner_active = False
+        self.spinner_angle = 0
 
         self.setMinimumSize(390, 380)
 
     def set_frame(self, pixmap):
         self.pixmap = pixmap
         self.message = ""
+        self.spinner_active = False
         self.update()
 
     def set_message(self, message):
         self.pixmap = QPixmap()
         self.message = message
+        self.spinner_active = False
+        self.update()
+
+    def start_spinner(self, message):
+        self.pixmap = QPixmap()
+        self.message = message
+        self.spinner_active = True
+        self.spinner_angle = 0
+        self.update()
+
+    def advance_spinner(self):
+        if not self.spinner_active:
+            return
+
+        self.spinner_angle = (self.spinner_angle + 28) % 360
         self.update()
 
     def paintEvent(self, event):
@@ -72,9 +90,31 @@ class RadarLoopView(QWidget):
         painter.fillRect(self.rect(), QColor("#d8e7ea"))
 
         if self.pixmap.isNull():
+            if self.spinner_active:
+                center = self.rect().center()
+                radius = 24
+
+                painter.setRenderHint(QPainter.Antialiasing, True)
+                painter.setPen(
+                    QPen(
+                        QColor("#2d2114"),
+                        5,
+                        Qt.SolidLine,
+                        Qt.RoundCap,
+                    )
+                )
+                painter.drawArc(
+                    center.x() - radius,
+                    center.y() - radius - 18,
+                    radius * 2,
+                    radius * 2,
+                    -self.spinner_angle * 16,
+                    250 * 16,
+                )
+
             painter.setPen(QColor("#263238"))
             painter.drawText(
-                self.rect().adjusted(24, 24, -24, -24),
+                self.rect().adjusted(24, 78, -24, -24),
                 Qt.AlignCenter | Qt.TextWordWrap,
                 self.message,
             )
@@ -318,6 +358,13 @@ class WeatherRadarDialog(QDialog):
         self.frame_index = 0
         self.worker = None
         self.radar_fetch_in_progress = False
+        self.radar_fetch_timeout_timer = QTimer(self)
+        self.radar_fetch_timeout_timer.setSingleShot(True)
+        self.radar_fetch_timeout_timer.timeout.connect(
+            self.on_radar_fetch_timeout
+        )
+        self.radar_spinner_timer = QTimer(self)
+        self.radar_spinner_timer.setInterval(70)
 
         self.min_map_zoom = 7
         self.max_map_zoom = 13
@@ -513,6 +560,10 @@ class WeatherRadarDialog(QDialog):
 
         self.radar_view = RadarLoopView()
         self.radar_view.setObjectName("RadarLoopView")
+
+        self.radar_spinner_timer.timeout.connect(
+            self.radar_view.advance_spinner
+        )
 
         self.radar_map_container = QWidget()
         self.radar_map_stack = QStackedLayout()
@@ -731,7 +782,13 @@ class WeatherRadarDialog(QDialog):
         except Exception as error:
             print(f"Radar cache lookup skipped: {error}")
 
-        self.worker = RadarFetchWorker(
+        if requested_zoom != self.default_map_zoom:
+            self.radar_view.start_spinner(
+                f"Loading radar at zoom {requested_zoom}…"
+            )
+            self.radar_spinner_timer.start()
+
+        worker = RadarFetchWorker(
             latitude=self.location.latitude,
             longitude=self.location.longitude,
             selected_start_utc=self.selected_start_utc,
@@ -740,26 +797,64 @@ class WeatherRadarDialog(QDialog):
             map_zoom=requested_zoom,
         )
 
-        self.worker.ready.connect(self.on_radar_fetch_ready)
-        self.worker.failed.connect(self.on_radar_fetch_failed)
-        self.worker.finished.connect(self.on_radar_fetch_finished)
-        self.worker.start()
+        self.worker = worker
 
-    def on_radar_fetch_ready(self, frames):
-        self.apply_frames_for_zoom(frames, self.map_zoom)
+        worker.ready.connect(
+            lambda frames, current_worker=worker:
+                self.on_radar_fetch_ready(current_worker, frames)
+        )
+        worker.failed.connect(
+            lambda message, current_worker=worker:
+                self.on_radar_fetch_failed(current_worker, message)
+        )
+        worker.finished.connect(
+            lambda current_worker=worker:
+                self.on_radar_fetch_finished(current_worker)
+        )
 
-    def on_radar_fetch_failed(self, message):
+        self.radar_fetch_timeout_timer.start(10_000)
+        worker.start()
+
+    def on_radar_fetch_ready(self, worker, frames):
+        if worker is not self.worker:
+            return
+
+        self.apply_frames_for_zoom(frames, worker.map_zoom)
+
+    def on_radar_fetch_failed(self, worker, message):
+        if worker is not self.worker:
+            return
+
         self.show_error(message)
 
-    def on_radar_fetch_finished(self):
-        finished_worker = self.worker
+    def on_radar_fetch_timeout(self):
+        worker = self.worker
+
+        if worker is None:
+            return
+
+        print(
+            "Radar zoom request timed out after 10 seconds:",
+            f"zoom={self.map_zoom}"
+        )
+
         self.worker = None
         self.radar_fetch_in_progress = False
+        self.radar_spinner_timer.stop()
+        self.radar_view.set_message(
+            "Radar zoom request timed out. Try again."
+        )
         self.update_zoom_buttons()
 
-        if finished_worker is not None:
-            finished_worker.deleteLater()
+    def on_radar_fetch_finished(self, worker):
+        if worker is self.worker:
+            self.worker = None
+            self.radar_fetch_in_progress = False
+            self.radar_fetch_timeout_timer.stop()
+            self.radar_spinner_timer.stop()
+            self.update_zoom_buttons()
 
+        worker.deleteLater()
 
     def apply_frames_for_zoom(self, frames, zoom):
         if int(zoom) != self.map_zoom:
@@ -886,6 +981,8 @@ class WeatherRadarDialog(QDialog):
 
     def show_error(self, message):
         self.animation_timer.stop()
+        self.radar_spinner_timer.stop()
+        self.radar_fetch_timeout_timer.stop()
         self.radar_legend_label.setText("")
         self.radar_view.set_message(message)
         self.radar_fetch_in_progress = False
@@ -893,6 +990,8 @@ class WeatherRadarDialog(QDialog):
 
     def closeEvent(self, event):
         self.animation_timer.stop()
+        self.radar_spinner_timer.stop()
+        self.radar_fetch_timeout_timer.stop()
 
         try:
             if self.worker and self.worker.isRunning():

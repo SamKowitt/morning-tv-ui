@@ -2,6 +2,7 @@ import calendar as calendar_module
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 from PySide6.QtCore import (
     QDate,
@@ -535,6 +536,7 @@ class DashboardWindow(QMainWindow):
         self.stock_thread = None
         self.stock_worker = None
         self.calendar_has_no_events = False
+        self.apple_calendar_events = []
 
         # Header Hide button states only. Never write either to QSettings.
         self.session_reminders_hidden = False
@@ -2489,6 +2491,31 @@ class DashboardWindow(QMainWindow):
         root.addWidget(title)
         root.addWidget(hint)
 
+        add_button = QPushButton("Add")
+        add_button.setCursor(Qt.PointingHandCursor)
+        add_button.setMinimumHeight(30)
+        add_button.setStyleSheet("""
+            QPushButton {
+                background: #397a42;
+                color: white;
+                border: 1px solid #24582d;
+                border-radius: 7px;
+                padding: 5px 16px;
+                font-size: 12px;
+                font-weight: 1000;
+            }
+            QPushButton:hover {
+                background: #4a9855;
+            }
+        """)
+
+        add_row = QHBoxLayout()
+        add_row.setContentsMargins(0, 0, 0, 0)
+        add_row.addWidget(add_button, 0, Qt.AlignLeft)
+        add_row.addStretch(1)
+
+        root.addLayout(add_row)
+
         title_input = QLineEdit()
         title_input.setObjectName("SettingsLineEdit")
         title_input.setPlaceholderText("e.g., Trash Day")
@@ -2564,28 +2591,6 @@ class DashboardWindow(QMainWindow):
 
         root.addLayout(recurring_row)
 
-        actions = QHBoxLayout()
-        actions.setContentsMargins(0, 0, 0, 0)
-        actions.setSpacing(8)
-
-        add_button = QPushButton("Add")
-        add_button.setCursor(Qt.PointingHandCursor)
-        add_button.setMinimumHeight(30)
-        add_button.setStyleSheet("""
-            QPushButton {
-                background: #397a42;
-                color: white;
-                border: 1px solid #24582d;
-                border-radius: 7px;
-                padding: 5px 16px;
-                font-size: 12px;
-                font-weight: 1000;
-            }
-            QPushButton:hover {
-                background: #4a9855;
-            }
-        """)
-
         close_button = QPushButton("Close")
         close_button.setCursor(Qt.PointingHandCursor)
         close_button.setMinimumHeight(30)
@@ -2603,10 +2608,6 @@ class DashboardWindow(QMainWindow):
                 background: #eadab7;
             }
         """)
-
-        actions.addWidget(add_button)
-        actions.addStretch(1)
-        root.addLayout(actions)
 
         table = QTableWidget()
         table.setColumnCount(4)
@@ -2836,6 +2837,7 @@ class DashboardWindow(QMainWindow):
 
         self.recurring_calendar_events.append(record)
         self.save_recurring_calendar_events()
+        self.refresh_dashboard_calendar_events()
 
         popup["title_input"].clear()
         self.clear_specific_date_button_value(
@@ -2939,6 +2941,7 @@ class DashboardWindow(QMainWindow):
 
         self.save_recurring_calendar_events()
         self.refresh_recurring_popup_table()
+        self.refresh_dashboard_calendar_events()
 
     def resize_settings_card_to_window(self):
         if not hasattr(self, "settings_card"):
@@ -3352,6 +3355,8 @@ class DashboardWindow(QMainWindow):
             return
 
         old_weather_zip = self.weather_zip_code
+        old_left_news_source_key = self.left_news_source_key
+        old_right_news_source_key = self.right_news_source_key
         old_replace_market_tape_with_news = self.replace_market_tape_with_news
         old_hide_reminders = self.hide_reminders
 
@@ -3384,6 +3389,11 @@ class DashboardWindow(QMainWindow):
         self.left_news_source_key = self.left_news_combo.currentData() or "FOX"
         self.right_news_source_key = self.right_news_combo.currentData() or "CNBC"
 
+        news_sources_changed = (
+            self.left_news_source_key != old_left_news_source_key
+            or self.right_news_source_key != old_right_news_source_key
+        )
+
         self.replace_market_tape_with_news = bool(
             self.replace_market_tape_checkbox.isChecked()
         )
@@ -3409,26 +3419,41 @@ class DashboardWindow(QMainWindow):
         self.save_sports_team_settings()
         self.save_stock_symbol_settings()
 
-        self.refresh_news_card_placeholders()
         self.show_dashboard_page()
-        self.start_news_fetch()
 
-        # Settings can change the two news sources, so refresh both mini-news
-        # caches immediately in the background.
-        self.start_mini_news_background_refresh()
+        if news_sources_changed:
+            self.refresh_news_card_placeholders()
+            self.start_news_fetch()
 
-        if self.hide_reminders or self.calendar_has_no_events:
-            self.show_more_news_panel()
-        elif old_hide_reminders:
-            self.start_apple_calendar_fetch()
+            # Refresh the two mini-news caches only because their sources
+            # can depend on the selected left/right news source settings.
+            self.start_mini_news_background_refresh()
 
-        if self.replace_market_tape_with_news:
-            self.start_market_news_fetch()
-        else:
-            self.show_market_tape_panel()
+        hide_reminders_changed = (
+            self.hide_reminders != old_hide_reminders
+        )
 
-            if old_replace_market_tape_with_news:
+        if hide_reminders_changed:
+            if self.hide_reminders or self.calendar_has_no_events:
+                self.show_more_news_panel()
+            else:
+                self.show_reminders_panel()
+                self.start_apple_calendar_fetch()
+
+        market_tape_mode_changed = (
+            self.replace_market_tape_with_news
+            != old_replace_market_tape_with_news
+        )
+
+        if market_tape_mode_changed:
+            if self.replace_market_tape_with_news:
+                self.show_market_news_panel()
+                self.start_market_news_fetch()
+            else:
+                self.show_market_tape_panel()
                 self.start_stock_fetch()
+        elif self.replace_market_tape_with_news and news_sources_changed:
+            self.start_market_news_fetch()
 
         if self.weather_zip_code != old_weather_zip:
             self.refresh_weather_placeholders()
@@ -3798,7 +3823,7 @@ class DashboardWindow(QMainWindow):
                 getattr(self.weather_radar_location, "label", "") or ""
             ).strip(),
             default_zoom=11,
-            background_zooms=[10, 9, 8, 7, 12, 13],
+            background_zooms=[],
         )
 
         self.radar_preload_worker.moveToThread(
@@ -3832,8 +3857,7 @@ class DashboardWindow(QMainWindow):
 
         print(
             "Starting background radar preload: "
-            f"{len(selected_windows)} click windows at default zoom 11 first, "
-            "then zooms 10, 9, 8, 7, 12, and 13."
+            f"{len(selected_windows)} click windows at default zoom 11 only."
         )
 
         self.radar_preload_thread.start()
@@ -3986,6 +4010,143 @@ class DashboardWindow(QMainWindow):
         # Preserve the current panel and any previously cached headlines.
 
 
+    def created_calendar_when_text(self, event_date):
+        today = datetime.now().date()
+
+        if event_date == today:
+            return "Today"
+
+        return event_date.strftime("%a, %b %d").replace(" 0", " ")
+
+    def created_calendar_event_dates(self, event, days_ahead):
+        today = datetime.now().date()
+        last_day = today + timedelta(days=max(0, int(days_ahead)))
+
+        frequency = str(event.get("frequency", "") or "").strip()
+        matching_dates = []
+
+        for offset in range((last_day - today).days + 1):
+            candidate = today + timedelta(days=offset)
+
+            if frequency == "specific":
+                date_text = str(event.get("date", "") or "").strip()
+
+                try:
+                    saved_date = datetime.strptime(
+                        date_text,
+                        "%Y-%m-%d",
+                    ).date()
+                except ValueError:
+                    continue
+
+                if candidate == saved_date:
+                    matching_dates.append(candidate)
+
+            elif frequency == "weekly":
+                if (
+                    candidate <= today + timedelta(days=1)
+                    and candidate.strftime("%A") == str(
+                        event.get("day", "") or ""
+                    )
+                ):
+                    matching_dates.append(candidate)
+
+            elif frequency == "monthly":
+                saved_day = event.get("day", "")
+
+                if saved_day == "last_day":
+                    last_calendar_day = calendar_module.monthrange(
+                        candidate.year,
+                        candidate.month,
+                    )[1]
+
+                    if candidate.day == last_calendar_day:
+                        matching_dates.append(candidate)
+
+                else:
+                    try:
+                        if candidate.day == int(saved_day):
+                            matching_dates.append(candidate)
+                    except (TypeError, ValueError):
+                        continue
+
+            elif frequency == "annually":
+                try:
+                    saved_month = int(event.get("month", 0))
+                    saved_day = int(event.get("day", 0))
+                except (TypeError, ValueError):
+                    continue
+
+                if (
+                    candidate.month == saved_month
+                    and candidate.day == saved_day
+                ):
+                    matching_dates.append(candidate)
+
+        return matching_dates
+
+    def build_created_calendar_events(self):
+        days_ahead = max(14, int(self.apple_calendar_days_ahead))
+        today = datetime.now().date()
+        local_events = []
+
+        for event in self.recurring_calendar_events:
+            title = str(event.get("title", "") or "").strip()
+
+            if not title:
+                continue
+
+            for event_date in self.created_calendar_event_dates(
+                event,
+                days_ahead,
+            ):
+                local_events.append(
+                    SimpleNamespace(
+                        title=title,
+                        when_text=self.created_calendar_when_text(event_date),
+                        starts_today=(event_date == today),
+                        sort_date=event_date,
+                    )
+                )
+
+        local_events.sort(
+            key=lambda item: (
+                item.sort_date,
+                item.title.lower(),
+            )
+        )
+
+        return local_events
+
+    def refresh_dashboard_calendar_events(self):
+        apple_events = list(
+            getattr(self, "apple_calendar_events", []) or []
+        )
+        created_events = self.build_created_calendar_events()
+        combined_events = apple_events + created_events
+
+        self.calendar_has_no_events = len(combined_events) == 0
+
+        if self.hide_reminders or self.session_reminders_hidden:
+            self.show_more_news_panel()
+            return
+
+        if self.calendar_has_no_events:
+            self.show_more_news_panel()
+            return
+
+        self.show_reminders_panel()
+
+        if hasattr(self.reminders, "update_calendar_events"):
+            self.reminders.update_calendar_events(combined_events)
+
+        print(
+            "Loaded dashboard calendar events: "
+            f"Apple/holidays={len(apple_events)}, "
+            f"created={len(created_events)}, "
+            f"combined={len(combined_events)}"
+        )
+
     def start_apple_calendar_fetch(self):
         # Built-in U.S. holidays load regardless of Apple Calendar setup.
         # iCloud events are merged in only when credentials are configured.
@@ -4011,36 +4172,20 @@ class DashboardWindow(QMainWindow):
         self.apple_calendar_thread.start()
 
     def on_apple_calendar_loaded(self, events):
-        events = list(events or [])
+        self.apple_calendar_events = list(events or [])
 
-        print(f"Apple Calendar events loaded: {len(events)}")
+        print(
+            "Apple Calendar/holiday events loaded: "
+            f"{len(self.apple_calendar_events)}"
+        )
 
-        self.calendar_has_no_events = len(events) == 0
-
-        if (
-            self.calendar_has_no_events
-            or self.hide_reminders
-            or self.session_reminders_hidden
-        ):
-            self.show_more_news_panel()
-            return
-
-        self.show_reminders_panel()
-
-        if hasattr(self.reminders, "update_calendar_events"):
-            self.reminders.update_calendar_events(events)
+        self.refresh_dashboard_calendar_events()
 
     def on_apple_calendar_failed(self, error_message):
         print(f"Apple Calendar fetch failed: {error_message}")
 
-        if self.hide_reminders or self.session_reminders_hidden:
-            self.show_more_news_panel()
-            return
-
-        self.show_reminders_panel()
-
-        if hasattr(self.reminders, "set_calendar_error"):
-            self.reminders.set_calendar_error("Unable to load Apple Calendar events")
+        self.apple_calendar_events = []
+        self.refresh_dashboard_calendar_events()
 
 
     def market_news_should_be_visible(self):
@@ -4467,15 +4612,22 @@ class DashboardWindow(QMainWindow):
         )
 
     def closeEvent(self, event):
-        # Do not allow a live radar preload QThread to be destroyed while
-        # its background fetch is still running.
+        # WeatherRadarPreloadWorker performs blocking network work. Calling
+        # quit() cannot interrupt that work immediately, so do not let Qt
+        # destroy the QThread after an arbitrary timeout. Wait until the
+        # current preload finishes cleanly before the application exits.
         try:
             thread = getattr(self, "radar_preload_thread", None)
 
             if thread and thread.isRunning():
-                print("Waiting for radar preload thread to stop...")
+                print(
+                    "Waiting for active radar preload to finish before exit..."
+                )
                 thread.quit()
-                thread.wait(5000)
+                thread.wait()
+
+            self.radar_preload_thread = None
+            self.radar_preload_worker = None
 
         except RuntimeError:
             pass

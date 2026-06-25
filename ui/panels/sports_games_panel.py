@@ -1552,6 +1552,22 @@ class SportsGamesPanel(QWidget):
         if not game_id or league not in {"MLB", "NFL", "NBA"}:
             return
 
+        cached_payload = get_cached_boxscore(league, game_id)
+
+        if cached_payload is not None:
+            print(f"Game Times cache hit: {league} {game_id}")
+        else:
+            print(
+                f"Game Times cache miss: {league} {game_id}. "
+                "Opening normal boxscore fetch."
+            )
+
+        self.open_cached_boxscore_dialog(game, cached_payload)
+
+    def open_cached_boxscore_dialog(self, game, cached_payload):
+        game_id = str(game.get("game_id", "") or "")
+        league = str(game.get("league", "") or "").upper()
+
         if self.boxscore_dialog is not None:
             old_dialog = self.boxscore_dialog
             self.boxscore_dialog = None
@@ -1560,12 +1576,6 @@ class SportsGamesPanel(QWidget):
 
         title = str(game.get("matchup", "") or "")
         dashboard_window = self.window()
-        cached_payload = get_cached_boxscore(league, game_id)
-
-        if cached_payload is not None:
-            print(f"Game Times cache hit: {league} {game_id}")
-        else:
-            print(f"Game Times cache miss: {league} {game_id}")
 
         if league == "MLB":
             self.boxscore_dialog = MLBBoxScoreDialog(
@@ -1586,13 +1596,10 @@ class SportsGamesPanel(QWidget):
         dialog = self.boxscore_dialog
         dialog.destroyed.connect(
             lambda *_args, current_dialog=dialog:
-            self._clear_boxscore_dialog_if_current(current_dialog)
+                self._clear_boxscore_dialog_if_current(current_dialog)
         )
 
         parent_rect = dashboard_window.rect()
-
-        # Match the fixed wide/tall newspaper proportion used by all article
-        # popups instead of stretching box scores to a different shape.
         aspect_ratio = 1120 / 650
         max_width = int(parent_rect.width())
         max_height = int(parent_rect.height())

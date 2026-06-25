@@ -977,7 +977,7 @@ def normalize_source_key(source_key):
     return source_key
 
 
-def fetch_ranked_candidates(source_key):
+def fetch_generic_ranked_candidates(source_key):
     source_key = normalize_source_key(source_key)
 
     config = NEWS_SOURCES[source_key]
@@ -2876,3 +2876,707 @@ def fetch_source_specific_homepage_lead_article(source_key):
         return _FOX_EXISTING_HOMEPAGE_LEAD_RESOLVER(source_key)
 
     raise RuntimeError(f"No homepage lead resolver available for source: {source_key}")
+
+
+
+# ============================================================
+# CNN rendered homepage resolver
+#
+# CNN's raw page contains footer "Listen" and podcast links alongside
+# editorial cards. Use the rendered page so visible headline typography,
+# card placement, and page position determine the lead and top stories.
+# ============================================================
+
+_GENERIC_FETCH_RANKED_CANDIDATES = fetch_generic_ranked_candidates
+
+
+def _cnn_is_english_editorial_candidate(title, url):
+    title = clean_text(title)
+    url_l = str(url or "").lower()
+    title_l = title.lower()
+
+    if len(title) < 20 or len(title.split()) < 4:
+        return False
+
+    blocked_url_bits = [
+        "/audio/",
+        "/podcasts/",
+        "/videos/",
+        "/video/",
+        "/espanol/",
+        "/es/",
+        "/cnn-underscored/",
+        "/style/",
+        "/travel/",
+        "/weather/",
+        "/interactive/",
+        "/live-tv/",
+        "/listen/",
+    ]
+
+    if any(bit in url_l for bit in blocked_url_bits):
+        return False
+
+    blocked_title_bits = [
+        "chasing life with dr. sanjay gupta",
+        "all there is with anderson cooper",
+        "the assignment with audie cornish",
+        "cnn underscored",
+        "listen to",
+        "watch live",
+        "newsletter",
+        "subscribe",
+        "sign up",
+        "podcast",
+        "audio",
+        "privacy policy",
+        "terms of use",
+        "advertisement",
+        "sponsored",
+    ]
+
+    if any(bit in title_l for bit in blocked_title_bits):
+        return False
+
+    # This is intentionally conservative. It catches obviously Spanish
+    # homepage cards without rejecting English names or foreign locations.
+    spanish_markers = [
+        " en español ",
+        "terremoto",
+        "noticias",
+        "última hora",
+        "mundo ",
+        "venezuela se ",
+        " estados unidos ",
+    ]
+
+    padded_title = f" {title_l} "
+
+    if any(marker in padded_title for marker in spanish_markers):
+        return False
+
+    return True
+
+
+def fetch_cnn_rendered_homepage_candidates():
+    from services.newsmax_chrome import (
+        _close_page,
+        _create_page,
+        _eval,
+        _navigate,
+    )
+
+    homepage_url = "https://www.cnn.com/"
+    target_id = ""
+    ws_url = ""
+
+    try:
+        target_id, ws_url = _create_page()
+        _navigate(ws_url, homepage_url)
+
+        payload = _eval(
+            ws_url,
+            r"""
+(() => {
+    const clean = value => String(value || "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    const visible = element => {
+        if (!element) return false;
+
+        const style = getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+
+        return (
+            style.display !== "none" &&
+            style.visibility !== "hidden" &&
+            Number(style.opacity || 1) > 0 &&
+            rect.width > 40 &&
+            rect.height > 12 &&
+            rect.bottom > 0
+        );
+    };
+
+    const validCnnArticle = href => {
+        try {
+            const url = new URL(href);
+            const host = url.hostname.toLowerCase();
+            const path = url.pathname.toLowerCase();
+
+            if (!(host === "cnn.com" || host.endsWith(".cnn.com"))) {
+                return false;
+            }
+
+            if (!/^\/202\d\//.test(path)) {
+                return false;
+            }
+
+            const blocked = [
+                "/audio/",
+                "/podcasts/",
+                "/videos/",
+                "/video/",
+                "/espanol/",
+                "/cnn-underscored/",
+                "/style/",
+                "/travel/",
+                "/interactive/",
+                "/live-tv/",
+                "/listen/"
+            ];
+
+            return !blocked.some(bit => path.includes(bit));
+        } catch {
+            return false;
+        }
+    };
+
+    const ignoredContainers = [
+        "footer",
+        "nav",
+        "[role='navigation']",
+        "[class*='footer']",
+        "[class*='Footer']",
+        "[class*='podcast']",
+        "[class*='Podcast']",
+        "[class*='audio']",
+        "[class*='Audio']",
+        "[class*='listen']",
+        "[class*='Listen']"
+    ];
+
+    const blockedText = [
+        "chasing life with dr. sanjay gupta",
+        "all there is with anderson cooper",
+        "the assignment with audie cornish",
+        "cnn underscored",
+        "newsletter",
+        "subscribe",
+        "sign up",
+        "listen to",
+        "watch live",
+        "podcast",
+        "audio",
+        "advertisement",
+        "sponsored"
+    ];
+
+    const candidates = [];
+    const seen = new Set();
+
+    for (const link of document.querySelectorAll("a[href]")) {
+        const href = String(link.href || "").trim();
+
+        if (!validCnnArticle(href) || !visible(link)) {
+            continue;
+        }
+
+        if (ignoredContainers.some(selector => link.closest(selector))) {
+            continue;
+        }
+
+        const nodes = [
+            ...link.querySelectorAll(
+                "h1, h2, h3, h4, h5, h6, [class*='headline'], [class*='Headline'], [class*='title'], [class*='Title']"
+            ),
+            link
+        ].filter(visible);
+
+        let bestNode = null;
+        let bestTitle = "";
+        let bestFontSize = 0;
+
+        for (const node of nodes) {
+            const title = clean(node.innerText || node.textContent);
+            const lower = title.toLowerCase();
+
+            if (
+                title.length < 20 ||
+                blockedText.some(bit => lower.includes(bit))
+            ) {
+                continue;
+            }
+
+            const style = getComputedStyle(node);
+            const fontSize = Number.parseFloat(style.fontSize || "0") || 0;
+
+            if (fontSize >= bestFontSize) {
+                bestFontSize = fontSize;
+                bestNode = node;
+                bestTitle = title;
+            }
+        }
+
+        if (!bestNode || !bestTitle) {
+            continue;
+        }
+
+        const headlineRect = bestNode.getBoundingClientRect();
+        const card =
+            link.closest("article") ||
+            link.closest("section") ||
+            link.closest("li") ||
+            link.parentElement ||
+            link;
+
+        const cardRect = card.getBoundingClientRect();
+
+        const key = `${href}|${bestTitle.toLowerCase()}`;
+
+        if (seen.has(key)) {
+            continue;
+        }
+
+        seen.add(key);
+
+        const image =
+            card.querySelector("img[src]") ||
+            link.querySelector("img[src]");
+
+        candidates.push({
+            title: bestTitle,
+            link: href,
+            image_url: image ? String(image.currentSrc || image.src || "") : "",
+            font_size: bestFontSize,
+            top: Math.max(0, headlineRect.top),
+            left: Math.max(0, headlineRect.left),
+            card_area: Math.max(0, cardRect.width * cardRect.height),
+            class_text: `${link.className || ""} ${bestNode.className || ""}`,
+            position: candidates.length + 1
+        });
+    }
+
+    return candidates;
+})()
+""",
+            timeout=25,
+        )
+
+        if not isinstance(payload, list):
+            raise RuntimeError("CNN Chrome resolver returned no candidate list")
+
+        candidates = []
+
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+
+            title = clean_text(item.get("title", ""))
+            link = str(item.get("link", "") or "").strip()
+            image_url = str(item.get("image_url", "") or "").strip()
+
+            if not _cnn_is_english_editorial_candidate(title, link):
+                continue
+
+            font_size = float(item.get("font_size", 0) or 0)
+            top = float(item.get("top", 999999) or 999999)
+            card_area = float(item.get("card_area", 0) or 0)
+
+            # Larger rendered headlines are the strongest lead signal.
+            # Earlier placement breaks ties. Card area helps favor the main
+            # hero package over small rail cards.
+            score = (
+                font_size * 10000
+                - min(top, 6000) * 4
+                + min(card_area, 2_000_000) / 250
+            )
+
+            candidates.append(
+                Candidate(
+                    title=title,
+                    source="CNN",
+                    image_url=image_url,
+                    link=link,
+                    origin="cnn_rendered_homepage",
+                    position=int(item.get("position", 999999) or 999999),
+                    score=score,
+                )
+            )
+
+        candidates = dedupe_candidates(candidates)
+        candidates.sort(key=lambda item: item.score, reverse=True)
+
+        if not candidates:
+            raise RuntimeError(
+                "No usable English editorial CNN homepage candidates found"
+            )
+
+        print("\n===== CNN rendered homepage candidates =====")
+        for index, candidate in enumerate(candidates[:10], start=1):
+            print(
+                f"{index}. score={candidate.score:.1f} "
+                f"font/title={candidate.title}"
+            )
+            print(f"   link={candidate.link}")
+
+        return candidates
+
+    finally:
+        if target_id:
+            _close_page(target_id)
+
+
+def fetch_cnn_homepage_lead_article(source_key="CNN"):
+    candidates = fetch_cnn_rendered_homepage_candidates()
+    selected = candidates[0]
+
+    print(f'SELECTED CNN RENDERED LEAD: "{selected.title}"')
+    print(f"SELECTED CNN RENDERED LINK: {selected.link}")
+
+    return {
+        "source": source_key,
+        "title": selected.title,
+        "link": selected.link,
+        "url": selected.link,
+        "summary": "",
+        "image": selected.image_url,
+        "image_url": selected.image_url,
+        "published": "",
+    }
+
+
+def fetch_ranked_candidates(source_key):
+    normalized_source = normalize_source_key(source_key)
+
+    if normalized_source != "CNN":
+        return _GENERIC_FETCH_RANKED_CANDIDATES(normalized_source)
+
+    candidates = fetch_cnn_rendered_homepage_candidates()
+
+    # The lead card uses the first item. The More Headlines panel already
+    # skips index zero, so it receives the next editorial homepage stories.
+    return "CNN", "CNN", candidates
+
+# ============================================================
+# FINAL CNN RENDERED HOMEPAGE OVERRIDE
+# ============================================================
+
+
+# ============================================================
+# FINAL CNN RENDERED HOMEPAGE OVERRIDE
+# ============================================================
+
+_GENERIC_FETCH_RANKED_CANDIDATES = fetch_generic_ranked_candidates
+
+
+def fetch_cnn_rendered_homepage_candidates():
+    from services.newsmax_chrome import (
+        _close_page,
+        _create_page,
+        _eval,
+        _navigate,
+    )
+
+    target_id = ""
+    ws_url = ""
+
+    try:
+        target_id, ws_url = _create_page()
+        _navigate(ws_url, "https://www.cnn.com/")
+
+        raw_candidates = _eval(
+            ws_url,
+            r"""
+(() => {
+    const clean = value => String(value || "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    const visible = element => {
+        if (!element) return false;
+
+        const style = getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+
+        return (
+            style.display !== "none" &&
+            style.visibility !== "hidden" &&
+            Number(style.opacity || 1) > 0 &&
+            rect.width > 40 &&
+            rect.height > 12 &&
+            rect.bottom > 0
+        );
+    };
+
+    const isCnnArticle = href => {
+        try {
+            const url = new URL(href);
+            const host = url.hostname.toLowerCase();
+            const path = url.pathname.toLowerCase();
+
+            if (!(host === "cnn.com" || host.endsWith(".cnn.com"))) {
+                return false;
+            }
+
+            if (!/^\/202\d\//.test(path)) {
+                return false;
+            }
+
+            const blockedPaths = [
+                "/audio/",
+                "/podcasts/",
+                "/videos/",
+                "/video/",
+                "/espanol/",
+                "/listen/",
+                "/cnn-underscored/",
+                "/style/",
+                "/travel/",
+                "/interactive/"
+            ];
+
+            return !blockedPaths.some(bit => path.includes(bit));
+        } catch {
+            return false;
+        }
+    };
+
+    const blockedText = [
+        "chasing life with dr. sanjay gupta",
+        "all there is with anderson cooper",
+        "the assignment with audie cornish",
+        "podcast",
+        "audio",
+        "newsletter",
+        "subscribe",
+        "sign up",
+        "listen to",
+        "watch live",
+        "advertisement",
+        "sponsored",
+        "en español"
+    ];
+
+    const seen = new Set();
+    const candidates = [];
+
+    for (const link of document.querySelectorAll("a[href]")) {
+        if (!visible(link) || !isCnnArticle(link.href)) {
+            continue;
+        }
+
+        if (
+            link.closest("footer") ||
+            link.closest("nav") ||
+            link.closest("[role='navigation']") ||
+            link.closest("[class*='footer']") ||
+            link.closest("[class*='Footer']") ||
+            link.closest("[class*='podcast']") ||
+            link.closest("[class*='Podcast']") ||
+            link.closest("[class*='audio']") ||
+            link.closest("[class*='Audio']") ||
+            link.closest("[class*='listen']") ||
+            link.closest("[class*='Listen']")
+        ) {
+            continue;
+        }
+
+        const headlineNodes = [
+            ...link.querySelectorAll(
+                "h1, h2, h3, h4, h5, h6, " +
+                "[class*='headline'], [class*='Headline'], " +
+                "[class*='title'], [class*='Title']"
+            ),
+            link
+        ].filter(visible);
+
+        let best = null;
+
+        for (const node of headlineNodes) {
+            const title = clean(node.innerText || node.textContent);
+            const titleLower = title.toLowerCase();
+
+            if (
+                title.length < 20 ||
+                blockedText.some(bit => titleLower.includes(bit))
+            ) {
+                continue;
+            }
+
+            const style = getComputedStyle(node);
+            const rect = node.getBoundingClientRect();
+            const fontSize = Number.parseFloat(style.fontSize || "0") || 0;
+            const fontWeight = Number.parseFloat(style.fontWeight || "0") || 0;
+
+            if (
+                !best ||
+                fontSize > best.fontSize ||
+                (
+                    fontSize === best.fontSize &&
+                    fontWeight > best.fontWeight
+                )
+            ) {
+                best = {
+                    title,
+                    fontSize,
+                    fontWeight,
+                    top: Math.max(0, rect.top),
+                    left: Math.max(0, rect.left),
+                    className: String(node.className || "")
+                };
+            }
+        }
+
+        if (!best) {
+            continue;
+        }
+
+        const key = `${link.href}|${best.title.toLowerCase()}`;
+
+        if (seen.has(key)) {
+            continue;
+        }
+
+        seen.add(key);
+
+        const image =
+            link.querySelector("img[src]") ||
+            (link.closest("article, section, li") || link.parentElement)
+                ?.querySelector?.("img[src]");
+
+        candidates.push({
+            title: best.title,
+            link: link.href,
+            image_url: image
+                ? String(image.currentSrc || image.src || "")
+                : "",
+            font_size: best.fontSize,
+            font_weight: best.fontWeight,
+            top: best.top,
+            left: best.left,
+            class_name: best.className
+        });
+    }
+
+    return candidates;
+})()
+""",
+            timeout=25,
+        )
+
+        candidates = []
+
+        for position, item in enumerate(raw_candidates or [], start=1):
+            if not isinstance(item, dict):
+                continue
+
+            title = clean_text(item.get("title", ""))
+            link = str(item.get("link", "") or "").strip()
+            image_url = str(item.get("image_url", "") or "").strip()
+
+            if not title or not link:
+                continue
+
+            title_lower = title.lower()
+            link_lower = link.lower()
+
+            if (
+                "en español" in title_lower
+                or "terremoto" in title_lower
+                or "cnnespanol.cnn.com" in link_lower
+            ):
+                continue
+
+            font_size = float(item.get("font_size", 0) or 0)
+            font_weight = float(item.get("font_weight", 0) or 0)
+            top = float(item.get("top", 999999) or 999999)
+
+            candidates.append(
+                Candidate(
+                    title=title,
+                    source="CNN",
+                    image_url=image_url,
+                    link=link,
+                    origin="cnn_rendered_font_rank",
+                    position=position,
+                    score=(
+                        font_size * 100000
+                        + font_weight * 10
+                        - min(top, 20000)
+                    ),
+                )
+            )
+
+        candidates = dedupe_candidates(candidates)
+
+        candidates.sort(
+            key=lambda candidate: (
+                -candidate.score,
+                candidate.position,
+            )
+        )
+
+        if not candidates:
+            raise RuntimeError(
+                "No usable rendered English CNN homepage candidates found."
+            )
+
+        print("\n================ CNN FINAL RENDERED RANKING ================")
+
+        for index, candidate in enumerate(candidates[:6], start=1):
+            label = "LEAD" if index == 1 else f"TOP STORY {index - 1}"
+
+            print(f"{label}: {candidate.title}")
+            print(f"  {candidate.link}")
+
+        return candidates
+
+    finally:
+        if target_id:
+            _close_page(target_id)
+
+
+def fetch_cnn_homepage_lead_article(source_key="CNN"):
+    candidates = fetch_cnn_rendered_homepage_candidates()
+    selected = candidates[0]
+
+    # The rendered homepage card can sit inside a large section containing
+    # multiple stories, so its nearest image is not reliably the selected
+    # headline's image. Resolve image metadata from the selected article page.
+    article_page_image = find_page_image_url(selected.link)
+
+    final_image = article_page_image or selected.image_url
+
+    print(f'SELECTED CNN FINAL LEAD: "{selected.title}"')
+    print(f"CNN FINAL LEAD LINK: {selected.link}")
+    print(f"CNN FINAL LEAD IMAGE: {final_image}")
+
+    return {
+        "source": source_key,
+        "title": selected.title,
+        "link": selected.link,
+        "url": selected.link,
+        "summary": "",
+        "image": final_image,
+        "image_url": final_image,
+        "published": "",
+    }
+
+
+def fetch_ranked_candidates(source_key):
+    source_key = normalize_source_key(source_key)
+
+    if source_key == "CNN":
+        return (
+            "CNN",
+            "CNN",
+            fetch_cnn_rendered_homepage_candidates(),
+        )
+
+    return _GENERIC_FETCH_RANKED_CANDIDATES(source_key)
+
+
+def fetch_source_specific_homepage_lead_article(source_key):
+    source_key = normalize_source_key(source_key)
+
+    if source_key == "CNN":
+        return fetch_cnn_homepage_lead_article("CNN")
+
+    if source_key in {"FOX", "FOXNEWS"}:
+        return fetch_fox_homepage_lead_article("FOX")
+
+    raise RuntimeError(
+        f"No source-specific homepage resolver for {source_key}"
+    )
+

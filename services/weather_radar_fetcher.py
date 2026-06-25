@@ -1001,11 +1001,7 @@ def preload_weathercom_radar_loops(
     default_zoom = max(MIN_ZOOM, min(MAX_ZOOM, int(default_zoom)))
 
     if background_zooms is None:
-        background_zooms = [
-            zoom
-            for zoom in range(MIN_ZOOM, MAX_ZOOM + 1)
-            if zoom != default_zoom
-        ]
+        background_zooms = []
 
     ordered_background_zooms = []
 

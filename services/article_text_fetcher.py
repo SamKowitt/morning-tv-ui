@@ -578,6 +578,27 @@ def _fetch_article_text_payload_uncached(url):
     parsed_url = urlparse(str(url or ""))
     hostname = parsed_url.netloc.lower()
 
+    # CNN homepage selection should never point article text at podcast,
+    # audio, or Spanish landing pages. Treat those as invalid sources rather
+    # than showing unrelated text inside a news story popup.
+    if hostname == "cnn.com" or hostname.endswith(".cnn.com"):
+        cnn_path = parsed_url.path.lower()
+
+        blocked_cnn_paths = [
+            "/audio/",
+            "/podcasts/",
+            "/videos/",
+            "/video/",
+            "/espanol/",
+            "/listen/",
+        ]
+
+        if any(bit in cnn_path for bit in blocked_cnn_paths):
+            raise RuntimeError(
+                "CNN URL is not an English editorial article: "
+                + parsed_url.path
+            )
+
     # Newsmax must use Chrome because direct HTTP requests stall on this Mac.
     if hostname == "newsmax.com" or hostname.endswith(".newsmax.com"):
         return fetch_newsmax_article_payload(url)
