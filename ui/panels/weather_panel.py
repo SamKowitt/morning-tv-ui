@@ -12,7 +12,16 @@ from ui.auto_fit_label import AutoFitLabel
 class WeatherRow(QWidget):
     clicked = Signal()
 
-    def __init__(self, temp, icon, hour, condition="clear", is_night=False, is_now=False):
+    def __init__(
+        self,
+        temp,
+        icon,
+        hour,
+        condition="clear",
+        is_night=False,
+        is_now=False,
+        detail_text="",
+    ):
         super().__init__()
 
         self.temp = temp
@@ -62,16 +71,26 @@ class WeatherRow(QWidget):
 
         self.hour_label = AutoFitLabel(
             hour,
-            min_size=10,
-            max_size=26,
+            min_size=9,
+            max_size=24,
             bold=True,
             alignment=Qt.AlignRight | Qt.AlignVCenter,
             word_wrap=False,
         )
 
-        layout.addWidget(self.hour_label, 30)
-        layout.addWidget(self.icon_label, 30)
-        layout.addWidget(self.temp_label, 40)
+        self.detail_label = AutoFitLabel(
+            detail_text,
+            min_size=7,
+            max_size=14,
+            bold=True,
+            alignment=Qt.AlignRight | Qt.AlignVCenter,
+            word_wrap=False,
+        )
+
+        layout.addWidget(self.hour_label, 26)
+        layout.addWidget(self.icon_label, 20)
+        layout.addWidget(self.temp_label, 24)
+        layout.addWidget(self.detail_label, 30)
 
         self.apply_text_colors()
 
@@ -104,6 +123,7 @@ class WeatherRow(QWidget):
         self.temp_label.setStyleSheet(font_css)
         self.icon_label.setStyleSheet(font_css)
         self.hour_label.setStyleSheet(font_css)
+        self.detail_label.setStyleSheet(font_css)
 
     def should_draw_night_art(self):
         return bool(self.is_night)
@@ -182,7 +202,15 @@ class WeatherRow(QWidget):
 
         painter.end()
 
-    def update_weather(self, temperature, icon, time_label, condition, is_night=False):
+    def update_weather(
+        self,
+        temperature,
+        icon,
+        time_label,
+        condition,
+        is_night=False,
+        detail_text="",
+    ):
         temp_text = f"{temperature}°"
 
         # Force lightning storms to use lightning bolt icon everywhere.
@@ -242,6 +270,9 @@ class WeatherRow(QWidget):
 
         if time_label_widget is not None:
             time_label_widget.setText(time_label)
+
+        if hasattr(self, "detail_label"):
+            self.detail_label.setText(detail_text)
 
         # Rain and thunderstorms use dark art even during daytime.
         # Keep time and temperature white whenever that art is active.
@@ -1074,12 +1105,61 @@ class WeatherPanel(QWidget):
             weather_row_widget.show()
             weather_row_widget.is_now = False
             weather_row_widget.weather_data = row
+            detail_parts = []
+
+            precipitation_amount = getattr(
+                row,
+                "precipitation_amount_inches",
+                None,
+            )
+
+            try:
+                precipitation_amount = float(precipitation_amount)
+            except (TypeError, ValueError):
+                precipitation_amount = 0.0
+
+            condition = str(
+                getattr(row, "condition", "") or ""
+            ).strip().lower()
+
+            if precipitation_amount >= 0.005:
+                precipitation_text = (
+                    f"{precipitation_amount:.2f}".rstrip("0").rstrip(".")
+                )
+                detail_parts.append(f'{precipitation_text}"')
+            elif condition in {"rain", "storm"}:
+                precipitation_probability = getattr(
+                    row,
+                    "precipitation_probability",
+                    None,
+                )
+
+                try:
+                    precipitation_probability = int(
+                        precipitation_probability
+                    )
+                except (TypeError, ValueError):
+                    precipitation_probability = None
+
+                if precipitation_probability is not None:
+                    detail_parts.append(
+                        f"{max(0, min(100, precipitation_probability))}%"
+                    )
+
+            solar_event_time = str(
+                getattr(row, "solar_event_time", "") or ""
+            ).strip()
+
+            if solar_event_time:
+                detail_parts.append(solar_event_time)
+
             weather_row_widget.update_weather(
                 temperature=row.temperature,
                 icon=row.icon,
                 time_label=row.time_label,
                 condition=row.condition,
                 is_night=row.is_night,
+                detail_text="\n".join(detail_parts),
             )
 
         first_label = (

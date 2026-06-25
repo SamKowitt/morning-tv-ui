@@ -21,6 +21,8 @@ class WeatherRow:
     detailed_forecast: str = ""
     wind_speed: str = ""
     precipitation_probability: int | None = None
+    precipitation_amount_inches: float | None = None
+    solar_event_time: str = ""
     source: str = "NWS"
 
 
@@ -88,6 +90,121 @@ def format_hour_label(iso_time):
         return value.strftime("%-I%p").lower()
     except Exception:
         return ""
+
+
+def format_clock_time(iso_time, timezone_name=TIMEZONE):
+    if not iso_time:
+        return ""
+
+    try:
+        value = datetime.fromisoformat(str(iso_time).replace("Z", "+00:00"))
+
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=ZoneInfo(timezone_name))
+        else:
+            value = value.astimezone(ZoneInfo(timezone_name))
+
+        return value.strftime("%-I:%M%p").lower()
+    except Exception:
+        return ""
+
+
+def local_hour_key(iso_time, timezone_name=TIMEZONE):
+    if not iso_time:
+        return None
+
+    try:
+        value = datetime.fromisoformat(str(iso_time).replace("Z", "+00:00"))
+
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=ZoneInfo(timezone_name))
+        else:
+            value = value.astimezone(ZoneInfo(timezone_name))
+
+        return value.replace(minute=0, second=0, microsecond=0)
+    except Exception:
+        return None
+
+
+def fetch_open_meteo_hourly_display_details(location):
+    """Return supplemental hourly rain totals and sunrise/sunset display times.
+
+    NWS remains the primary forecast source. This request only fills display
+    details that NWS hourly periods do not consistently provide.
+    """
+    params = {
+        "latitude": location.latitude,
+        "longitude": location.longitude,
+        "hourly": "precipitation",
+        "daily": "sunrise,sunset",
+        "precipitation_unit": "mm",
+        "timezone": location.timezone,
+        "forecast_days": 3,
+    }
+
+    url = OPEN_METEO_URL + "?" + urllib.parse.urlencode(params)
+    data = fetch_json(url)
+
+    hourly = data.get("hourly", {}) or {}
+    hourly_times = hourly.get("time", []) or []
+    hourly_precipitation = hourly.get("precipitation", []) or []
+
+    precipitation_by_hour = {}
+
+    for index, time_value in enumerate(hourly_times):
+        hour_key = local_hour_key(time_value, location.timezone)
+
+        if hour_key is None or index >= len(hourly_precipitation):
+            continue
+
+        try:
+            millimeters = float(hourly_precipitation[index])
+        except Exception:
+            continue
+
+        if millimeters > 0:
+            precipitation_by_hour[hour_key] = millimeters / 25.4
+
+    daily = data.get("daily", {}) or {}
+    solar_event_by_hour = {}
+
+    for event_name in ("sunrise", "sunset"):
+        for event_time in daily.get(event_name, []) or []:
+            hour_key = local_hour_key(event_time, location.timezone)
+            display_time = format_clock_time(event_time, location.timezone)
+
+            if hour_key is not None and display_time:
+                solar_event_by_hour[hour_key] = display_time
+
+    return precipitation_by_hour, solar_event_by_hour
+
+
+def apply_open_meteo_hourly_display_details(rows, location):
+    try:
+        precipitation_by_hour, solar_event_by_hour = (
+            fetch_open_meteo_hourly_display_details(location)
+        )
+    except Exception as error:
+        print(f"Open-Meteo hourly display details unavailable: {error}")
+        return rows
+
+    for row in rows:
+        hour_key = local_hour_key(
+            getattr(row, "forecast_start", ""),
+            location.timezone,
+        )
+
+        if hour_key is None:
+            continue
+
+        condition = str(getattr(row, "condition", "") or "").lower()
+
+        if condition in {"rain", "storm"}:
+            row.precipitation_amount_inches = precipitation_by_hour.get(hour_key)
+
+        row.solar_event_time = solar_event_by_hour.get(hour_key, "")
+
+    return rows
 
 def is_day_from_nws_period(period):
     nws_is_day = period.get("isDay", None)
@@ -492,6 +609,8 @@ def fetch_weather_rows_from_nws(max_rows=9, location=None):
         observation=observation,
     )
 
+    rows = apply_open_meteo_hourly_display_details(rows, location)
+
     print(f"Loaded NWS weather rows for {location.zip_code}: {len(rows)}")
 
     return rows
@@ -580,6 +699,8 @@ def fetch_weather_rows_from_open_meteo(max_rows=9, location=None):
                 source="Open-Meteo",
             )
         )
+
+    rows = apply_open_meteo_hourly_display_details(rows, location)
 
     print(f"Loaded Open-Meteo weather rows for {location.zip_code}: {len(rows)}")
 
