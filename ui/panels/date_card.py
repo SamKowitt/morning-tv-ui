@@ -219,6 +219,7 @@ class DateCard(QWidget):
             time_label=row.time_label or "now",
             condition=row.condition,
             is_night=row.is_night,
+            moon_datetime=datetime.now().astimezone(),
         )
 
         for label in self.background_weather_row.findChildren(QLabel):
