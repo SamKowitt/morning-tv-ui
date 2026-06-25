@@ -31,3 +31,7 @@ env/
 dist/
 build/
 *.egg-info/
+
+# Local patch backups and disposable debugging scripts
+*.before_*
+tools/debug_*.py
