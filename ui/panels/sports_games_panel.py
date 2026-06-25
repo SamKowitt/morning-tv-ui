@@ -1392,7 +1392,7 @@ class SportsGamesPanel(QWidget):
         detail = game.get("detail", "")
 
         time_width = 58 if compact else 66
-        time_font = QFont("Times New Roman", 10)
+        time_font = QFont("Times New Roman", 10 if compact else 14)
         time_font.setBold(True)
         painter.setFont(time_font)
         painter.setPen(QColor("#25190d"))
@@ -1514,14 +1514,22 @@ class SportsGamesPanel(QWidget):
             painter.setFont(detail_font)
             painter.setPen(QColor("#4f3c25"))
             detail_height = 18 if compact else 21
+
+            # Keep probable pitchers visually centered in the open space
+            # between the matchup above and the rule below, rather than
+            # bottom-aligning them against the divider.
+            detail_top = row.top() + (
+                row.height() * (0.54 if compact else 0.52)
+            )
+
             painter.drawText(
                 QRectF(
                     left,
-                    row.bottom() - detail_height - 5,
+                    detail_top,
                     width,
                     detail_height,
                 ),
-                Qt.AlignLeft | Qt.AlignBottom,
+                Qt.AlignLeft | Qt.AlignVCenter,
                 detail_text,
             )
 
