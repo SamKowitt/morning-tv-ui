@@ -993,6 +993,7 @@ def preload_weathercom_radar_loops(
     location_label="",
     default_zoom=ZOOM,
     background_zooms=None,
+    should_cancel=None,
 ):
     ready = 0
     failed = 0
@@ -1049,6 +1050,10 @@ def preload_weathercom_radar_loops(
     preload_passes = [default_zoom] + ordered_background_zooms
 
     for zoom in preload_passes:
+        if callable(should_cancel) and should_cancel():
+            print("Radar preload cancelled before next zoom pass.")
+            break
+
         pass_name = (
             "default"
             if zoom == default_zoom
@@ -1061,6 +1066,14 @@ def preload_weathercom_radar_loops(
         )
 
         for selected_start_utc, selected_end_utc in unique_windows:
+            if callable(should_cancel) and should_cancel():
+                print("Radar preload cancelled before next radar window.")
+                return {
+                    "ready": ready,
+                    "failed": failed,
+                    "requested": len(unique_windows) * len(preload_passes),
+                }
+
             try:
                 frames = fetch_weathercom_radar_frames(
                     latitude=latitude,

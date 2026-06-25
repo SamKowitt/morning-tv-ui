@@ -88,8 +88,8 @@ class WeatherRow(QWidget):
 
         self.temp_label = AutoFitLabel(
             f"{temp}°",
-            min_size=10,
-            max_size=26,
+            min_size=15,
+            max_size=36,
             bold=True,
             alignment=Qt.AlignLeft | Qt.AlignVCenter,
             word_wrap=False,
@@ -1338,8 +1338,17 @@ class WeatherPanel(QWidget):
                 getattr(row, "solar_event_time", "") or ""
             ).strip()
 
+            solar_event_label = str(
+                getattr(row, "solar_event_label", "") or ""
+            ).strip().lower()
+
             if solar_event_time:
-                detail_parts.append(solar_event_time)
+                if solar_event_label in {"sunrise", "sunset"}:
+                    detail_parts.append(
+                        f"{solar_event_time}\n{solar_event_label}"
+                    )
+                else:
+                    detail_parts.append(solar_event_time)
 
             weather_row_widget.update_weather(
                 temperature=row.temperature,

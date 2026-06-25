@@ -23,6 +23,7 @@ class WeatherRow:
     precipitation_probability: int | None = None
     precipitation_amount_inches: float | None = None
     solar_event_time: str = ""
+    solar_event_label: str = ""
     source: str = "NWS"
 
 
@@ -174,7 +175,10 @@ def fetch_open_meteo_hourly_display_details(location):
             display_time = format_clock_time(event_time, location.timezone)
 
             if hour_key is not None and display_time:
-                solar_event_by_hour[hour_key] = display_time
+                solar_event_by_hour[hour_key] = (
+                    display_time,
+                    event_name,
+                )
 
     return precipitation_by_hour, solar_event_by_hour
 
@@ -202,7 +206,14 @@ def apply_open_meteo_hourly_display_details(rows, location):
         if condition in {"rain", "storm"}:
             row.precipitation_amount_inches = precipitation_by_hour.get(hour_key)
 
-        row.solar_event_time = solar_event_by_hour.get(hour_key, "")
+        solar_event = solar_event_by_hour.get(hour_key)
+
+        if solar_event:
+            row.solar_event_time = solar_event[0]
+            row.solar_event_label = solar_event[1]
+        else:
+            row.solar_event_time = ""
+            row.solar_event_label = ""
 
     return rows
 
@@ -707,16 +718,339 @@ def fetch_weather_rows_from_open_meteo(max_rows=9, location=None):
     return rows
 
 
-def fetch_weather_rows(max_rows=9, zip_code=None):
-    location = validate_zip_code(zip_code or ZIP_CODE)
+
+
+@dataclass
+class WeatherLocation:
+    zip_code: str
+    label: str
+    latitude: float
+    longitude: float
+    timezone: str = "America/New_York"
+    address: str = ""
+
+
+ARCGIS_GEOCODER_URL = (
+    "https://geocode.arcgis.com/arcgis/rest/services/"
+    "World/GeocodeServer/findAddressCandidates"
+)
+
+
+def _request_location_json(url, params, timeout=6):
+    request_url = url + "?" + urllib.parse.urlencode(params)
+
+    request = urllib.request.Request(
+        request_url,
+        headers={
+            "User-Agent": "MorningTVUI/1.0 local-dashboard",
+            "Accept": "application/json,*/*",
+        },
+    )
+
+    with urllib.request.urlopen(
+        request,
+        timeout=timeout,
+        context=SSL_CONTEXT,
+    ) as response:
+        return json.loads(
+            response.read().decode("utf-8", errors="ignore")
+        )
+
+
+def _clean_location_query_variants(query):
+    query = " ".join(str(query or "").strip().split())
+
+    if not query:
+        return []
+
+    variants = [query]
+
+    lowered = query.lower()
+
+    # A typed apartment/unit suffix often prevents a street-address match.
+    # Keep the original first, then try the street/city/state without it.
+    removable_suffixes = (
+        " apt ",
+        " apartment ",
+        " unit ",
+        " suite ",
+        " #",
+    )
+
+    for suffix in removable_suffixes:
+        position = lowered.rfind(suffix)
+
+        if position > 0:
+            simplified = query[:position].strip()
+
+            if simplified and simplified not in variants:
+                variants.append(simplified)
+
+            break
+
+    # Also handle a final one-to-four digit unit written without "apt".
+    parts = query.split()
+
+    if (
+        len(parts) >= 5
+        and parts[-1].isdigit()
+        and len(parts[-1]) <= 4
+    ):
+        simplified = " ".join(parts[:-1]).strip()
+
+        if simplified and simplified not in variants:
+            variants.append(simplified)
+
+    return variants[:3]
+
+
+def _location_from_arcgis_candidate(candidate):
+    location_data = candidate.get("location", {}) or {}
+    attributes = candidate.get("attributes", {}) or {}
 
     try:
-        return fetch_weather_rows_from_nws(max_rows=max_rows, location=location)
+        longitude = float(location_data.get("x"))
+        latitude = float(location_data.get("y"))
+    except Exception:
+        raise ValueError("Address result did not include usable coordinates.")
+
+    address = str(
+        candidate.get("address")
+        or attributes.get("Match_addr")
+        or ""
+    ).strip()
+
+    if not address:
+        raise ValueError("Address result did not include a display label.")
+
+    postcode = str(
+        attributes.get("Postal")
+        or attributes.get("ZIP")
+        or ""
+    ).strip()
+
+    zip_digits = "".join(
+        character
+        for character in postcode
+        if character.isdigit()
+    )[:5]
+
+    return WeatherLocation(
+        zip_code=zip_digits,
+        label=address,
+        address=address,
+        latitude=latitude,
+        longitude=longitude,
+        timezone=TIMEZONE,
+    )
+
+
+def _location_from_nominatim_item(item):
+    display_name = str(item.get("display_name", "") or "").strip()
+
+    try:
+        latitude = float(item.get("lat"))
+        longitude = float(item.get("lon"))
+    except Exception:
+        raise ValueError("Address result did not include usable coordinates.")
+
+    address_data = item.get("address", {}) or {}
+    postcode = str(address_data.get("postcode", "") or "").strip()
+
+    zip_digits = "".join(
+        character
+        for character in postcode
+        if character.isdigit()
+    )[:5]
+
+    if not display_name:
+        raise ValueError("Address result did not include a display label.")
+
+    return WeatherLocation(
+        zip_code=zip_digits,
+        label=display_name,
+        address=display_name,
+        latitude=latitude,
+        longitude=longitude,
+        timezone=TIMEZONE,
+    )
+
+
+def _fetch_arcgis_address_suggestions(query, max_results):
+    results = []
+
+    for query_variant in _clean_location_query_variants(query):
+        try:
+            payload = _request_location_json(
+                ARCGIS_GEOCODER_URL,
+                {
+                    "SingleLine": query_variant,
+                    "countryCode": "USA",
+                    "maxLocations": max_results,
+                    "outFields": "Match_addr,Postal,Addr_type",
+                    "f": "json",
+                },
+            )
+        except Exception as error:
+            print(f"ArcGIS address lookup failed: {error}")
+            continue
+
+        for candidate in payload.get("candidates", []) or []:
+            try:
+                location = _location_from_arcgis_candidate(candidate)
+            except Exception:
+                continue
+
+            if location.label:
+                results.append(location)
+
+        if results:
+            break
+
+    return results
+
+
+def _fetch_nominatim_address_suggestions(query, max_results):
+    results = []
+
+    for query_variant in _clean_location_query_variants(query):
+        params = {
+            "q": query_variant,
+            "format": "jsonv2",
+            "addressdetails": 1,
+            "limit": max_results,
+            "countrycodes": "us",
+            "dedupe": 1,
+        }
+
+        try:
+            payload = _request_location_json(
+                "https://nominatim.openstreetmap.org/search",
+                params,
+            )
+        except Exception as error:
+            print(f"Nominatim address lookup failed: {error}")
+            continue
+
+        for item in payload if isinstance(payload, list) else []:
+            try:
+                location = _location_from_nominatim_item(item)
+            except Exception:
+                continue
+
+            if location.label:
+                results.append(location)
+
+        if results:
+            break
+
+    return results
+
+
+def fetch_address_suggestions(query, max_results=6):
+    """Return selectable U.S. address/place suggestions with coordinates."""
+    query = str(query or "").strip()
+
+    if len(query) < 3:
+        return []
+
+    max_results = max(1, min(int(max_results), 8))
+
+    suggestions = _fetch_arcgis_address_suggestions(
+        query,
+        max_results,
+    )
+
+    if not suggestions:
+        suggestions = _fetch_nominatim_address_suggestions(
+            query,
+            max_results,
+        )
+
+    unique = {}
+    for location in suggestions:
+        key = (
+            round(float(location.latitude), 6),
+            round(float(location.longitude), 6),
+            str(location.label).strip().lower(),
+        )
+
+        if key not in unique:
+            unique[key] = location
+
+    final_results = list(unique.values())[:max_results]
+
+    print(
+        f"Address suggestions for {query!r}: "
+        f"{len(final_results)} result(s)"
+    )
+
+    return final_results
+
+
+def validate_zip_code(zip_code):
+    """Legacy ZIP validation retained for older saved settings."""
+    cleaned_zip = "".join(ch for ch in str(zip_code or "") if ch.isdigit())
+
+    if len(cleaned_zip) != 5:
+        raise ValueError("Enter a valid 5-digit ZIP code.")
+
+    url = f"https://api.zippopotam.us/us/{cleaned_zip}"
+
+    try:
+        data = fetch_json(url, timeout=5)
+    except Exception:
+        raise ValueError(f"ZIP code {cleaned_zip} was not found.")
+
+    places = data.get("places", [])
+
+    if not places:
+        raise ValueError(f"ZIP code {cleaned_zip} was not found.")
+
+    place = places[0]
+
+    try:
+        latitude = float(place.get("latitude"))
+        longitude = float(place.get("longitude"))
+    except Exception:
+        raise ValueError(
+            f"ZIP code {cleaned_zip} did not return a usable location."
+        )
+
+    city = str(place.get("place name", "") or "").strip()
+    state = str(place.get("state abbreviation", "") or "").strip()
+
+    label = f"{city}, {state}".strip(", ")
+
+    if not label:
+        label = cleaned_zip
+
+    return WeatherLocation(
+        zip_code=cleaned_zip,
+        label=label,
+        address=label,
+        latitude=latitude,
+        longitude=longitude,
+        timezone=TIMEZONE,
+    )
+
+
+def fetch_weather_rows(max_rows=9, zip_code=None, location=None):
+    location = location or validate_zip_code(zip_code or ZIP_CODE)
+
+    try:
+        return fetch_weather_rows_from_nws(
+            max_rows=max_rows,
+            location=location,
+        )
     except Exception as error:
         print(f"NWS weather failed, falling back to Open-Meteo: {error}")
 
     try:
-        return fetch_weather_rows_from_open_meteo(max_rows=max_rows, location=location)
+        return fetch_weather_rows_from_open_meteo(
+            max_rows=max_rows,
+            location=location,
+        )
     except Exception as error:
         print(f"Open-Meteo weather failed: {error}")
 
@@ -731,54 +1065,3 @@ def fetch_weather_rows(max_rows=9, zip_code=None):
         WeatherRow("--", "🌙", "7pm", "clear", True),
         WeatherRow("--", "🌙", "8pm", "clear", True),
     ][:max_rows]
-
-
-@dataclass
-class WeatherLocation:
-    zip_code: str
-    label: str
-    latitude: float
-    longitude: float
-    timezone: str = "America/New_York"
-
-    def validate_zip_code(zip_code):
-        cleaned_zip = "".join(ch for ch in str(zip_code or "") if ch.isdigit())
-
-        if len(cleaned_zip) != 5:
-            raise ValueError("Enter a valid 5-digit ZIP code.")
-
-        url = f"https://api.zippopotam.us/us/{cleaned_zip}"
-
-        try:
-            data = fetch_json(url, timeout=5)
-        except Exception:
-            raise ValueError(f"ZIP code {cleaned_zip} was not found.")
-
-        places = data.get("places", [])
-
-        if not places:
-            raise ValueError(f"ZIP code {cleaned_zip} was not found.")
-
-        place = places[0]
-
-        try:
-            latitude = float(place.get("latitude"))
-            longitude = float(place.get("longitude"))
-        except Exception:
-            raise ValueError(f"ZIP code {cleaned_zip} did not return a usable location.")
-
-        city = place.get("place name", "")
-        state = place.get("state abbreviation", "")
-
-        label = cleaned_zip
-
-        if city and state:
-            label = f"{cleaned_zip} — {city}, {state}"
-
-        return WeatherLocation(
-            zip_code=cleaned_zip,
-            label=label,
-            latitude=latitude,
-            longitude=longitude,
-            timezone=TIMEZONE,
-        )

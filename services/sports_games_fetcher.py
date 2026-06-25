@@ -454,7 +454,14 @@ def format_mlb_time(game):
         half = linescore.get("inningHalf", "")
 
         if inning and half:
-            return f"{half} {inning}"
+            half_label = str(half).strip()
+
+            if half_label.lower() == "bottom":
+                half_label = "Bot"
+            elif half_label.lower() == "top":
+                half_label = "Top"
+
+            return f"{half_label} {inning}"
 
         return "LIVE"
 

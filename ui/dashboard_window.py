@@ -37,6 +37,8 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
+    QListWidget,
+    QListWidgetItem,
 )
 
 from services.news_fetcher import (
@@ -54,7 +56,12 @@ from services.sports_games_fetcher import (
 )
 from services.sports_news_fetcher import fetch_espn_sports_articles
 from services.stock_fetcher import INDEX_SYMBOLS, STOCK_SYMBOLS, fetch_market_data, fetch_market_data_for_symbols
-from services.weather_fetcher import fetch_weather_rows, validate_zip_code
+from services.weather_fetcher import (
+    WeatherLocation,
+    fetch_address_suggestions,
+    fetch_weather_rows,
+    validate_zip_code,
+)
 from services.weather_radar_fetcher import preload_weathercom_radar_loops
 from services.apple_calendar_fetcher import fetch_dashboard_calendar_events
 from services.article_text_fetcher import prefetch_article_text_payload
@@ -99,16 +106,38 @@ class WeatherFetchWorker(QObject):
     finished = Signal(object)
     failed = Signal(str)
 
-    def __init__(self, zip_code="44865"):
+    def __init__(self, location):
         super().__init__()
-        self.zip_code = zip_code
+        self.location = location
 
     def run(self):
         try:
-            rows = fetch_weather_rows(max_rows=10, zip_code=self.zip_code)
+            rows = fetch_weather_rows(
+                max_rows=10,
+                location=self.location,
+            )
             self.finished.emit(rows)
         except Exception as error:
             self.failed.emit(str(error))
+
+
+class AddressSuggestionWorker(QObject):
+    finished = Signal(str, object)
+    failed = Signal(str, str)
+
+    def __init__(self, query):
+        super().__init__()
+        self.query = str(query or "").strip()
+
+    def run(self):
+        try:
+            suggestions = fetch_address_suggestions(
+                self.query,
+                max_results=8,
+            )
+            self.finished.emit(self.query, suggestions)
+        except Exception as error:
+            self.failed.emit(self.query, str(error))
 
 
 class WeatherRadarPreloadWorker(QObject):
@@ -141,6 +170,9 @@ class WeatherRadarPreloadWorker(QObject):
                 location_label=self.location_label,
                 default_zoom=self.default_zoom,
                 background_zooms=self.background_zooms,
+                should_cancel=lambda: (
+                    QThread.currentThread().isInterruptionRequested()
+                ),
             )
 
             self.finished.emit(
@@ -501,9 +533,23 @@ class DashboardWindow(QMainWindow):
         self.replace_market_tape_with_news = self.load_saved_market_news_setting()
         self.hide_reminders = self.load_saved_hide_reminders_setting()
 
-        self.weather_zip_code = self.load_saved_weather_zip()
+        self.weather_location = self.load_saved_weather_location()
+        self.weather_zip_code = self.weather_location.zip_code or ZIP_CODE
+        self.weather_location_label = self.weather_location.label
+        self.weather_location_suggestions = {}
+        self.selected_weather_location = self.weather_location
 
-        self.weather_location_label = self.load_saved_weather_location_label()
+        self.weather_address_suggestion_thread = None
+        self.weather_address_suggestion_worker = None
+        self.weather_address_pending_query = ""
+        self.weather_address_active_query = ""
+
+        self.weather_address_debounce_timer = QTimer(self)
+        self.weather_address_debounce_timer.setSingleShot(True)
+        self.weather_address_debounce_timer.setInterval(350)
+        self.weather_address_debounce_timer.timeout.connect(
+            self.start_weather_address_suggestion_fetch
+        )
 
         self.stock_index_symbols = self.load_saved_stock_index_symbols()
         self.stock_favorite_symbols = self.load_saved_stock_favorite_symbols()
@@ -751,50 +797,328 @@ class DashboardWindow(QMainWindow):
         )
 
     def load_saved_weather_zip(self):
-        saved_zip = str(self.saved_settings.value("weather_zip_code", "44865") or "44865")
+        saved_zip = str(
+            self.saved_settings.value("weather_zip_code", "44865") or "44865"
+        )
         cleaned_zip = "".join(ch for ch in saved_zip if ch.isdigit())
 
-        if len(cleaned_zip) == 5:
-            return cleaned_zip
+        return cleaned_zip if len(cleaned_zip) == 5 else "44865"
 
-        return "44865"
-
-    def load_saved_weather_location_label(self):
-        saved_label = str(
-            self.saved_settings.value("weather_location_label", "") or ""
+    def load_saved_weather_location(self):
+        raw_location = str(
+            self.saved_settings.value("weather_location_json", "") or ""
         ).strip()
 
-        # If we already saved a real city/state label, use it.
-        if saved_label and not saved_label.isdigit():
-            return saved_label
+        if raw_location:
+            try:
+                payload = json.loads(raw_location)
 
-        # Otherwise resolve the saved ZIP into city/state.
-        try:
-            location = validate_zip_code(self.weather_zip_code)
-            return self.city_name_from_weather_location(location)
-        except Exception as error:
-            print(f"Could not resolve saved weather ZIP location label: {error}")
+                location = WeatherLocation(
+                    zip_code=str(payload.get("zip_code", "") or ""),
+                    label=str(payload.get("label", "") or ""),
+                    address=str(payload.get("address", "") or ""),
+                    latitude=float(payload["latitude"]),
+                    longitude=float(payload["longitude"]),
+                    timezone=str(
+                        payload.get("timezone", "America/New_York")
+                        or "America/New_York"
+                    ),
+                )
 
-        return ""
+                if location.label:
+                    return location
+            except Exception as error:
+                print(f"Saved address location could not be restored: {error}")
+
+        # Migrate existing ZIP-only preferences once.
+        return validate_zip_code(self.load_saved_weather_zip())
+
+    def load_saved_weather_location_label(self):
+        return self.weather_location.label
 
     def city_name_from_weather_location(self, location):
-        label = getattr(location, "label", "") or ""
-        zip_code = getattr(location, "zip_code", self.weather_zip_code)
+        """Return a compact city-only label for the DateCard."""
+        raw_label = str(
+            getattr(location, "address", "")
+            or getattr(location, "label", "")
+            or ""
+        ).strip()
 
-        # Expected label format: "44865 — North Fairfield, OH"
-        if "—" in label:
-            return label.split("—", 1)[1].strip()
+        if not raw_label:
+            return ""
 
-        if "-" in label:
-            return label.split("-", 1)[1].strip()
+        # Legacy ZIP labels look like: "32135 — Palm Coast, FL".
+        if " — " in raw_label:
+            raw_label = raw_label.split(" — ", 1)[1].strip()
 
-        cleaned = label.replace(str(zip_code), "").strip()
-        cleaned = cleaned.strip("-").strip("—").strip()
+        parts = [
+            part.strip()
+            for part in raw_label.split(",")
+            if part.strip()
+        ]
 
-        return cleaned or ""
+        if not parts:
+            return raw_label
+
+        state_names = {
+            "alabama", "alaska", "arizona", "arkansas", "california",
+            "colorado", "connecticut", "delaware", "florida", "georgia",
+            "hawaii", "idaho", "illinois", "indiana", "iowa", "kansas",
+            "kentucky", "louisiana", "maine", "maryland",
+            "massachusetts", "michigan", "minnesota", "mississippi",
+            "missouri", "montana", "nebraska", "nevada",
+            "new hampshire", "new jersey", "new mexico", "new york",
+            "north carolina", "north dakota", "ohio", "oklahoma",
+            "oregon", "pennsylvania", "rhode island", "south carolina",
+            "south dakota", "tennessee", "texas", "utah", "vermont",
+            "virginia", "washington", "west virginia", "wisconsin",
+            "wyoming", "district of columbia",
+        }
+
+        while parts:
+            tail = parts[-1].strip()
+            tail_lower = tail.lower()
+
+            is_zip_only = (
+                tail.replace("-", "").isdigit()
+                and len(tail.replace("-", "")) in {5, 9}
+            )
+
+            is_state_or_state_zip = (
+                tail_lower in state_names
+                or len(tail) == 2 and tail.isalpha() and tail.upper() == tail
+                or any(
+                    state_name in tail_lower
+                    for state_name in state_names
+                )
+            )
+
+            if is_zip_only or is_state_or_state_zip:
+                parts.pop()
+                continue
+
+            break
+
+        if not parts:
+            return raw_label
+
+        # Address results normally end as:
+        # "street address, City, State, ZIP"
+        # After state/ZIP removal, City is the last remaining segment.
+        return parts[-1].strip()
+
+    def save_weather_location_setting(self):
+        location = self.weather_location
+
+        payload = {
+            "zip_code": location.zip_code,
+            "label": location.label,
+            "address": location.address or location.label,
+            "latitude": location.latitude,
+            "longitude": location.longitude,
+            "timezone": location.timezone,
+        }
+
+        self.saved_settings.setValue(
+            "weather_location_json",
+            json.dumps(payload),
+        )
+        self.saved_settings.setValue(
+            "weather_zip_code",
+            location.zip_code,
+        )
+        self.saved_settings.setValue(
+            "weather_location_label",
+            location.label,
+        )
+        self.saved_settings.sync()
+
+        print(
+            "Saved weather location -> "
+            f"{location.label} ({location.latitude}, {location.longitude})"
+        )
+
+    def refresh_weather_address_suggestions(self, query):
+        query = str(query or "").strip()
+        self.weather_address_pending_query = query
+        self.selected_weather_location = None
+
+        if len(query) < 3:
+            self.weather_address_debounce_timer.stop()
+            self.weather_address_suggestion_model.setStringList([])
+            self.weather_location_suggestions = {}
+            self.clear_weather_address_suggestion_buttons()
+            return
+
+        self.weather_address_debounce_timer.start()
+
+    def start_weather_address_suggestion_fetch(self):
+        query = str(self.weather_address_pending_query or "").strip()
+
+        if len(query) < 3:
+            return
+
+        active_thread = self.weather_address_suggestion_thread
+
+        if active_thread is not None and active_thread.isRunning():
+            return
+
+        self.weather_address_active_query = query
+
+        thread = QThread(self)
+        worker = AddressSuggestionWorker(query)
+        worker.moveToThread(thread)
+
+        thread.started.connect(worker.run)
+        worker.finished.connect(
+            self.apply_weather_address_suggestions
+        )
+        worker.failed.connect(
+            self.handle_weather_address_suggestion_failure
+        )
+
+        worker.finished.connect(thread.quit)
+        worker.failed.connect(thread.quit)
+
+        thread.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+
+        self.weather_address_suggestion_thread = thread
+        self.weather_address_suggestion_worker = worker
+
+        thread.start()
+
+    def apply_weather_address_suggestions(self, query, suggestions):
+        current_query = str(
+            self.weather_location_input.text() or ""
+        ).strip()
+
+        self.weather_address_suggestion_thread = None
+        self.weather_address_suggestion_worker = None
+
+        if query != current_query:
+            if len(current_query) >= 3:
+                QTimer.singleShot(
+                    0,
+                    self.start_weather_address_suggestion_fetch,
+                )
+            return
+
+        self.weather_location_suggestions = {
+            suggestion.label: suggestion
+            for suggestion in (suggestions or [])
+            if str(getattr(suggestion, "label", "") or "").strip()
+        }
+
+        labels = list(self.weather_location_suggestions.keys())
+
+        self.weather_address_suggestion_model.setStringList(labels)
+        self.render_weather_address_suggestion_buttons(labels)
+
+        if labels:
+            print(f"Showing {len(labels)} address suggestion button(s).")
+        else:
+            print(f"No address suggestions returned for: {query}")
+
+    def handle_weather_address_suggestion_failure(self, query, error):
+        current_query = str(
+            self.weather_location_input.text() or ""
+        ).strip()
+
+        print(
+            f"Address suggestion lookup failed for {query!r}: {error}"
+        )
+
+        self.weather_address_suggestion_thread = None
+        self.weather_address_suggestion_worker = None
+
+        if query != current_query and len(current_query) >= 3:
+            QTimer.singleShot(
+                0,
+                self.start_weather_address_suggestion_fetch,
+            )
+
+    def clear_weather_address_suggestion_buttons(self):
+        popup = getattr(
+            self,
+            "weather_address_suggestion_popup",
+            None,
+        )
+
+        if popup is None:
+            return
+
+        popup.clear()
+        popup.hide()
+
+    def render_weather_address_suggestion_buttons(self, labels):
+        popup = getattr(
+            self,
+            "weather_address_suggestion_popup",
+            None,
+        )
+
+        if popup is None:
+            return
+
+        popup.clear()
+
+        if not labels:
+            popup.hide()
+            return
+
+        for label in labels[:8]:
+            item = QListWidgetItem(label)
+            item.setData(Qt.UserRole, label)
+            item.setToolTip(label)
+            popup.addItem(item)
+
+        item_height = 38
+        visible_items = min(len(labels), 6)
+        popup_height = max(42, (visible_items * item_height) + 10)
+
+        input_width = self.weather_location_input.width()
+        popup_width = max(420, input_width)
+
+        global_position = self.weather_location_input.mapToGlobal(
+            self.weather_location_input.rect().bottomLeft()
+        )
+
+        popup.setFixedWidth(popup_width)
+        popup.setFixedHeight(popup_height)
+        popup.move(global_position.x(), global_position.y() + 3)
+        popup.show()
+        popup.raise_()
+
+        # The overlay must never take focus away from the field being typed.
+        self.weather_location_input.setFocus(
+            Qt.OtherFocusReason
+        )
+
+    def select_weather_address_popup_item(self, item):
+        if item is None:
+            return
+
+        label = str(item.data(Qt.UserRole) or item.text() or "").strip()
+        self.select_weather_address_suggestion(label)
+
+    def select_weather_address_suggestion(self, label):
+        label = str(label or "").strip()
+        selected = self.weather_location_suggestions.get(label)
+
+        if selected is None:
+            return
+
+        self.selected_weather_location = selected
+        self.weather_location_input.blockSignals(True)
+        self.weather_location_input.setText(selected.label)
+        self.weather_location_input.blockSignals(False)
+        self.clear_weather_address_suggestion_buttons()
 
     def install_date_card_location_label(self):
-        initial_text = self.weather_location_label or ""
+        initial_text = self.city_name_from_weather_location(
+            self.weather_location
+        )
 
         self.date_location_label = QLabel(initial_text, self.date_card)
         self.date_location_label.setObjectName("DateLocationLabel")
@@ -3133,20 +3457,98 @@ class DashboardWindow(QMainWindow):
         weather_title.setStyleSheet(section_title_style)
 
         weather_subtitle = QLabel(
-            "Choose the ZIP code used for the dashboard weather forecast."
+            "Type an address, city, landmark, or ZIP code, then choose one "
+            "of the suggested locations. The selected location centers both "
+            "the forecast and the hidden radar map marker."
         )
         weather_subtitle.setObjectName("SettingsSectionSubtitle")
         weather_subtitle.setAlignment(Qt.AlignLeft)
         weather_subtitle.setWordWrap(True)
 
-        weather_label = QLabel("LOCATION ZIP CODE")
+        weather_label = QLabel("LOCATION")
         weather_label.setObjectName("SettingsFieldLabel")
 
-        self.weather_zip_input = QLineEdit()
-        self.weather_zip_input.setObjectName("SettingsLineEdit")
-        self.weather_zip_input.setPlaceholderText("Enter 5-digit ZIP code")
-        self.weather_zip_input.setMaxLength(5)
-        self.weather_zip_input.setText(self.weather_zip_code)
+        self.weather_location_input = QLineEdit()
+        self.weather_location_input.setObjectName("SettingsLineEdit")
+        self.weather_location_input.setPlaceholderText(
+            "Start typing an address or place"
+        )
+        self.weather_location_input.setText(self.weather_location.label)
+
+        self.weather_address_suggestion_model = QStringListModel([])
+        self.weather_address_completer = QCompleter(
+            self.weather_address_suggestion_model,
+            self.weather_location_input,
+        )
+        self.weather_address_completer.setCaseSensitivity(Qt.CaseInsensitive)
+        self.weather_address_completer.setFilterMode(Qt.MatchContains)
+        self.weather_address_completer.setCompletionMode(
+            QCompleter.PopupCompletion
+        )
+        self.weather_address_completer.setMaxVisibleItems(8)
+
+        self.weather_location_input.setCompleter(
+            self.weather_address_completer
+        )
+        self.weather_location_input.textEdited.connect(
+            self.refresh_weather_address_suggestions
+        )
+        self.weather_address_completer.activated.connect(
+            self.select_weather_address_suggestion
+        )
+
+        self.weather_address_suggestion_popup = QListWidget(
+            page
+        )
+        self.weather_address_suggestion_popup.setObjectName(
+            "WeatherAddressSuggestionPopup"
+        )
+        self.weather_address_suggestion_popup.setWindowFlags(
+            Qt.Tool
+            | Qt.FramelessWindowHint
+            | Qt.WindowStaysOnTopHint
+        )
+        self.weather_address_suggestion_popup.setFocusPolicy(
+            Qt.NoFocus
+        )
+        self.weather_address_suggestion_popup.setAttribute(
+            Qt.WA_ShowWithoutActivating,
+            True,
+        )
+        self.weather_address_suggestion_popup.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarAlwaysOff
+        )
+        self.weather_address_suggestion_popup.setVerticalScrollBarPolicy(
+            Qt.ScrollBarAsNeeded
+        )
+        self.weather_address_suggestion_popup.setStyleSheet("""
+            QListWidget#WeatherAddressSuggestionPopup {
+                background: #fff8ec;
+                color: #2d2114;
+                border: 1px solid rgba(83, 59, 33, 0.55);
+                border-radius: 8px;
+                padding: 4px;
+                font-size: 11px;
+                font-weight: 800;
+                outline: none;
+            }
+
+            QListWidget#WeatherAddressSuggestionPopup::item {
+                padding: 8px 9px;
+                border-radius: 5px;
+            }
+
+            QListWidget#WeatherAddressSuggestionPopup::item:hover,
+            QListWidget#WeatherAddressSuggestionPopup::item:selected {
+                background: #d8c7a4;
+                color: #2d2114;
+            }
+        """)
+        self.weather_address_suggestion_popup.itemClicked.connect(
+            self.select_weather_address_popup_item
+        )
+        self.weather_address_suggestion_popup.hide()
+
         self.refresh_stock_settings_inputs()
 
         left_settings_col.addSpacing(10)
@@ -3154,7 +3556,7 @@ class DashboardWindow(QMainWindow):
         left_settings_col.addWidget(self.build_settings_divider())
         left_settings_col.addWidget(weather_subtitle)
         left_settings_col.addWidget(weather_label)
-        left_settings_col.addWidget(self.weather_zip_input)
+        left_settings_col.addWidget(self.weather_location_input)
 
         apple_calendar_title = QLabel("CALENDAR")
         apple_calendar_title.setObjectName("SettingsSectionTitle")
@@ -3327,7 +3729,9 @@ class DashboardWindow(QMainWindow):
         if hasattr(self, "hide_reminders_checkbox"):
             self.hide_reminders_checkbox.setChecked(self.hide_reminders)
 
-        self.weather_zip_input.setText(self.weather_zip_code)
+        self.selected_weather_location = self.weather_location
+        self.weather_location_input.setText(self.weather_location.label)
+        self.clear_weather_address_suggestion_buttons()
         self.refresh_stock_settings_inputs()
         self.sports_team_setting_orders = self.copy_sports_team_orders(self.sports_team_orders)
         self.refresh_sports_team_buttons()
@@ -3341,22 +3745,51 @@ class DashboardWindow(QMainWindow):
         self.position_settings_button()
 
     def apply_news_settings(self):
-        requested_zip = "".join(
-            ch for ch in self.weather_zip_input.text().strip() if ch.isdigit()
-        )
+        requested_location = self.selected_weather_location
 
-        try:
-            validated_location = validate_zip_code(requested_zip)
-        except Exception as error:
-            QMessageBox.warning(
-                self,
-                "Invalid ZIP Code",
-                str(error),
+        if requested_location is None:
+            warning = QMessageBox(self)
+            warning.setIcon(QMessageBox.Warning)
+            warning.setWindowTitle("Choose a Suggested Location")
+            warning.setText(
+                "Select one of the address suggestions before applying "
+                "the new location."
             )
-            self.weather_zip_input.setFocus()
+            warning.setStandardButtons(QMessageBox.Ok)
+            warning.setStyleSheet("""
+                QMessageBox {
+                    background: #242424;
+                }
+
+                QMessageBox QLabel {
+                    color: #ffffff;
+                    font-size: 13px;
+                    font-weight: 700;
+                }
+
+                QMessageBox QPushButton {
+                    background: #087fe8;
+                    color: #ffffff;
+                    border: 1px solid #49a8ff;
+                    border-radius: 6px;
+                    min-width: 72px;
+                    padding: 6px 14px;
+                    font-weight: 800;
+                }
+
+                QMessageBox QPushButton:hover {
+                    background: #1491ff;
+                }
+            """)
+            warning.exec()
+            self.weather_location_input.setFocus()
             return
 
-        old_weather_zip = self.weather_zip_code
+        old_weather_location_key = (
+            self.weather_location.latitude,
+            self.weather_location.longitude,
+            self.weather_location.label,
+        )
         old_left_news_source_key = self.left_news_source_key
         old_right_news_source_key = self.right_news_source_key
         old_replace_market_tape_with_news = self.replace_market_tape_with_news
@@ -3406,13 +3839,17 @@ class DashboardWindow(QMainWindow):
         self.session_market_tape_hidden = False
         self.session_market_tape_restored = False
 
-        self.weather_zip_code = validated_location.zip_code
-
-        self.weather_location_label = self.city_name_from_weather_location(validated_location)
-        self.set_date_card_location_label(self.weather_location_label)
+        self.weather_location = requested_location
+        self.weather_zip_code = requested_location.zip_code or self.weather_zip_code
+        self.weather_location_label = requested_location.label
+        self.set_date_card_location_label(
+            self.city_name_from_weather_location(
+                requested_location
+            )
+        )
 
         self.save_news_source_settings()
-        self.save_weather_zip_setting()
+        self.save_weather_location_setting()
         self.apple_calendar_email = self.apple_calendar_email_input.text().strip()
         self.apple_calendar_password = self.apple_calendar_password_input.text().strip()
         self.apple_calendar_days_ahead = requested_calendar_days
@@ -3457,7 +3894,11 @@ class DashboardWindow(QMainWindow):
         elif self.replace_market_tape_with_news and news_sources_changed:
             self.start_market_news_fetch()
 
-        if self.weather_zip_code != old_weather_zip:
+        if (
+            self.weather_location.latitude,
+            self.weather_location.longitude,
+            self.weather_location.label,
+        ) != old_weather_location_key:
             self.refresh_weather_placeholders()
             self.start_weather_fetch()
 
@@ -3678,7 +4119,7 @@ class DashboardWindow(QMainWindow):
 
         if location is None:
             try:
-                location = validate_zip_code(self.weather_zip_code)
+                location = self.weather_location
                 self.weather_radar_location = location
             except Exception as error:
                 print(f"Forecast radar location lookup failed: {error}")
@@ -3713,7 +4154,9 @@ class DashboardWindow(QMainWindow):
 
     def start_weather_fetch(self):
         self.weather_thread = QThread()
-        self.weather_worker = WeatherFetchWorker(zip_code=self.weather_zip_code)
+        self.weather_worker = WeatherFetchWorker(
+            location=self.weather_location
+        )
 
         self.weather_worker.moveToThread(self.weather_thread)
 
@@ -3734,13 +4177,7 @@ class DashboardWindow(QMainWindow):
 
         self.weather_rows = list(rows or [])
 
-        try:
-            self.weather_radar_location = validate_zip_code(
-                self.weather_zip_code
-            )
-        except Exception as error:
-            print(f"Radar preload location lookup failed: {error}")
-            self.weather_radar_location = None
+        self.weather_radar_location = self.weather_location
 
         if hasattr(self.weather_panel, "update_weather_rows"):
             self.weather_panel.update_weather_rows(rows)
@@ -4651,25 +5088,32 @@ class DashboardWindow(QMainWindow):
         )
 
     def closeEvent(self, event):
-        # WeatherRadarPreloadWorker performs blocking network work. Calling
-        # quit() cannot interrupt that work immediately, so do not let Qt
-        # destroy the QThread after an arbitrary timeout. Wait until the
-        # current preload finishes cleanly before the application exits.
-        try:
-            thread = getattr(self, "radar_preload_thread", None)
+        # Close the window immediately. Radar preloading is disposable cache
+        # warmup, never a reason to hold the app open.
+        for timer_name in (
+            "weather_radar_refresh_timer",
+            "sports_games_refresh_timer",
+            "mini_news_refresh_timer",
+            "weather_address_debounce_timer",
+        ):
+            timer = getattr(self, timer_name, None)
 
-            if thread and thread.isRunning():
-                print(
-                    "Waiting for active radar preload to finish before exit..."
-                )
-                thread.quit()
-                thread.wait()
+            if timer is not None:
+                timer.stop()
 
-            self.radar_preload_thread = None
-            self.radar_preload_worker = None
+        for thread_name in (
+            "radar_preload_thread",
+            "weather_address_suggestion_thread",
+        ):
+            try:
+                thread = getattr(self, thread_name, None)
 
-        except RuntimeError:
-            pass
+                if thread and thread.isRunning():
+                    print(f"Stopping background worker: {thread_name}")
+                    thread.requestInterruption()
+                    thread.quit()
+            except RuntimeError:
+                pass
 
         super().closeEvent(event)
 
