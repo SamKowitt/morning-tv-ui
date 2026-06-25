@@ -308,25 +308,6 @@ def get_mlb_game_status(game):
     )
 
 
-def is_mlb_final_status(game_or_status):
-    if isinstance(game_or_status, dict):
-        status = get_mlb_game_status(game_or_status)
-    else:
-        status = str(game_or_status or "")
-
-    lowered = status.lower()
-
-    return any(
-        marker in lowered
-        for marker in (
-            "final",
-            "game over",
-            "completed",
-            "complete",
-        )
-    )
-
-
 def should_include_mlb_game(game):
     status = get_mlb_game_status(game).lower()
 
@@ -404,11 +385,7 @@ def build_mlb_matchup(game):
     away_score = away.get("score")
     home_score = home.get("score")
 
-    if (
-        away_score is not None
-        and home_score is not None
-        and is_mlb_final_status(game)
-    ):
+    if away_score is not None and home_score is not None and "final" in status:
         try:
             away_score_number = int(away_score)
             home_score_number = int(home_score)
@@ -445,7 +422,7 @@ def format_mlb_time(game):
     status = get_mlb_game_status(game)
     lowered = status.lower()
 
-    if is_mlb_final_status(game):
+    if "final" in lowered:
         return "FINAL"
 
     if "in progress" in lowered or "live" in lowered:
@@ -462,7 +439,7 @@ def format_mlb_time(game):
 
 
 def build_mlb_detail(game):
-    if is_mlb_final_status(game):
+    if "final" in get_mlb_game_status(game).lower():
         return ""
 
     teams = game.get("teams", {})
@@ -554,7 +531,10 @@ def mlb_base_sort_key(game):
 
     if "in progress" in status or "live" in status:
         priority = 0
-    elif is_mlb_final_status(game):
+    elif any(
+        marker in status
+        for marker in ("final", "game over", "completed", "complete")
+    ):
         priority = 2
     else:
         # Any non-live, non-final game belongs with upcoming games.
