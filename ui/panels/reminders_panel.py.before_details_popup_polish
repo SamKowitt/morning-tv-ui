@@ -533,53 +533,33 @@ class RemindersPanel(QWidget):
 
         button = QPushButton(label)
         button.setCursor(Qt.PointingHandCursor)
-        button.setMinimumHeight(34)
+        button.setMinimumHeight(26)
         button.setStyleSheet("""
             QPushButton {
-                background: rgba(114, 84, 45, 0.18);
+                background: rgba(114, 84, 45, 0.16);
                 color: #4d351b;
-                border: 1px solid rgba(83, 59, 33, 0.48);
-                border-radius: 4px;
-                padding: 4px 8px;
+                border: 1px solid rgba(83, 59, 33, 0.42);
+                border-radius: 3px;
+                padding: 3px 7px;
                 font-family: "Times New Roman";
-                font-size: 13px;
+                font-size: 10px;
                 font-weight: 1000;
                 text-align: left;
             }
 
             QPushButton:hover {
-                background: rgba(114, 84, 45, 0.30);
-                border-color: rgba(83, 59, 33, 0.78);
+                background: rgba(114, 84, 45, 0.28);
+                border-color: rgba(83, 59, 33, 0.72);
             }
         """)
         button.clicked.connect(self.open_all_events_popup)
 
         return button
 
-    def make_details_empty_row(self, text):
-        label = QLabel(text)
-        label.setObjectName("CalendarDetailsEmptyState")
-        label.setAlignment(Qt.AlignCenter)
-        label.setMinimumHeight(42)
-        label.setStyleSheet("""
-            QLabel#CalendarDetailsEmptyState {
-                background: #72542d;
-                color: #ffffff;
-                border: 1px solid #4d351b;
-                border-radius: 4px;
-                padding: 6px 10px;
-                font-family: "Georgia";
-                font-size: 15px;
-                font-weight: 1000;
-            }
-        """)
-        return label
-
     def open_all_events_popup(self):
         dialog = QDialog(self)
+        dialog.setWindowTitle("Calendar Event Details")
         dialog.setModal(True)
-        dialog.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
-        dialog.setAttribute(Qt.WA_StyledBackground, True)
         dialog.resize(620, 560)
         dialog.setStyleSheet("""
             QDialog {
@@ -636,7 +616,12 @@ class RemindersPanel(QWidget):
                 )
         else:
             content_layout.addWidget(
-                self.make_details_empty_row("No Events Today")
+                ReminderItem(
+                    "📅",
+                    "No Events Today",
+                    today=True,
+                    show_reminder_button=False,
+                )
             )
 
         upcoming_heading = QLabel("UPCOMING")
@@ -651,7 +636,12 @@ class RemindersPanel(QWidget):
                 )
         else:
             content_layout.addWidget(
-                self.make_details_empty_row("No Upcoming Events")
+                ReminderItem(
+                    "🗓️",
+                    "No Upcoming Events",
+                    today=False,
+                    show_reminder_button=False,
+                )
             )
 
         content_layout.addStretch(1)

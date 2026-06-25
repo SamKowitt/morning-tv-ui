@@ -11,7 +11,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QMessageBox,
     QPushButton,
-    QScrollArea,
     QTimeEdit,
     QVBoxLayout,
     QWidget,
@@ -415,8 +414,6 @@ class RemindersPanel(QWidget):
         """)
 
         self.dynamic_widgets = []
-        self.all_today_events = []
-        self.all_upcoming_events = []
 
         self.main_layout = QVBoxLayout()
         self.main_layout.setContentsMargins(12, 7, 12, 8)
@@ -430,6 +427,7 @@ class RemindersPanel(QWidget):
         title = QLabel("REMINDERS")
         title.setObjectName("RemindersTitle")
         title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        title.setContentsMargins(0, 0, 0, 0)
         title.setMinimumHeight(30)
         title.setMaximumHeight(30)
 
@@ -440,7 +438,6 @@ class RemindersPanel(QWidget):
         self.hide_button.setCursor(Qt.PointingHandCursor)
         self.hide_button.setFixedHeight(20)
         self.hide_button.clicked.connect(self.hide_requested.emit)
-
         title_row.addWidget(
             self.hide_button,
             0,
@@ -502,373 +499,56 @@ class RemindersPanel(QWidget):
         spacer.setObjectName("ReminderSpacer")
         self.add_dynamic_widget(spacer, 1)
 
-    def event_sort_key(self, event):
-        value = getattr(event, "sort_date", None)
-
-        if value is not None:
-            return value
-
-        return datetime.max.date()
-
-    def event_text(self, event):
-        title = str(getattr(event, "title", "") or "").strip()
-        when_text = str(getattr(event, "when_text", "") or "").strip()
-
-        if when_text:
-            return f"{title} - {when_text}"
-
-        return title
-
-    def make_event_row(self, event, today):
-        return ReminderItem(
-            "📅" if today else "🗓️",
-            self.event_text(event),
-            today=today,
-            show_reminder_button=True,
-        )
-
-    def make_overflow_row(self, count, group):
-        plural = "event" if count == 1 else "events"
-        label = f"{count} more {plural} {group}. Click to see details."
-
-        button = QPushButton(label)
-        button.setCursor(Qt.PointingHandCursor)
-        button.setMinimumHeight(34)
-        button.setStyleSheet("""
-            QPushButton {
-                background: rgba(114, 84, 45, 0.18);
-                color: #4d351b;
-                border: 1px solid rgba(83, 59, 33, 0.48);
-                border-radius: 4px;
-                padding: 4px 8px;
-                font-family: "Times New Roman";
-                font-size: 13px;
-                font-weight: 1000;
-                text-align: left;
-            }
-
-            QPushButton:hover {
-                background: rgba(114, 84, 45, 0.30);
-                border-color: rgba(83, 59, 33, 0.78);
-            }
-        """)
-        button.clicked.connect(self.open_all_events_popup)
-
-        return button
-
-    def make_details_empty_row(self, text):
-        label = QLabel(text)
-        label.setObjectName("CalendarDetailsEmptyState")
-        label.setAlignment(Qt.AlignCenter)
-        label.setMinimumHeight(42)
-        label.setStyleSheet("""
-            QLabel#CalendarDetailsEmptyState {
-                background: #72542d;
-                color: #ffffff;
-                border: 1px solid #4d351b;
-                border-radius: 4px;
-                padding: 6px 10px;
-                font-family: "Georgia";
-                font-size: 15px;
-                font-weight: 1000;
-            }
-        """)
-        return label
-
-    def open_all_events_popup(self):
-        dialog = QDialog(self)
-        dialog.setModal(True)
-        dialog.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
-        dialog.setAttribute(Qt.WA_StyledBackground, True)
-        dialog.resize(620, 560)
-        dialog.setStyleSheet("""
-            QDialog {
-                background: #f5ead7;
-                border: 2px solid rgba(83, 59, 33, 0.42);
-                border-radius: 14px;
-            }
-
-            QLabel#CalendarDetailsTitle {
-                color: #2d2114;
-                background: transparent;
-                font-size: 20px;
-                font-weight: 1000;
-                letter-spacing: 0.8px;
-            }
-
-            QLabel#CalendarDetailsSection {
-                color: #9c6424;
-                background: transparent;
-                font-size: 11px;
-                font-weight: 1000;
-                letter-spacing: 1.2px;
-            }
-        """)
-
-        root = QVBoxLayout()
-        root.setContentsMargins(16, 14, 16, 14)
-        root.setSpacing(8)
-        dialog.setLayout(root)
-
-        title = QLabel("CALENDAR EVENT DETAILS")
-        title.setObjectName("CalendarDetailsTitle")
-        title.setAlignment(Qt.AlignCenter)
-        root.addWidget(title)
-
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-
-        content = QWidget()
-        content_layout = QVBoxLayout()
-        content_layout.setContentsMargins(4, 4, 4, 4)
-        content_layout.setSpacing(6)
-        content.setLayout(content_layout)
-
-        today_heading = QLabel("TODAY")
-        today_heading.setObjectName("CalendarDetailsSection")
-        content_layout.addWidget(today_heading)
-
-        if self.all_today_events:
-            for event in self.all_today_events:
-                content_layout.addWidget(
-                    self.make_event_row(event, today=True)
-                )
-        else:
-            content_layout.addWidget(
-                self.make_details_empty_row("No Events Today")
-            )
-
-        upcoming_heading = QLabel("UPCOMING")
-        upcoming_heading.setObjectName("CalendarDetailsSection")
-        content_layout.addSpacing(8)
-        content_layout.addWidget(upcoming_heading)
-
-        if self.all_upcoming_events:
-            for event in self.all_upcoming_events:
-                content_layout.addWidget(
-                    self.make_event_row(event, today=False)
-                )
-        else:
-            content_layout.addWidget(
-                self.make_details_empty_row("No Upcoming Events")
-            )
-
-        content_layout.addStretch(1)
-        scroll.setWidget(content)
-        root.addWidget(scroll, 1)
-
-        close_row = QHBoxLayout()
-        close_row.addStretch(1)
-
-        close_button = QPushButton("Close")
-        close_button.setCursor(Qt.PointingHandCursor)
-        close_button.setStyleSheet("""
-            QPushButton {
-                background: #d8c7a4;
-                color: #2d2114;
-                border: 1px solid rgba(83, 59, 33, 0.48);
-                border-radius: 7px;
-                padding: 5px 18px;
-                font-size: 12px;
-                font-weight: 1000;
-            }
-
-            QPushButton:hover {
-                background: #eadab7;
-            }
-        """)
-        close_button.clicked.connect(dialog.accept)
-
-        close_row.addWidget(close_button)
-        close_row.addStretch(1)
-        root.addLayout(close_row)
-
-        dialog.exec()
-
     def update_calendar_events(self, events):
-        events = list(events or [])
-
-        self.all_today_events = sorted(
-            [
-                event for event in events
-                if bool(getattr(event, "starts_today", False))
-            ],
-            key=self.event_sort_key,
-        )
-
-        self.all_upcoming_events = sorted(
-            [
-                event for event in events
-                if not bool(getattr(event, "starts_today", False))
-            ],
-            key=self.event_sort_key,
-        )
-
-        today_count = len(self.all_today_events)
-        upcoming_count = len(self.all_upcoming_events)
+        today_events = [event for event in events if getattr(event, "starts_today", False)]
+        upcoming_events = [event for event in events if not getattr(event, "starts_today", False)]
 
         today_widgets = []
         upcoming_widgets = []
 
-        if today_count > 3:
-            for event in self.all_today_events[:2]:
+        if today_events:
+            for event in today_events[:3]:
+                text = f"{event.title} - {event.when_text}"
                 today_widgets.append(
-                    (self.make_event_row(event, today=True), 2)
+                    (
+                        ReminderItem(
+                            "📅",
+                            text,
+                            today=True,
+                            show_reminder_button=True,
+                        ),
+                        2,
+                    )
                 )
-
-            today_widgets.append(
-                (
-                    self.make_overflow_row(
-                        today_count - 2,
-                        "today",
-                    ),
-                    2,
-                )
-            )
-
-        elif today_count:
-            for event in self.all_today_events:
-                today_widgets.append(
-                    (self.make_event_row(event, today=True), 2)
-                )
-
         else:
-            today_widgets.append(
-                (
-                    ReminderItem(
-                        "📅",
-                        "No Events Today",
-                        today=True,
-                        show_reminder_button=False,
-                    ),
-                    2,
-                )
-            )
+            today_widgets.append((ReminderItem("📅", "No Apple Calendar events today", today=True), 2))
 
-        if today_count > 3:
-            # The Today overflow row uses the available card space. All
-            # upcoming events remain available inside the details popup.
-            pass
-
-        elif today_count == 3:
-            if upcoming_count == 1:
+        if upcoming_events:
+            for event in upcoming_events[:5]:
+                text = f"{event.title} - {event.when_text}"
                 upcoming_widgets.append(
                     (
-                        self.make_event_row(
-                            self.all_upcoming_events[0],
+                        ReminderItem(
+                            "🗓️",
+                            text,
                             today=False,
+                            show_reminder_button=True,
                         ),
                         1,
                     )
                 )
-            elif upcoming_count > 1:
-                upcoming_widgets.append(
-                    (
-                        self.make_overflow_row(
-                            upcoming_count,
-                            "upcoming",
-                        ),
-                        1,
-                    )
-                )
-
-        elif today_count == 2:
-            if upcoming_count <= 2:
-                for event in self.all_upcoming_events:
-                    upcoming_widgets.append(
-                        (self.make_event_row(event, today=False), 1)
-                    )
-            elif upcoming_count > 2:
-                upcoming_widgets.append(
-                    (
-                        self.make_event_row(
-                            self.all_upcoming_events[0],
-                            today=False,
-                        ),
-                        1,
-                    )
-                )
-                upcoming_widgets.append(
-                    (
-                        self.make_overflow_row(
-                            upcoming_count - 1,
-                            "upcoming",
-                        ),
-                        1,
-                    )
-                )
-
-        elif today_count == 1:
-            if upcoming_count <= 3:
-                for event in self.all_upcoming_events:
-                    upcoming_widgets.append(
-                        (self.make_event_row(event, today=False), 1)
-                    )
-            elif upcoming_count > 3:
-                for event in self.all_upcoming_events[:2]:
-                    upcoming_widgets.append(
-                        (self.make_event_row(event, today=False), 1)
-                    )
-
-                upcoming_widgets.append(
-                    (
-                        self.make_overflow_row(
-                            upcoming_count - 2,
-                            "upcoming",
-                        ),
-                        1,
-                    )
-                )
-
         else:
-            if upcoming_count <= 4:
-                for event in self.all_upcoming_events:
-                    upcoming_widgets.append(
-                        (self.make_event_row(event, today=False), 1)
-                    )
-            else:
-                for event in self.all_upcoming_events[:3]:
-                    upcoming_widgets.append(
-                        (self.make_event_row(event, today=False), 1)
-                    )
-
-                upcoming_widgets.append(
-                    (
-                        self.make_overflow_row(
-                            upcoming_count - 3,
-                            "upcoming",
-                        ),
-                        1,
-                    )
-                )
-
-        if not upcoming_widgets:
-            upcoming_widgets.append(
-                (
-                    ReminderItem(
-                        "🗓️",
-                        "No Upcoming Events",
-                        today=False,
-                        show_reminder_button=False,
-                    ),
-                    1,
-                )
-            )
+            upcoming_widgets.append((ReminderItem("🗓️", "No upcoming Apple Calendar events"), 1))
 
         self.rebuild_calendar_rows(today_widgets, upcoming_widgets)
 
     def set_calendar_error(self, message):
-        self.all_today_events = []
-        self.all_upcoming_events = []
-
         today_widgets = [
             (ReminderItem("⚠️", message, today=True), 2),
         ]
 
         upcoming_widgets = [
-            (ReminderItem("🗓️", "Calendar events will appear here"), 1),
+            (ReminderItem("🗓️", "Apple Calendar events will appear here"), 1),
         ]
 
         self.rebuild_calendar_rows(today_widgets, upcoming_widgets)
-
