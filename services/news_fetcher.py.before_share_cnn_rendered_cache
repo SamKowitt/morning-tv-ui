@@ -4,7 +4,6 @@ import os
 import re
 import ssl
 import time
-import threading
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -3581,85 +3580,3 @@ def fetch_source_specific_homepage_lead_article(source_key):
         f"No source-specific homepage resolver for {source_key}"
     )
 
-
-
-# ============================================================
-# CNN rendered homepage in-memory cache
-# ============================================================
-
-_CNN_RENDERED_UNCACHED = fetch_cnn_rendered_homepage_candidates
-_CNN_RENDERED_CANDIDATES_CACHE = []
-_CNN_RENDERED_CANDIDATES_CACHE_SAVED_AT = 0.0
-_CNN_RENDERED_CANDIDATES_CACHE_TTL_SECONDS = 120
-_CNN_RENDERED_CANDIDATES_CACHE_LOCK = threading.Condition()
-_CNN_RENDERED_CANDIDATES_FETCHING = False
-
-
-def fetch_cnn_rendered_homepage_candidates():
-    global _CNN_RENDERED_CANDIDATES_CACHE
-    global _CNN_RENDERED_CANDIDATES_CACHE_SAVED_AT
-    global _CNN_RENDERED_CANDIDATES_FETCHING
-
-    with _CNN_RENDERED_CANDIDATES_CACHE_LOCK:
-        cache_age = (
-            time.monotonic()
-            - _CNN_RENDERED_CANDIDATES_CACHE_SAVED_AT
-        )
-
-        if (
-            _CNN_RENDERED_CANDIDATES_CACHE
-            and cache_age < _CNN_RENDERED_CANDIDATES_CACHE_TTL_SECONDS
-        ):
-            print(
-                "Using cached rendered CNN homepage candidates "
-                f"({cache_age:.0f}s old)."
-            )
-            return list(_CNN_RENDERED_CANDIDATES_CACHE)
-
-        if _CNN_RENDERED_CANDIDATES_FETCHING:
-            print(
-                "Waiting for the active CNN homepage render to finish..."
-            )
-
-            _CNN_RENDERED_CANDIDATES_CACHE_LOCK.wait(timeout=35)
-
-            cache_age = (
-                time.monotonic()
-                - _CNN_RENDERED_CANDIDATES_CACHE_SAVED_AT
-            )
-
-            if (
-                _CNN_RENDERED_CANDIDATES_CACHE
-                and cache_age < _CNN_RENDERED_CANDIDATES_CACHE_TTL_SECONDS
-            ):
-                print(
-                    "Using CNN homepage candidates produced by "
-                    "the concurrent request."
-                )
-                return list(_CNN_RENDERED_CANDIDATES_CACHE)
-
-        _CNN_RENDERED_CANDIDATES_FETCHING = True
-
-    try:
-        candidates = _CNN_RENDERED_UNCACHED()
-
-        with _CNN_RENDERED_CANDIDATES_CACHE_LOCK:
-            _CNN_RENDERED_CANDIDATES_CACHE = list(candidates)
-            _CNN_RENDERED_CANDIDATES_CACHE_SAVED_AT = time.monotonic()
-            _CNN_RENDERED_CANDIDATES_FETCHING = False
-            _CNN_RENDERED_CANDIDATES_CACHE_LOCK.notify_all()
-
-        if candidates:
-            print(
-                "CNN rendered homepage cache refreshed: "
-                f'lead="{candidates[0].title}"'
-            )
-
-        return list(candidates)
-
-    except Exception:
-        with _CNN_RENDERED_CANDIDATES_CACHE_LOCK:
-            _CNN_RENDERED_CANDIDATES_FETCHING = False
-            _CNN_RENDERED_CANDIDATES_CACHE_LOCK.notify_all()
-
-        raise

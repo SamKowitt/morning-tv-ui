@@ -548,8 +548,6 @@ class DashboardWindow(QMainWindow):
         self.sports_games_worker = None
         self.sports_boxscore_prefetch_thread = None
         self.sports_boxscore_prefetch_worker = None
-        self.latest_sports_leagues = []
-        self.radar_preload_waiting_for_boxscores = False
 
         self.sports_games_refresh_timer = QTimer(self)
         self.sports_games_refresh_timer.setInterval(5 * 60 * 1000)
@@ -3763,26 +3761,6 @@ class DashboardWindow(QMainWindow):
         if not self.weather_rows or self.weather_radar_location is None:
             return
 
-        # Every radar-cache pass first warms the current active/final
-        # boxscores. This gives the Game Times popups priority over radar
-        # network work during launch and scheduled refreshes.
-        if not self.radar_preload_waiting_for_boxscores:
-            self.radar_preload_waiting_for_boxscores = True
-
-            if not self.sports_games_has_loaded:
-                print(
-                    "Deferring radar preload until Game Times "
-                    "and box-score cache warmup are ready."
-                )
-                return
-
-            self.start_sports_boxscore_prefetch(
-                self.latest_sports_leagues
-            )
-            return
-
-        self.radar_preload_waiting_for_boxscores = False
-
         try:
             if (
                 self.radar_preload_thread
@@ -4456,19 +4434,14 @@ class DashboardWindow(QMainWindow):
     def on_sports_games_loaded(self, leagues):
         print("Live sports games loaded.")
 
-        self.latest_sports_leagues = list(leagues or [])
+        if hasattr(self.sports_games, "update_leagues"):
+            self.sports_games.update_leagues(leagues)
+
         self.sports_games_has_loaded = True
 
-        # Start the cache warmup immediately, before the visible Game Times
-        # panel is updated with clickable active/final games.
-        self.start_sports_boxscore_prefetch(
-            self.latest_sports_leagues
-        )
-
-        if hasattr(self.sports_games, "update_leagues"):
-            self.sports_games.update_leagues(
-                self.latest_sports_leagues
-            )
+        # Disabled temporarily: this background worker is causing a native
+        # Qt/Python crash while fetching MLB box scores during startup.
+        print("Background box-score preload disabled to prevent startup crash.")
 
     def on_sports_games_failed(self, error_message):
         print(f"Sports games fetch failed: {error_message}")
@@ -4525,9 +4498,6 @@ class DashboardWindow(QMainWindow):
         self.sports_boxscore_prefetch_thread.finished.connect(
             self.clear_sports_boxscore_prefetch_thread
         )
-        self.sports_boxscore_prefetch_thread.finished.connect(
-            self.sports_boxscore_prefetch_thread.deleteLater
-        )
 
         print("Starting background box-score preload.")
         self.sports_boxscore_prefetch_thread.start()
@@ -4535,15 +4505,6 @@ class DashboardWindow(QMainWindow):
     def clear_sports_boxscore_prefetch_thread(self):
         self.sports_boxscore_prefetch_worker = None
         self.sports_boxscore_prefetch_thread = None
-
-        if self.radar_preload_waiting_for_boxscores:
-            print(
-                "Box-score preload finished. Continuing deferred radar preload."
-            )
-            QTimer.singleShot(
-                0,
-                self.start_weather_radar_preload,
-            )
 
     def start_news_fetch(self):
         self.news_request_id += 1
