@@ -1,12 +1,13 @@
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from PySide6.QtCore import Qt, QThread, QTimer, Signal
+from PySide6.QtCore import Qt, QThread, QTimer, Signal, QRectF
 from PySide6.QtGui import (
     QColor,
     QFont,
     QLinearGradient,
     QPainter,
+    QPainterPath,
     QPen,
     QPixmap,
 )
@@ -39,11 +40,57 @@ class RadarPaperSurface(QWidget):
         painter.setBrush(paper)
         painter.drawRect(rect)
 
+        center_x = rect.center().x()
+
+        # Recessed dark side of the newspaper fold.
+        fold_shadow = QLinearGradient(
+            center_x - 10,
+            0,
+            center_x + 4,
+            0,
+        )
+        fold_shadow.setColorAt(0.0, QColor(75, 48, 25, 0))
+        fold_shadow.setColorAt(0.55, QColor(74, 45, 22, 95))
+        fold_shadow.setColorAt(1.0, QColor(74, 45, 22, 0))
+        painter.fillRect(
+            QRectF(
+                center_x - 10,
+                rect.top(),
+                14,
+                rect.height(),
+            ),
+            fold_shadow,
+        )
+
+        # Raised bright side of the newspaper fold.
+        fold_highlight = QLinearGradient(
+            center_x - 1,
+            0,
+            center_x + 10,
+            0,
+        )
+        fold_highlight.setColorAt(0.0, QColor(255, 249, 225, 0))
+        fold_highlight.setColorAt(
+            0.45,
+            QColor(255, 249, 225, 120),
+        )
+        fold_highlight.setColorAt(1.0, QColor(255, 249, 225, 0))
+        painter.fillRect(
+            QRectF(
+                center_x - 1,
+                rect.top(),
+                12,
+                rect.height(),
+            ),
+            fold_highlight,
+        )
+
+        # Fine crease line in the middle, matching article popups.
         painter.setPen(QPen(QColor(91, 59, 31, 120), 1))
         painter.drawLine(
-            rect.center().x(),
+            center_x,
             rect.top() + 2,
-            rect.center().x(),
+            center_x,
             rect.bottom() - 2,
         )
 
@@ -56,11 +103,13 @@ class RadarLoopView(QWidget):
         self.message = "Loading local radar loop…"
         self.spinner_active = False
         self.spinner_angle = 0
+        self.location_pixel = {}
 
         self.setMinimumSize(390, 380)
 
-    def set_frame(self, pixmap):
+    def set_frame(self, pixmap, location_pixel=None):
         self.pixmap = pixmap
+        self.location_pixel = dict(location_pixel or {})
         self.message = ""
         self.spinner_active = False
         self.update()
@@ -87,7 +136,6 @@ class RadarLoopView(QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor("#d8e7ea"))
 
         if self.pixmap.isNull():
             if self.spinner_active:
@@ -120,20 +168,86 @@ class RadarLoopView(QWidget):
             )
             return
 
-        target = self.rect().adjusted(6, 6, -6, -6)
+        # The radar image fills the complete bordered map area.
+        # Crop only the tiny excess needed to preserve the source aspect ratio;
+        # this avoids a contrasting canvas around the map.
+        target = self.rect().adjusted(1, 1, -1, -1)
 
-        # Preserve true map geometry. The fetcher supplies a 4x3 tile
-        # canvas that matches this panel shape without stretching.
         scaled = self.pixmap.scaled(
             target.size(),
-            Qt.KeepAspectRatio,
+            Qt.KeepAspectRatioByExpanding,
             Qt.SmoothTransformation,
         )
 
         x = target.x() + int((target.width() - scaled.width()) / 2)
         y = target.y() + int((target.height() - scaled.height()) / 2)
 
+        painter.save()
+        painter.setClipRect(target)
         painter.drawPixmap(x, y, scaled)
+
+        # Use the fetcher's exact saved-address coordinate in the source
+        # image, then apply the same display scaling/cropping used above.
+        source_width = max(1, self.pixmap.width())
+        source_height = max(1, self.pixmap.height())
+
+        try:
+            source_x = float(
+                self.location_pixel.get(
+                    "x",
+                    source_width / 2,
+                )
+            )
+            source_y = float(
+                self.location_pixel.get(
+                    "y",
+                    source_height / 2,
+                )
+            )
+        except (TypeError, ValueError):
+            source_x = source_width / 2
+            source_y = source_height / 2
+
+        scale_x = scaled.width() / source_width
+        scale_y = scaled.height() / source_height
+
+        pin_x = x + (source_x * scale_x)
+        pin_tip_y = y + (source_y * scale_y)
+        pin_radius = 10
+
+        # Narrow semi-transparent black location pin.
+        pin_path = QPainterPath()
+        pin_path.moveTo(pin_x, pin_tip_y)
+        pin_path.cubicTo(
+            pin_x - 8,
+            pin_tip_y - 10,
+            pin_x - 7,
+            pin_tip_y - 24,
+            pin_x,
+            pin_tip_y - 24,
+        )
+        pin_path.cubicTo(
+            pin_x + 7,
+            pin_tip_y - 24,
+            pin_x + 8,
+            pin_tip_y - 10,
+            pin_x,
+            pin_tip_y,
+        )
+
+        painter.setPen(
+            QPen(
+                QColor(0, 0, 0, 150),
+                1.5,
+                Qt.SolidLine,
+                Qt.RoundCap,
+                Qt.RoundJoin,
+            )
+        )
+        painter.setBrush(QColor(0, 0, 0, 115))
+        painter.drawPath(pin_path)
+
+        painter.restore()
 
 
 class RadarTimelineView(QWidget):
@@ -473,7 +587,7 @@ class WeatherRadarDialog(QDialog):
             }
 
             QWidget#RadarLoopView {
-                background: #d8e7ea;
+                background: transparent;
                 border: 1px solid rgba(70, 50, 28, 160);
             }
 
@@ -576,6 +690,8 @@ class WeatherRadarDialog(QDialog):
         zoom_overlay.setStyleSheet("background: transparent;")
 
         zoom_overlay_layout = QVBoxLayout(zoom_overlay)
+        # The map now fills the bordered area, so these margins place
+        # both controls wholly inside the visible map frame.
         zoom_overlay_layout.setContentsMargins(10, 10, 10, 10)
         zoom_overlay_layout.setSpacing(6)
 
@@ -812,7 +928,9 @@ class WeatherRadarDialog(QDialog):
                 self.on_radar_fetch_finished(current_worker)
         )
 
-        self.radar_fetch_timeout_timer.start(10_000)
+        # Tile assembly can occasionally exceed 10 seconds,
+        # especially immediately after changing zoom.
+        self.radar_fetch_timeout_timer.start(25_000)
         worker.start()
 
     def on_radar_fetch_ready(self, worker, frames):
@@ -948,7 +1066,10 @@ class WeatherRadarDialog(QDialog):
 
         self.frame_index %= len(self.pixmaps)
 
-        self.radar_view.set_frame(self.pixmaps[self.frame_index])
+        self.radar_view.set_frame(
+            self.pixmaps[self.frame_index],
+            self.frames[self.frame_index].get("location_pixel", {}),
+        )
         self.radar_timeline.set_current_index(self.frame_index)
 
         # Timeline and legend show all radar timing and source details.
