@@ -151,9 +151,9 @@ class ReminderItem(QWidget):
         self.setAttribute(Qt.WA_StyledBackground, True)
 
         if today:
-            self.setMinimumHeight(42)
+            self.setMinimumHeight(40)
         else:
-            self.setMinimumHeight(29)
+            self.setMinimumHeight(28)
 
         self.setStyleSheet("""
             QWidget#TodayReminderRow {
@@ -251,11 +251,6 @@ class ReminderItem(QWidget):
         text_layout.setSpacing(0)
         text_column.setLayout(text_layout)
 
-        meta_label = QLabel("TODAY'S PRIORITY" if today else "UPCOMING")
-        meta_label.setObjectName("ReminderMeta")
-        meta_label.setAlignment(Qt.AlignLeft | Qt.AlignBottom)
-        meta_label.setFixedHeight(10 if today else 8)
-
         text_label = AutoFitLabel(
             text,
             min_size=8 if today else 7,
@@ -268,11 +263,7 @@ class ReminderItem(QWidget):
             "TodayReminderText" if today else "UpcomingReminderText"
         )
 
-        if today:
-            text_layout.addWidget(meta_label)
-            text_layout.addWidget(text_label, 1)
-        else:
-            text_layout.addWidget(text_label, 1)
+        text_layout.addWidget(text_label, 1)
 
         layout.addWidget(icon_label)
         layout.addWidget(text_column, 1)
@@ -446,8 +437,8 @@ class RemindersPanel(QWidget):
         self.all_upcoming_events = []
 
         self.main_layout = QVBoxLayout()
-        self.main_layout.setContentsMargins(12, 7, 12, 8)
-        self.main_layout.setSpacing(4)
+        self.main_layout.setContentsMargins(12, 6, 12, 6)
+        self.main_layout.setSpacing(3)
         self.setLayout(self.main_layout)
 
         title_row = QHBoxLayout()
@@ -457,8 +448,8 @@ class RemindersPanel(QWidget):
         title = QLabel("REMINDERS")
         title.setObjectName("RemindersTitle")
         title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        title.setMinimumHeight(30)
-        title.setMaximumHeight(30)
+        title.setMinimumHeight(28)
+        title.setMaximumHeight(28)
 
         title_row.addWidget(title, 1)
 

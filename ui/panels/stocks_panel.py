@@ -18,7 +18,7 @@ class SparklineChart(QWidget):
         self.months = months or ["Apr", "May", "Jun"]
 
         self.setMinimumWidth(56)
-        self.setFixedHeight(32)
+        self.setFixedHeight(29)
 
     def set_values(self, values):
         self.values = values or [1, 1, 1]
@@ -97,7 +97,7 @@ class MarketIndex(QWidget):
 
         self.setObjectName("MarketTapeIndexCard")
         self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setFixedHeight(48)
+        self.setFixedHeight(44)
 
         layout = QHBoxLayout()
         layout.setContentsMargins(5, 2, 5, 2)
@@ -153,7 +153,7 @@ class StockTile(QWidget):
 
         self.setObjectName("MarketTapeStockTile")
         self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setFixedHeight(65)
+        self.setFixedHeight(60)
 
         layout = QHBoxLayout()
         layout.setContentsMargins(5, 2, 5, 2)
@@ -185,7 +185,7 @@ class StockTile(QWidget):
         self.ah_box = QWidget()
         self.ah_box.setObjectName("MarketTapeAHBox")
         self.ah_box.setAttribute(Qt.WA_StyledBackground, True)
-        self.ah_box.setFixedSize(46, 49)
+        self.ah_box.setFixedSize(42, 44)
 
         ah_layout = QVBoxLayout()
         ah_layout.setContentsMargins(2, 1, 2, 1)
@@ -263,8 +263,8 @@ class StocksPanel(QWidget):
         self.stock_widgets = []
 
         main = QVBoxLayout()
-        main.setContentsMargins(10, 5, 10, 10)
-        main.setSpacing(4)
+        main.setContentsMargins(10, 4, 10, 6)
+        main.setSpacing(3)
         self.setLayout(main)
 
         header = QHBoxLayout()
@@ -333,10 +333,10 @@ class StocksPanel(QWidget):
 
         stock_grid = QGridLayout()
         stock_grid.setHorizontalSpacing(5)
-        stock_grid.setVerticalSpacing(3)
+        stock_grid.setVerticalSpacing(2)
         stock_grid.setContentsMargins(0, 0, 0, 0)
-        stock_grid.setRowMinimumHeight(0, 65)
-        stock_grid.setRowMinimumHeight(1, 65)
+        stock_grid.setRowMinimumHeight(0, 60)
+        stock_grid.setRowMinimumHeight(1, 60)
 
         for index, stock in enumerate([
             ("VRT", "Loading", "—", [1, 1, 1]),

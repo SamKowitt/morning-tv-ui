@@ -628,28 +628,62 @@ class DashboardWindow(QMainWindow):
         self.dashboard_page.setObjectName("DashboardPage")
 
         main = QHBoxLayout()
+        # Let the right-side dashboard rows use the former bottom margin.
+        # The right-side dashboard uses both the former top and bottom
+        # margins. The Date/Weather column restores its own inset below.
+        # Keep the full dashboard aligned, with a small shared top inset.
         main.setContentsMargins(
             self.outer_margin,
+            6,
             self.outer_margin,
-            self.outer_margin,
-            self.outer_margin,
+            0,
         )
         main.setSpacing(self.main_spacing)
         self.dashboard_page.setLayout(main)
 
         left_column = QVBoxLayout()
-        left_column.setSpacing(14)
-        left_column.setContentsMargins(0, 0, 0, 0)
+        left_column.setSpacing(20)
+
+        # The right dashboard area intentionally uses the former bottom
+        # margin for taller main news cards. Keep the Date/Weather column
+        # at its original bottom boundary.
+        # The Date/Weather column now follows the same top inset as Sports.
+        left_column.setContentsMargins(
+            0,
+            0,
+            0,
+            self.outer_margin,
+        )
 
         self.date_card = DateCard()
         self.date_card.setCursor(Qt.PointingHandCursor)
         self.install_date_card_location_label()
+
+        # Keep the Date card's existing layout slot, but place its visible
+        # surface a few pixels lower without moving Weather or the right side.
+        self.date_card_container = QWidget()
+        self.date_card_container.setSizePolicy(
+            QSizePolicy.Expanding,
+            QSizePolicy.Expanding,
+        )
+
+        date_card_layout = QVBoxLayout()
+        date_card_layout.setContentsMargins(0, 5, 0, 0)
+        date_card_layout.setSpacing(0)
+        self.date_card_container.setLayout(date_card_layout)
+        date_card_layout.addWidget(self.date_card)
 
         self.weather_panel = WeatherPanel()
         self.weather_panel.hour_selected.connect(self.open_weather_radar_popup)
         self.weather_radar_dialog = None
         self.weather_rows = []
         self.weather_radar_location = None
+
+        # Reuse this exact five-minute-aligned window for the Date card.
+        # Its cache key must match the window warmed in the background.
+        self.current_radar_window_start_utc = None
+        self.current_radar_window_end_utc = None
+
         self.radar_preload_thread = None
         self.radar_preload_worker = None
 
@@ -659,11 +693,11 @@ class DashboardWindow(QMainWindow):
             self.start_weather_radar_preload
         )
 
-        left_column.addWidget(self.date_card, 22)
+        left_column.addWidget(self.date_card_container, 22)
         left_column.addWidget(self.weather_panel, 78)
 
         self.right_area = QVBoxLayout()
-        self.right_area.setSpacing(self.row_spacing)
+        self.right_area.setSpacing(0)
         self.right_area.setContentsMargins(0, 0, 0, 0)
 
         self.top_row_widget = QWidget()
@@ -682,7 +716,12 @@ class DashboardWindow(QMainWindow):
         self.bottom_row_widget.setLayout(self.build_bottom_row())
 
         self.right_area.addWidget(self.top_row_widget)
+
+        # Remove the Sports-to-news gap. The middle news cards receive this
+        # exact height upward while Sports and the bottom row stay in place.
         self.right_area.addWidget(self.middle_row_widget)
+
+        # The middle-to-bottom gap remains removed.
         self.right_area.addWidget(self.bottom_row_widget)
 
         main.addLayout(left_column, 14)
@@ -1195,7 +1234,7 @@ class DashboardWindow(QMainWindow):
     def build_top_row(self):
         layout = QHBoxLayout()
         layout.setSpacing(16)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(0, 4, 0, 0)
 
         self.sports_news = SportsNewsPanel()
         self.sports_games = SportsGamesPanel()
@@ -4182,13 +4221,26 @@ class DashboardWindow(QMainWindow):
             print("Current radar unavailable: weather data has not loaded yet.")
             return
 
-        now_utc = datetime.now(timezone.utc)
+        start_utc = self.current_radar_window_start_utc
+        end_utc = self.current_radar_window_end_utc
+
+        if start_utc is None or end_utc is None:
+            now_utc = datetime.now(timezone.utc).replace(
+                minute=(datetime.now(timezone.utc).minute // 5) * 5,
+                second=0,
+                microsecond=0,
+            )
+            start_utc = now_utc - timedelta(minutes=15)
+            end_utc = now_utc + timedelta(minutes=90)
+
+            self.current_radar_window_start_utc = start_utc
+            self.current_radar_window_end_utc = end_utc
 
         self.open_weather_radar_popup(
             weather_row=self.weather_rows[0],
             row_index=0,
-            selected_start_utc=now_utc - timedelta(minutes=15),
-            selected_end_utc=now_utc + timedelta(minutes=90),
+            selected_start_utc=start_utc,
+            selected_end_utc=end_utc,
         )
 
     def open_weather_radar_popup(
@@ -4315,14 +4367,27 @@ class DashboardWindow(QMainWindow):
             self.radar_preload_worker = None
 
         selected_windows = []
-        now_utc = datetime.now(timezone.utc)
 
-        # This is the exact window used when the top-left current-weather
-        # card is clicked: now -15 minutes through now +90 minutes.
+        # Use a stable five-minute-aligned current window so the Date card
+        # requests the exact cache key warmed here.
+        now_utc = datetime.now(timezone.utc)
+        now_utc = now_utc.replace(
+            minute=(now_utc.minute // 5) * 5,
+            second=0,
+            microsecond=0,
+        )
+
+        self.current_radar_window_start_utc = (
+            now_utc - timedelta(minutes=15)
+        )
+        self.current_radar_window_end_utc = (
+            now_utc + timedelta(minutes=90)
+        )
+
         selected_windows.append(
             (
-                now_utc - timedelta(minutes=15),
-                now_utc + timedelta(minutes=90),
+                self.current_radar_window_start_utc,
+                self.current_radar_window_end_utc,
             )
         )
 
@@ -5224,24 +5289,44 @@ class DashboardWindow(QMainWindow):
         self.resize_settings_card_to_window()
 
     def apply_forced_row_heights(self):
-        available_height = (
-            self.height()
-            - (self.outer_margin * 2)
-            - (self.row_spacing * 2)
+        # Preserve the original top and middle row sizes as if both row gaps
+        # still existed. The removed middle-to-bottom gap is assigned entirely
+        # to the bottom row so Reminders and Market Tape become taller.
+        dashboard_height = self.dashboard_page.contentsRect().height()
+
+        main_top_margin = 6
+        main_bottom_margin = 0
+
+        total_available_height = max(
+            0,
+            dashboard_height
+            - main_top_margin
+            - main_bottom_margin,
         )
 
-        # Give the bottom dashboard row enough room for the full
-        # Reminders daily brief while preserving the top-row height.
-        top_height = int(available_height * 0.25)
-        middle_height = int(available_height * 0.45)
-        bottom_height = available_height - top_height - middle_height
+        original_row_budget = max(
+            0,
+            dashboard_height
+            - main_top_margin
+            - main_bottom_margin
+            - (self.row_spacing * 2),
+        )
+
+        top_height = int(original_row_budget * 0.25)
+
+        # Preserve Sports and the bottom row. Assign the reclaimed
+        # Sports-to-news gap only to the middle news row.
+        middle_height = int(original_row_budget * 0.50) + self.row_spacing
+
+        bottom_height = total_available_height - top_height - middle_height
 
         self.top_row_widget.setFixedHeight(top_height)
         self.middle_row_widget.setFixedHeight(middle_height)
         self.bottom_row_widget.setFixedHeight(bottom_height)
 
         print(
-            f"FORCED HEIGHTS -> top: {top_height}, middle: {middle_height}, bottom: {bottom_height}"
+            "FORCED HEIGHTS -> "
+            f"top: {top_height}, middle: {middle_height}, bottom: {bottom_height}"
         )
 
 # ---------------------------------------------------------------------------

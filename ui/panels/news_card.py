@@ -16,7 +16,7 @@ class ResponsiveMiniHeadlineLabel(QLabel):
     Long titles stay the same size and end with an ellipsis.
     """
 
-    FONT_SIZE = 12
+    FONT_SIZE = 14
 
     def __init__(self, text=""):
         super().__init__()
@@ -1580,17 +1580,11 @@ class NewsCard(QWidget):
             row_layout.setSpacing(0)
             row.setLayout(row_layout)
 
-            story_label = QLabel(f"STORY {index + 2}")
-            story_label.setObjectName("Page2HeadlineSection")
-            story_label.setAlignment(Qt.AlignLeft | Qt.AlignBottom)
-            story_label.setFixedHeight(10)
-
             title_label = ResponsiveMiniHeadlineLabel(title)
             title_label.setMinimumHeight(0)
             title_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
             title_label.setObjectName("Page2HeadlineText")
 
-            row_layout.addWidget(story_label)
             row_layout.addWidget(title_label, 1)
 
             row.setStyleSheet("""
@@ -1604,14 +1598,6 @@ class NewsCard(QWidget):
                     background: rgba(255, 248, 236, 0.28);
                     border-top: 1px solid rgba(55, 42, 25, 0.62);
                 }
-                QLabel#Page2HeadlineSection {
-                    color: rgba(126, 81, 31, 0.90);
-                    background: transparent;
-                    font-family: "Times New Roman";
-                    font-size: 8px;
-                    font-weight: 1000;
-                    letter-spacing: 1.2px;
-                }
                 QLabel#Page2HeadlineText {
                     color: #17100a;
                     background: transparent;
@@ -1621,19 +1607,14 @@ class NewsCard(QWidget):
             if article_url:
                 row.setCursor(Qt.PointingHandCursor)
                 title_label.setCursor(Qt.PointingHandCursor)
-                story_label.setCursor(Qt.PointingHandCursor)
-
                 row.installEventFilter(self)
                 title_label.installEventFilter(self)
-                story_label.installEventFilter(self)
 
                 self.page2_widget_urls[row] = article_url
                 self.page2_widget_urls[title_label] = article_url
-                self.page2_widget_urls[story_label] = article_url
 
                 self.page2_widget_headlines[row] = title
                 self.page2_widget_headlines[title_label] = title
-                self.page2_widget_headlines[story_label] = title
 
             page2_layout.addWidget(row, 1)
 

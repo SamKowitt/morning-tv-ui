@@ -103,7 +103,7 @@ class DateCard(QWidget):
         self.current_weather_label.setObjectName("DateCurrentWeather")
 
         self.low_high_label = AutoFitLabel(
-            "L --°  H --°",
+            "H --°  L --°",
             min_size=12,
             max_size=24,
             bold=True,
@@ -256,7 +256,7 @@ class DateCard(QWidget):
     def set_low_high(self, low, high):
         low_text = str(low).replace("°", "")
         high_text = str(high).replace("°", "")
-        self.low_high_label.setText(f"L {low_text}°  H {high_text}°")
+        self.low_high_label.setText(f"H {high_text}°  L {low_text}°")
         self.apply_text_color()
 
     def update_low_high_from_rows(self, rows):
@@ -269,7 +269,7 @@ class DateCard(QWidget):
                 pass
 
         if not temperatures:
-            self.low_high_label.setText("L --°  H --°")
+            self.low_high_label.setText("H --°  L --°")
             self.apply_text_color()
             return
 
