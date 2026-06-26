@@ -1047,6 +1047,8 @@ class NewsCard(QWidget):
         self.page2_widget_urls = {}
         self.page2_widget_headlines = {}
         self.reminders_action_enabled = False
+        self.reminders_action_visible = True
+        self.reminders_empty_state_message = ""
         self.market_tape_action_enabled = False
 
         self.image_request_token = 0
@@ -1308,6 +1310,43 @@ class NewsCard(QWidget):
             self.reminders_button.hide()
             self.edition_label.show()
 
+    def set_reminders_action_visible(self, visible):
+        self.reminders_action_visible = bool(visible)
+
+        if self.reminders_action_enabled:
+            self.reminders_button.setVisible(
+                self.reminders_action_visible
+            )
+
+    def set_reminders_empty_state_message(self, message):
+        self.reminders_empty_state_message = str(message or "").strip()
+
+        if not self.reminders_action_enabled:
+            return
+
+        if self.reminders_empty_state_message:
+            self.reminders_button.hide()
+            self.edition_label.setText(
+                self.reminders_empty_state_message
+            )
+            self.edition_label.setStyleSheet("""
+                QLabel {
+                    color: rgba(45, 33, 20, 0.92);
+                    background: transparent;
+                    font-family: "Times New Roman";
+                    font-size: 14px;
+                    font-weight: 1000;
+                    font-style: italic;
+                }
+            """)
+            self.edition_label.show()
+        else:
+            self.edition_label.setText("Politics")
+            self.edition_label.setStyleSheet("")
+            self.edition_label.setVisible(
+                not self.reminders_action_visible
+            )
+
     def set_market_tape_action_enabled(self, enabled):
         self.market_tape_action_enabled = bool(enabled)
 
@@ -1465,9 +1504,19 @@ class NewsCard(QWidget):
         self.article_url = ""
 
         if self.reminders_action_enabled:
-            self.edition_label.hide()
             self.market_tape_button.hide()
-            self.reminders_button.show()
+
+            if self.reminders_empty_state_message:
+                self.reminders_button.hide()
+                self.edition_label.setText(
+                    self.reminders_empty_state_message
+                )
+                self.edition_label.show()
+            else:
+                self.edition_label.hide()
+                self.reminders_button.setVisible(
+                    self.reminders_action_visible
+                )
         elif self.market_tape_action_enabled:
             self.edition_label.hide()
             self.reminders_button.hide()

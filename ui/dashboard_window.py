@@ -1247,6 +1247,19 @@ class DashboardWindow(QMainWindow):
         self.more_news_card.reminders_requested.connect(
             self.show_reminders_for_current_session
         )
+        self.more_news_card.read_label.setAlignment(
+            Qt.AlignRight | Qt.AlignVCenter
+        )
+        self.more_news_card.read_label.setStyleSheet("""
+            QLabel {
+                color: rgba(45, 33, 20, 0.82);
+                background: transparent;
+                font-family: "Times New Roman";
+                font-size: 12px;
+                font-weight: 1000;
+                font-style: italic;
+            }
+        """)
 
         self.market_news_card = NewsCard(
             headline="Loading more headlines...",
@@ -2745,7 +2758,7 @@ class DashboardWindow(QMainWindow):
 
     def open_recurring_events_popup(self):
         dialog = QDialog(self)
-        dialog.setWindowTitle("Add Calendar Event")
+        dialog.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         dialog.setModal(True)
         dialog.resize(820, 560)
         dialog.setStyleSheet("""
@@ -2834,13 +2847,6 @@ class DashboardWindow(QMainWindow):
                 background: #4a9855;
             }
         """)
-
-        add_row = QHBoxLayout()
-        add_row.setContentsMargins(0, 0, 0, 0)
-        add_row.addWidget(add_button, 0, Qt.AlignLeft)
-        add_row.addStretch(1)
-
-        root.addLayout(add_row)
 
         title_input = QLineEdit()
         title_input.setObjectName("SettingsLineEdit")
@@ -2954,7 +2960,9 @@ class DashboardWindow(QMainWindow):
 
         close_row = QHBoxLayout()
         close_row.setContentsMargins(0, 0, 0, 0)
+        close_row.setSpacing(10)
         close_row.addStretch(1)
+        close_row.addWidget(add_button)
         close_row.addWidget(close_button)
         close_row.addStretch(1)
 
@@ -4367,6 +4375,7 @@ class DashboardWindow(QMainWindow):
         # This also stays session-only and does not change Settings.
         self.session_reminders_hidden = False
         self.calendar_has_no_events = False
+        self.more_news_card.read_label.setText("")
 
         if hasattr(self, "bottom_left_stack"):
             self.bottom_left_stack.setCurrentWidget(self.reminders)
@@ -4452,7 +4461,7 @@ class DashboardWindow(QMainWindow):
 
         self.more_news_card.update_article_list(
             articles,
-            page_label="MORE",
+            page_label="",
         )
 
         print(
@@ -4585,6 +4594,22 @@ class DashboardWindow(QMainWindow):
         combined_events = apple_events + created_events
 
         self.calendar_has_no_events = len(combined_events) == 0
+
+        # Show the empty-calendar notice in the mini-news header where the
+        # Reminders button normally appears, not in the footer.
+        self.more_news_card.read_label.setText("")
+        self.more_news_card.set_reminders_empty_state_message(
+            "No calendar events today/upcoming"
+            if self.calendar_has_no_events
+            else ""
+        )
+
+        # When mini news replaces an empty calendar, there is nothing for
+        # the Reminders button to open. Keep it available for manual/persistent
+        # hiding cases where reminders may still contain calendar data.
+        self.more_news_card.set_reminders_action_visible(
+            not self.calendar_has_no_events
+        )
 
         if self.hide_reminders or self.session_reminders_hidden:
             self.show_more_news_panel()

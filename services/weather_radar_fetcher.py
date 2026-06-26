@@ -55,6 +55,10 @@ RADAR_CACHE_SECONDS = 300
 BASEMAP_CACHE_SECONDS = 60 * 60 * 24 * 30
 REQUEST_TIMEOUT_SECONDS = 20
 
+# Keep the roads, labels, and terrain visible underneath precipitation.
+# 0 is invisible; 255 is fully opaque.
+RADAR_TILE_OPACITY = 105
+
 FORECAST_RUN_SEARCH_MINUTES = 240
 FORECAST_RUN_STEP_MINUTES = 5
 
@@ -451,6 +455,16 @@ def _render_frame(
             if tile is None:
                 continue
 
+            # Keep the base map fully opaque. Only reduce the Weather.com
+            # precipitation layer so roads and town labels remain readable.
+            alpha = tile.getchannel("A")
+            alpha = alpha.point(
+                lambda value: (
+                    value * RADAR_TILE_OPACITY
+                ) // 255
+            )
+            tile.putalpha(alpha)
+
             canvas.alpha_composite(
                 tile,
                 dest=(column * TILE_SIZE, row * TILE_SIZE),
@@ -461,8 +475,24 @@ def _render_frame(
     if loaded_tiles == 0:
         return None
 
-    # Crop the larger real tile canvas so the saved location is exactly
-    # centered in the visible 4x3 radar/map view.
+    # Calculate the actual saved-address pixel coordinate inside the
+    # cropped 4x3 output before converting the image to bytes.
+    crop_left, crop_top, _, _ = geometry["crop_box"]
+
+    location_pixel = {
+        "x": (
+            (geometry["center_x_float"] - geometry["start_x"])
+            * TILE_SIZE
+        ) - crop_left,
+        "y": (
+            (geometry["center_y_float"] - geometry["start_y"])
+            * TILE_SIZE
+        ) - crop_top,
+        "width": VISIBLE_TILE_COLUMNS * TILE_SIZE,
+        "height": VISIBLE_TILE_ROWS * TILE_SIZE,
+    }
+
+    # Crop the larger real tile canvas around the selected address.
     canvas = canvas.crop(geometry["crop_box"])
 
     buffer = io.BytesIO()
@@ -474,7 +504,10 @@ def _render_frame(
         optimize=True,
     )
 
-    return buffer.getvalue()
+    return {
+        "image_bytes": buffer.getvalue(),
+        "location_pixel": location_pixel,
+    }
 
 
 def _forecast_probe_tile(latitude, longitude, zoom=ZOOM):
@@ -554,7 +587,7 @@ def _cache_key(
     zoom=ZOOM,
 ):
     return (
-        f"{latitude:.3f}_{longitude:.3f}_radar_cadence_v8_centered4x3_"
+        f"{latitude:.3f}_{longitude:.3f}_radar_cadence_v11_radar_overlay_alpha_"
         f"z{int(zoom)}_start{int(selected_start.timestamp())}_"
         f"end{int(selected_end.timestamp())}"
     )
@@ -604,6 +637,7 @@ def _load_cached_loop(cache_key):
                         int(item["base_timestamp"]),
                         tz=timezone.utc,
                     ),
+                    "location_pixel": item.get("location_pixel", {}),
                 }
             )
 
@@ -633,6 +667,7 @@ def _save_cached_loop(cache_key, frames):
                     frame["base_time"].timestamp()
                 ),
                 "radar_type": frame["radar_type"],
+                "location_pixel": frame.get("location_pixel", {}),
             }
         )
 
@@ -720,7 +755,7 @@ def _render_observed_frame(
     location_label="",
     zoom=ZOOM,
 ):
-    image_bytes = _render_frame(
+    rendered = _render_frame(
         latitude=latitude,
         longitude=longitude,
         product=OBSERVED_PRODUCT,
@@ -732,11 +767,12 @@ def _render_observed_frame(
         zoom=zoom,
     )
 
-    if not image_bytes:
+    if not rendered:
         return None
 
     return {
-        "image_bytes": image_bytes,
+        "image_bytes": rendered["image_bytes"],
+        "location_pixel": rendered["location_pixel"],
         "valid_time": valid_time,
         "radar_type": "OBSERVED RADAR",
         "base_time": valid_time,
@@ -753,7 +789,7 @@ def _render_predicted_frame(
     location_label="",
     zoom=ZOOM,
 ):
-    image_bytes = _render_frame(
+    rendered = _render_frame(
         latitude=latitude,
         longitude=longitude,
         product=FORECAST_PRODUCT,
@@ -765,11 +801,12 @@ def _render_predicted_frame(
         zoom=zoom,
     )
 
-    if not image_bytes:
+    if not rendered:
         return None
 
     return {
-        "image_bytes": image_bytes,
+        "image_bytes": rendered["image_bytes"],
+        "location_pixel": rendered["location_pixel"],
         "valid_time": valid_time,
         "radar_type": "PREDICTED RADAR",
         "base_time": forecast_base_time,
