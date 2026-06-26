@@ -150,111 +150,143 @@ class ReminderItem(QWidget):
         self.setObjectName("TodayReminderRow" if today else "UpcomingReminderRow")
         self.setAttribute(Qt.WA_StyledBackground, True)
 
+        if today:
+            self.setMinimumHeight(42)
+        else:
+            self.setMinimumHeight(29)
+
         self.setStyleSheet("""
             QWidget#TodayReminderRow {
-                background-color: qlineargradient(
-                    x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #efd59a,
-                    stop:1 #f7e8bd
+                background: qlineargradient(
+                    x1: 0, y1: 0, x2: 1, y2: 0,
+                    stop: 0 rgba(243, 216, 157, 0.78),
+                    stop: 0.70 rgba(247, 229, 188, 0.35),
+                    stop: 1 rgba(247, 229, 188, 0.08)
                 );
-                border: 1px solid rgba(151, 111, 46, 125);
-                border-radius: 2px;
+                border: none;
+                border-left: 3px solid rgba(150, 96, 31, 0.78);
+                border-top: 1px solid rgba(55, 42, 25, 0.44);
+                border-bottom: 1px solid rgba(55, 42, 25, 0.20);
             }
 
             QWidget#UpcomingReminderRow {
-                background-color: transparent;
+                background: transparent;
                 border: none;
-                border-top: 1px solid rgba(55, 42, 25, 110);
-                border-radius: 0px;
+                border-top: 1px solid rgba(55, 42, 25, 0.38);
             }
 
             QLabel#TodayReminderIcon,
             QLabel#UpcomingReminderIcon {
                 background: transparent;
-                color: #2b1e10;
-                font-size: 13px;
+                color: #4c3420;
+                font-size: 12px;
+            }
+
+            QLabel#ReminderMeta {
+                background: transparent;
+                color: #9c6424;
+                font-family: "Times New Roman";
+                font-size: 8px;
+                font-weight: 1000;
+                letter-spacing: 1.1px;
             }
 
             QLabel#TodayReminderText {
                 background: transparent;
+                color: #17100a;
                 font-family: "Georgia";
-                font-size: 15px;
+                font-size: 14px;
                 font-weight: 1000;
-                color: #1d150d;
             }
 
             QLabel#UpcomingReminderText {
                 background: transparent;
-                font-family: "Times New Roman";
+                color: #302116;
+                font-family: "Georgia";
                 font-size: 10px;
-                font-weight: 700;
-                color: #3f3020;
+                font-weight: 800;
             }
 
             QPushButton#ReminderSendButton,
             QPushButton#UpcomingReminderSendButton {
-                background-color: #f0dfb7;
-                color: #2b1e10;
-                border: 1px solid rgba(73, 53, 29, 170);
-                border-radius: 2px;
-                padding: 2px 8px;
+                color: #4d351b;
+                background: rgba(255, 248, 236, 0.46);
+                border: 1px solid rgba(83, 59, 33, 0.50);
+                border-radius: 3px;
+                padding: 1px 7px;
                 font-family: "Times New Roman";
-                font-size: 9px;
+                font-size: 8px;
                 font-weight: 1000;
             }
 
             QPushButton#ReminderSendButton:hover,
             QPushButton#UpcomingReminderSendButton:hover {
-                background-color: #e4ca90;
+                background: rgba(255, 248, 236, 0.80);
+                border-color: rgba(83, 59, 33, 0.76);
             }
         """)
 
         layout = QHBoxLayout()
         layout.setContentsMargins(
-            8 if today else 6,
-            4 if today else 2,
-            8 if today else 6,
-            4 if today else 2,
+            7 if today else 8,
+            3 if today else 2,
+            8,
+            3 if today else 2,
         )
-        layout.setSpacing(7 if today else 5)
+        layout.setSpacing(7 if today else 6)
         self.setLayout(layout)
 
         icon_label = QLabel(icon)
-        icon_label.setObjectName("TodayReminderIcon" if today else "UpcomingReminderIcon")
+        icon_label.setObjectName(
+            "TodayReminderIcon" if today else "UpcomingReminderIcon"
+        )
         icon_label.setAlignment(Qt.AlignCenter)
+        icon_label.setFixedWidth(20)
+
+        text_column = QWidget()
+        text_column.setStyleSheet("background: transparent; border: none;")
+
+        text_layout = QVBoxLayout()
+        text_layout.setContentsMargins(0, 0, 0, 0)
+        text_layout.setSpacing(0)
+        text_column.setLayout(text_layout)
+
+        meta_label = QLabel("TODAY'S PRIORITY" if today else "UPCOMING")
+        meta_label.setObjectName("ReminderMeta")
+        meta_label.setAlignment(Qt.AlignLeft | Qt.AlignBottom)
+        meta_label.setFixedHeight(10 if today else 8)
 
         text_label = AutoFitLabel(
             text,
-            min_size=9 if today else 7,
-            max_size=18 if today else 11,
-            bold=today,
+            min_size=8 if today else 7,
+            max_size=15 if today else 11,
+            bold=True,
             alignment=Qt.AlignLeft | Qt.AlignVCenter,
             word_wrap=False,
         )
-        text_label.setObjectName("TodayReminderText" if today else "UpcomingReminderText")
+        text_label.setObjectName(
+            "TodayReminderText" if today else "UpcomingReminderText"
+        )
 
-        layout.addWidget(icon_label, 12 if today else 11)
+        if today:
+            text_layout.addWidget(meta_label)
+            text_layout.addWidget(text_label, 1)
+        else:
+            text_layout.addWidget(text_label, 1)
+
+        layout.addWidget(icon_label)
+        layout.addWidget(text_column, 1)
 
         if show_reminder_button:
-            layout.addWidget(text_label, 58 if today else 62)
-
             send_button = QPushButton("Set Reminder")
-            send_button.setObjectName("ReminderSendButton" if today else "UpcomingReminderSendButton")
+            send_button.setObjectName(
+                "ReminderSendButton" if today else "UpcomingReminderSendButton"
+            )
             send_button.setCursor(Qt.PointingHandCursor)
-
-            if today:
-                send_button.setFixedWidth(98)
-                send_button.setFixedHeight(24)
-            else:
-                send_button.setFixedWidth(86)
-                send_button.setFixedHeight(20)
-
+            send_button.setFixedSize(88 if today else 82, 21 if today else 20)
             send_button.clicked.connect(self.open_reminder_time_popup)
 
-            layout.addStretch(1)
             layout.addWidget(send_button, 0, Qt.AlignRight | Qt.AlignVCenter)
-        else:
-            layout.addWidget(text_label, 86)
 
     def open_reminder_time_popup(self):
         dialog = ReminderTimeDialog(self.reminder_text, self)
@@ -348,18 +380,13 @@ class RemindersPanel(QWidget):
         super().__init__()
 
         self.setObjectName("RemindersCard")
-        self.setAttribute(Qt.WA_StyledBackground, False)
+        self.setAttribute(Qt.WA_StyledBackground, True)
 
         self.setStyleSheet("""
             QWidget#RemindersCard {
-                background-color: qlineargradient(
-                    x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #fff5df,
-                    stop:0.52 #f0e3c8,
-                    stop:1 #d8c39b
-                );
-                border: 1px solid rgba(55, 42, 25, 225);
-                border-radius: 2px;
+                background: transparent;
+                border: none;
+                border-radius: 0px;
             }
 
             QWidget#RemindersCard QLabel {
@@ -470,6 +497,8 @@ class RemindersPanel(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
+        # Match NewsCard exactly: let the shared newspaper renderer own
+        # the entire visible card surface and its built-in shadow/fold.
         rect = self.rect().adjusted(1, 1, -1, -1)
         draw_stacked_newspaper_panel(painter, rect, seed=44)
 
@@ -577,14 +606,15 @@ class RemindersPanel(QWidget):
 
     def open_all_events_popup(self):
         dialog = QDialog(self)
+        dialog.setObjectName("CalendarDetailsDialog")
         dialog.setModal(True)
         dialog.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         dialog.setAttribute(Qt.WA_StyledBackground, True)
         dialog.resize(620, 560)
         dialog.setStyleSheet("""
-            QDialog {
+            QDialog#CalendarDetailsDialog {
                 background: #f5ead7;
-                border: 2px solid rgba(83, 59, 33, 0.42);
+                border: none;
                 border-radius: 14px;
             }
 
@@ -597,11 +627,26 @@ class RemindersPanel(QWidget):
             }
 
             QLabel#CalendarDetailsSection {
-                color: #9c6424;
+                color: #7a4d18;
                 background: transparent;
                 font-size: 11px;
                 font-weight: 1000;
                 letter-spacing: 1.2px;
+            }
+
+            QScrollArea {
+                background: #fff8ec;
+                border: none;
+            }
+
+            QWidget#CalendarDetailsContent {
+                background: #fff8ec;
+                border: none;
+            }
+
+            QScrollArea::viewport {
+                background: #fff8ec;
+                border: none;
             }
         """)
 
@@ -620,10 +665,72 @@ class RemindersPanel(QWidget):
         scroll.setFrameShape(QFrame.NoFrame)
 
         content = QWidget()
+        content.setObjectName("CalendarDetailsContent")
+        content.setStyleSheet("""
+            QWidget#CalendarDetailsContent {
+                background: #fff8ec;
+                border: none;
+            }
+        """)
+
         content_layout = QVBoxLayout()
         content_layout.setContentsMargins(4, 4, 4, 4)
         content_layout.setSpacing(6)
         content.setLayout(content_layout)
+
+        def detail_row(event, today):
+            row = self.make_event_row(event, today=today)
+            row.setStyleSheet("""
+                QWidget#TodayReminderRow {
+                    background: #f6dda3;
+                    border: 1px solid #b58a48;
+                    border-radius: 5px;
+                }
+
+                QWidget#UpcomingReminderRow {
+                    background: #fff8ec;
+                    border: 1px solid #d2b77f;
+                    border-radius: 5px;
+                }
+
+                QLabel#TodayReminderIcon,
+                QLabel#UpcomingReminderIcon,
+                QLabel#TodayReminderText,
+                QLabel#UpcomingReminderText {
+                    color: #2d2114;
+                    background: transparent;
+                }
+
+                QLabel#TodayReminderText {
+                    font-family: "Georgia";
+                    font-size: 15px;
+                    font-weight: 1000;
+                }
+
+                QLabel#UpcomingReminderText {
+                    font-family: "Times New Roman";
+                    font-size: 13px;
+                    font-weight: 800;
+                }
+
+                QPushButton#ReminderSendButton,
+                QPushButton#UpcomingReminderSendButton {
+                    background: #ead3a1;
+                    color: #2d2114;
+                    border: 1px solid #8c6938;
+                    border-radius: 4px;
+                    padding: 2px 8px;
+                    font-family: "Times New Roman";
+                    font-size: 10px;
+                    font-weight: 1000;
+                }
+
+                QPushButton#ReminderSendButton:hover,
+                QPushButton#UpcomingReminderSendButton:hover {
+                    background: #f6e4ba;
+                }
+            """)
+            return row
 
         today_heading = QLabel("TODAY")
         today_heading.setObjectName("CalendarDetailsSection")
@@ -631,9 +738,7 @@ class RemindersPanel(QWidget):
 
         if self.all_today_events:
             for event in self.all_today_events:
-                content_layout.addWidget(
-                    self.make_event_row(event, today=True)
-                )
+                content_layout.addWidget(detail_row(event, today=True))
         else:
             content_layout.addWidget(
                 self.make_details_empty_row("No Events Today")
@@ -646,9 +751,7 @@ class RemindersPanel(QWidget):
 
         if self.all_upcoming_events:
             for event in self.all_upcoming_events:
-                content_layout.addWidget(
-                    self.make_event_row(event, today=False)
-                )
+                content_layout.addWidget(detail_row(event, today=False))
         else:
             content_layout.addWidget(
                 self.make_details_empty_row("No Upcoming Events")
@@ -667,7 +770,7 @@ class RemindersPanel(QWidget):
             QPushButton {
                 background: #d8c7a4;
                 color: #2d2114;
-                border: 1px solid rgba(83, 59, 33, 0.48);
+                border: 1px solid #8c6938;
                 border-radius: 7px;
                 padding: 5px 18px;
                 font-size: 12px;
@@ -871,4 +974,3 @@ class RemindersPanel(QWidget):
         ]
 
         self.rebuild_calendar_rows(today_widgets, upcoming_widgets)
-

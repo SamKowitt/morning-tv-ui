@@ -3,10 +3,72 @@ from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 import caldav
+import holidays
 
 
 ICLOUD_CALDAV_URL = "https://caldav.icloud.com/"
 LOCAL_TIMEZONE = ZoneInfo("America/New_York")
+
+RELIGIOUS_HOLIDAY_OPTIONS = [
+    ("christian", "Christian"),
+    ("jewish", "Jewish"),
+    ("islamic", "Islamic"),
+    ("hindu", "Hindu"),
+    ("buddhist", "Buddhist"),
+    ("sikh", "Sikh"),
+    ("orthodox_christian", "Orthodox Christian"),
+]
+
+RELIGIOUS_SOURCES = {
+    "christian": (
+        ["VA", "IT", "US"],
+        (
+            "christmas", "easter", "good friday", "epiphany",
+            "assumption", "all saints", "corpus christi",
+            "pentecost", "ascension",
+        ),
+    ),
+    "jewish": (
+        ["IL"],
+        (
+            "rosh hashana", "yom kippur", "passover", "pesach",
+            "hanukkah", "purim", "sukkot", "shavuot", "tisha",
+        ),
+    ),
+    "islamic": (
+        ["SA", "AE"],
+        (
+            "ramadan", "eid", "islamic", "prophet", "hijri",
+            "arafat", "muharram",
+        ),
+    ),
+    "hindu": (
+        ["IN"],
+        (
+            "diwali", "holi", "dussehra", "navratri",
+            "janmashtami", "ganesh", "maha shivratri",
+        ),
+    ),
+    "buddhist": (
+        ["TH"],
+        (
+            "buddha", "visakha", "makha", "asalha",
+        ),
+    ),
+    "sikh": (
+        ["IN"],
+        (
+            "guru", "gurpurab", "vaisakhi",
+        ),
+    ),
+    "orthodox_christian": (
+        ["GR", "RS", "RO"],
+        (
+            "orthodox", "easter", "christmas", "epiphany",
+            "assumption", "good friday",
+        ),
+    ),
+}
 
 
 @dataclass
@@ -43,21 +105,33 @@ def format_when_text(start_dt, all_day):
     event_date = start_dt.date()
 
     if event_date == today:
-        if all_day:
-            return "Today"
-        return f"Today {start_dt.strftime('%-I:%M %p')}"
+        return "Today" if all_day else f"Today {start_dt.strftime('%-I:%M %p')}"
 
-    tomorrow = today + timedelta(days=1)
+    if event_date == today + timedelta(days=1):
+        return "Tomorrow" if all_day else f"Tomorrow {start_dt.strftime('%-I:%M %p')}"
 
-    if event_date == tomorrow:
-        if all_day:
-            return "Tomorrow"
-        return f"Tomorrow {start_dt.strftime('%-I:%M %p')}"
+    return (
+        start_dt.strftime("%a, %b %-d")
+        if all_day
+        else start_dt.strftime("%a, %b %-d %-I:%M %p")
+    )
 
-    if all_day:
-        return start_dt.strftime("%a, %b %-d")
 
-    return start_dt.strftime("%a, %b %-d %-I:%M %p")
+def make_holiday_event(title, holiday_date):
+    start_dt = datetime.combine(
+        holiday_date,
+        time.min,
+        tzinfo=LOCAL_TIMEZONE,
+    )
+
+    return AppleCalendarEvent(
+        title=str(title).strip() or "Holiday",
+        when_text=format_when_text(start_dt, True),
+        starts_today=(holiday_date == datetime.now(LOCAL_TIMEZONE).date()),
+        start_datetime=start_dt,
+        end_datetime=start_dt + timedelta(days=1),
+        all_day=True,
+    )
 
 
 def event_from_caldav_object(event_object):
@@ -94,161 +168,239 @@ def event_from_caldav_object(event_object):
     )
 
 
-
-# -----------------------------
-# Built-in U.S. holidays
-# -----------------------------
-
-def nth_weekday_of_month(year, month, weekday, occurrence):
-    current = date(year, month, 1)
-    days_until_weekday = (weekday - current.weekday()) % 7
-    return current + timedelta(days=days_until_weekday + (occurrence - 1) * 7)
-
-
-def last_weekday_of_month(year, month, weekday):
-    if month == 12:
-        current = date(year + 1, 1, 1) - timedelta(days=1)
-    else:
-        current = date(year, month + 1, 1) - timedelta(days=1)
-
-    while current.weekday() != weekday:
-        current -= timedelta(days=1)
-
-    return current
-
-
-def observed_federal_holiday(actual_date):
-    if actual_date.weekday() == 5:
-        return actual_date - timedelta(days=1)
-
-    if actual_date.weekday() == 6:
-        return actual_date + timedelta(days=1)
-
-    return actual_date
-
-
-def make_builtin_holiday_event(title, holiday_date):
-    start_dt = datetime.combine(
-        holiday_date,
-        time.min,
-        tzinfo=LOCAL_TIMEZONE,
-    )
-
-    return AppleCalendarEvent(
-        title=title,
-        when_text=format_when_text(start_dt, True),
-        starts_today=(holiday_date == datetime.now(LOCAL_TIMEZONE).date()),
-        start_datetime=start_dt,
-        end_datetime=start_dt + timedelta(days=1),
-        all_day=True,
-    )
-
-
-def built_in_us_holidays(start_date, end_date):
+def holiday_country_options():
     """
-    Returns major U.S. holidays plus Mother's Day and Father's Day.
-    The returned range is inclusive.
+    Curated country picker for the Settings UI.
+
+    The holidays package exposes technical country/provider metadata that is
+    not suitable for a human-facing country dropdown.
     """
-    if start_date > end_date:
-        return []
-
-    holiday_dates = []
-
-    for year in range(start_date.year, end_date.year + 1):
-        fixed_holidays = [
-            ("New Year's Day", date(year, 1, 1)),
-            ("Juneteenth", date(year, 6, 19)),
-            ("Independence Day", date(year, 7, 4)),
-            ("Veterans Day", date(year, 11, 11)),
-            ("Christmas Day", date(year, 12, 25)),
-        ]
-
-        for title, actual_date in fixed_holidays:
-            holiday_dates.append((title, actual_date))
-
-            observed_date = observed_federal_holiday(actual_date)
-            if observed_date != actual_date:
-                holiday_dates.append((f"{title} (Observed)", observed_date))
-
-        holiday_dates.extend([
-            (
-                "Martin Luther King Jr. Day",
-                nth_weekday_of_month(year, 1, 0, 3),
-            ),
-            (
-                "Presidents Day",
-                nth_weekday_of_month(year, 2, 0, 3),
-            ),
-            (
-                "Mother's Day",
-                nth_weekday_of_month(year, 5, 6, 2),
-            ),
-            (
-                "Memorial Day",
-                last_weekday_of_month(year, 5, 0),
-            ),
-            (
-                "Father's Day",
-                nth_weekday_of_month(year, 6, 6, 3),
-            ),
-            (
-                "Labor Day",
-                nth_weekday_of_month(year, 9, 0, 1),
-            ),
-            (
-                "Columbus Day",
-                nth_weekday_of_month(year, 10, 0, 2),
-            ),
-            (
-                "Thanksgiving Day",
-                nth_weekday_of_month(year, 11, 3, 4),
-            ),
-        ])
-
-    events = [
-        make_builtin_holiday_event(title, holiday_date)
-        for title, holiday_date in holiday_dates
-        if start_date <= holiday_date <= end_date
+    return [
+        ("US", "United States of America"),
+        ("CA", "Canada"),
+        ("MX", "Mexico"),
+        ("BR", "Brazil"),
+        ("AR", "Argentina"),
+        ("GB", "United Kingdom"),
+        ("IE", "Ireland"),
+        ("FR", "France"),
+        ("DE", "Germany"),
+        ("IT", "Italy"),
+        ("ES", "Spain"),
+        ("PT", "Portugal"),
+        ("NL", "Netherlands"),
+        ("BE", "Belgium"),
+        ("CH", "Switzerland"),
+        ("AT", "Austria"),
+        ("SE", "Sweden"),
+        ("NO", "Norway"),
+        ("DK", "Denmark"),
+        ("FI", "Finland"),
+        ("PL", "Poland"),
+        ("CZ", "Czech Republic"),
+        ("GR", "Greece"),
+        ("RO", "Romania"),
+        ("UA", "Ukraine"),
+        ("RU", "Russia"),
+        ("IL", "Israel"),
+        ("AE", "United Arab Emirates"),
+        ("SA", "Saudi Arabia"),
+        ("IN", "India"),
+        ("CN", "China"),
+        ("JP", "Japan"),
+        ("KR", "South Korea"),
+        ("TH", "Thailand"),
+        ("AU", "Australia"),
+        ("NZ", "New Zealand"),
+        ("ZA", "South Africa"),
     ]
 
-    events.sort(key=lambda item: item.start_datetime)
+def holidays_for_country(country_code, start_date, end_date):
+    country_code = str(country_code or "").strip().upper()
+
+    if not country_code:
+        return []
+
+    years = list(range(start_date.year, end_date.year + 1))
+
+    try:
+        calendar = holidays.country_holidays(
+            country_code,
+            years=years,
+        )
+    except Exception as error:
+        print(f"Could not load {country_code} holidays: {error}")
+        return []
+
+    events = []
+
+    for holiday_date, title in calendar.items():
+        if start_date <= holiday_date <= end_date:
+            events.append(make_holiday_event(title, holiday_date))
+
     return events
+
+
+def holidays_for_religion(religion_key, start_date, end_date):
+    religion_key = str(religion_key or "").strip().lower()
+    source = RELIGIOUS_SOURCES.get(religion_key)
+
+    if source is None:
+        return []
+
+    source_countries, terms = source
+    events = []
+
+    for country_code in source_countries:
+        for event in holidays_for_country(
+            country_code,
+            start_date,
+            end_date,
+        ):
+            normalized_title = event.title.lower()
+
+            if any(term in normalized_title for term in terms):
+                events.append(event)
+
+    return events
+
+
+def fetch_icloud_calendar_events(
+    apple_id_email,
+    app_specific_password,
+    days_ahead=14,
+    max_events=100,
+):
+    apple_id_email = str(apple_id_email or "").strip()
+    app_specific_password = str(app_specific_password or "").strip()
+
+    if not apple_id_email:
+        raise ValueError("Apple ID email is missing.")
+
+    if not app_specific_password:
+        raise ValueError("Apple app-specific password is missing.")
+
+    days_ahead = max(1, min(int(days_ahead or 14), 60))
+
+    now = datetime.now(LOCAL_TIMEZONE)
+    start = datetime.combine(now.date(), time.min, tzinfo=LOCAL_TIMEZONE)
+    end = start + timedelta(days=days_ahead)
+
+    client = caldav.DAVClient(
+        url=ICLOUD_CALDAV_URL,
+        username=apple_id_email,
+        password=app_specific_password,
+    )
+
+    principal = client.principal()
+    calendars = principal.calendars()
+    events = []
+
+    for calendar in calendars:
+        try:
+            calendar_events = calendar.date_search(
+                start=start,
+                end=end,
+                expand=True,
+            )
+
+            for event_object in calendar_events:
+                try:
+                    event = event_from_caldav_object(event_object)
+
+                    if (
+                        event.start_datetime is not None
+                        and event.start_datetime >= start - timedelta(days=1)
+                    ):
+                        events.append(event)
+                except Exception as event_error:
+                    print(f"Could not parse iCloud calendar event: {event_error}")
+
+        except Exception as calendar_error:
+            print(f"Could not read one iCloud calendar: {calendar_error}")
+
+    events.sort(
+        key=lambda item: item.start_datetime
+        or datetime.max.replace(tzinfo=LOCAL_TIMEZONE)
+    )
+
+    print(f"Loaded {len(events)} iCloud calendar event(s) for {apple_id_email}.")
+    return events[:max_events]
 
 
 def fetch_dashboard_calendar_events(
     apple_id_email="",
     app_specific_password="",
     days_ahead=14,
-    max_events=8,
+    apple_id_email_2="",
+    app_specific_password_2="",
+    days_ahead_2=14,
+    national_holiday_codes=None,
+    religious_holiday_keys=None,
+    max_events=100,
 ):
-    """
-    Combines built-in U.S. holidays with optional iCloud calendar events.
-    Holidays remain available even if iCloud is not configured or fails.
-    """
-    days_ahead = max(1, min(int(days_ahead or 14), 60))
+    today = datetime.now(LOCAL_TIMEZONE).date()
 
-    now = datetime.now(LOCAL_TIMEZONE)
-    start_date = now.date()
-    end_date = start_date + timedelta(days=days_ahead)
+    primary_days = max(1, min(int(days_ahead or 14), 60))
+    secondary_days = max(1, min(int(days_ahead_2 or 14), 60))
+    # National and religious holidays follow Calendar #1's Days Ahead.
+    # Calendar #2 controls only the second iCloud account's event range.
+    holiday_days = primary_days
 
-    events = built_in_us_holidays(start_date, end_date)
+    end_date = today + timedelta(days=holiday_days)
+    events = []
 
-    apple_id_email = str(apple_id_email or "").strip()
-    app_specific_password = str(app_specific_password or "").strip()
+    country_codes = list(national_holiday_codes or ["US"])
+    religion_keys = list(religious_holiday_keys or [])
 
-    if apple_id_email and app_specific_password:
-        try:
-            icloud_events = fetch_icloud_calendar_events(
-                apple_id_email=apple_id_email,
-                app_specific_password=app_specific_password,
-                days_ahead=days_ahead,
-                max_events=100,
+    for country_code in country_codes:
+        events.extend(
+            holidays_for_country(
+                country_code,
+                today,
+                end_date,
             )
-            events.extend(icloud_events)
+        )
+
+    for religion_key in religion_keys:
+        events.extend(
+            holidays_for_religion(
+                religion_key,
+                today,
+                end_date,
+            )
+        )
+
+    accounts = [
+        (
+            apple_id_email,
+            app_specific_password,
+            primary_days,
+            "Calendar #1",
+        ),
+        (
+            apple_id_email_2,
+            app_specific_password_2,
+            secondary_days,
+            "Calendar #2",
+        ),
+    ]
+
+    for email, password, account_days, account_label in accounts:
+        if not str(email or "").strip() and not str(password or "").strip():
+            continue
+
+        try:
+            events.extend(
+                fetch_icloud_calendar_events(
+                    apple_id_email=email,
+                    app_specific_password=password,
+                    days_ahead=account_days,
+                    max_events=100,
+                )
+            )
         except Exception as error:
-            print(f"iCloud calendar unavailable; showing built-in holidays only: {error}")
-    else:
-        print("Apple Calendar is not configured; showing built-in U.S. holidays only.")
+            print(f"{account_label} unavailable: {error}")
 
     unique_events = []
     seen = set()
@@ -270,70 +422,4 @@ def fetch_dashboard_calendar_events(
         unique_events.append(event)
 
     print(f"Loaded {len(unique_events)} combined calendar/holiday event(s).")
-
     return unique_events[:max_events]
-
-def fetch_icloud_calendar_events(apple_id_email, app_specific_password, days_ahead=14, max_events=8):
-    apple_id_email = str(apple_id_email or "").strip()
-    app_specific_password = str(app_specific_password or "").strip()
-
-    if not apple_id_email:
-        raise ValueError("Apple ID email is missing.")
-
-    if not app_specific_password:
-        raise ValueError("Apple app-specific password is missing.")
-
-    days_ahead = int(days_ahead or 14)
-
-    if days_ahead < 1:
-        days_ahead = 1
-
-    if days_ahead > 60:
-        days_ahead = 60
-
-    now = datetime.now(LOCAL_TIMEZONE)
-    start = datetime.combine(now.date(), time.min, tzinfo=LOCAL_TIMEZONE)
-    end = start + timedelta(days=days_ahead)
-
-    client = caldav.DAVClient(
-        url=ICLOUD_CALDAV_URL,
-        username=apple_id_email,
-        password=app_specific_password,
-    )
-
-    principal = client.principal()
-    calendars = principal.calendars()
-
-    events = []
-
-    for calendar in calendars:
-        try:
-            calendar_events = calendar.date_search(
-                start=start,
-                end=end,
-                expand=True,
-            )
-
-            for event_object in calendar_events:
-                try:
-                    event = event_from_caldav_object(event_object)
-
-                    if event.start_datetime is None:
-                        continue
-
-                    if event.start_datetime < start - timedelta(days=1):
-                        continue
-
-                    events.append(event)
-
-                except Exception as event_error:
-                    print(f"Could not parse iCloud calendar event: {event_error}")
-
-        except Exception as calendar_error:
-            print(f"Could not read one iCloud calendar: {calendar_error}")
-
-    events.sort(key=lambda item: item.start_datetime or datetime.max.replace(tzinfo=LOCAL_TIMEZONE))
-
-    print(f"Loaded {len(events)} iCloud calendar event(s).")
-
-    return events[:max_events]

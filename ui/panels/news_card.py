@@ -1423,6 +1423,10 @@ class NewsCard(QWidget):
         self.clear_page2_widgets()
         self.outer_layout.setStretchFactor(self.text_panel, 16)
         self.outer_layout.setStretchFactor(self.image, 72)
+        self.outer_layout.setStretch(2, 16)
+        self.outer_layout.setStretch(3, 72)
+        self.outer_layout.setStretch(6, 4)
+        self.text_layout.setStretchFactor(self.headline_label, 1)
         self.source = article.source
         self.article_url = getattr(article, "link", "") or ""
 
@@ -1481,7 +1485,7 @@ class NewsCard(QWidget):
     def update_article_list(self, articles, page_label="PAGE 2"):
         self.clear_page2_widgets()
 
-        articles = list(articles or [])[:4]
+        articles = list(articles or [])[:5]
 
         self.image.set_pixmap_from_data(b"")
         self.image.set_breaking_headline("")
@@ -1490,6 +1494,20 @@ class NewsCard(QWidget):
 
         self.outer_layout.setStretchFactor(self.image, 0)
         self.outer_layout.setStretchFactor(self.text_panel, 1)
+
+        # Layout index 6 is the footer row. In Page 2 mode it must not
+        # receive stretch; all available height belongs to the five stories.
+        self.outer_layout.setStretch(2, 100)
+        self.outer_layout.setStretch(3, 0)
+        self.outer_layout.setStretch(6, 0)
+        self.text_panel.setSizePolicy(
+            QSizePolicy.Expanding,
+            QSizePolicy.Expanding,
+        )
+
+        # The hidden main-headline layout item was still retaining stretch
+        # space. Give that space entirely to the five-story mini-news list.
+        self.text_layout.setStretchFactor(self.headline_label, 0)
 
         if articles:
             self.source = articles[0].source
@@ -1534,7 +1552,7 @@ class NewsCard(QWidget):
         self.setCursor(Qt.ArrowCursor)
         self.text_panel.setCursor(Qt.ArrowCursor)
 
-        # One visible page-2 container with four equal rows.
+        # One visible page-2 container with five equal rows.
         page2_container = QWidget()
         page2_container.setObjectName("Page2Container")
         page2_container.setAttribute(Qt.WA_StyledBackground, True)
@@ -1542,10 +1560,10 @@ class NewsCard(QWidget):
 
         page2_layout = QVBoxLayout()
         page2_layout.setContentsMargins(0, 0, 0, 0)
-        page2_layout.setSpacing(2)
+        page2_layout.setSpacing(0)
         page2_container.setLayout(page2_layout)
 
-        for index in range(4):
+        for index in range(5):
             article = articles[index] if index < len(articles) else None
             title = getattr(article, "title", "") if article else "Additional headline unavailable."
             article_url = getattr(article, "link", "") if article else ""
@@ -1554,20 +1572,22 @@ class NewsCard(QWidget):
             row.setObjectName("Page2HeadlineBox")
             row.setAttribute(Qt.WA_StyledBackground, True)
             row.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-            row.setMinimumHeight(31)
+            row.setMinimumHeight(0)
+            row.setMaximumHeight(16777215)
 
             row_layout = QVBoxLayout()
-            row_layout.setContentsMargins(10, 1, 10, 1)
+            row_layout.setContentsMargins(10, 2, 10, 2)
             row_layout.setSpacing(0)
             row.setLayout(row_layout)
 
             story_label = QLabel(f"STORY {index + 2}")
             story_label.setObjectName("Page2HeadlineSection")
             story_label.setAlignment(Qt.AlignLeft | Qt.AlignBottom)
-            story_label.setFixedHeight(11)
+            story_label.setFixedHeight(10)
 
             title_label = ResponsiveMiniHeadlineLabel(title)
-            title_label.setMinimumHeight(20)
+            title_label.setMinimumHeight(0)
+            title_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
             title_label.setObjectName("Page2HeadlineText")
 
             row_layout.addWidget(story_label)
@@ -1617,8 +1637,9 @@ class NewsCard(QWidget):
 
             page2_layout.addWidget(row, 1)
 
-        # Put the four-row container between the paper rule and the footer.
-        self.text_layout.insertWidget(2, page2_container, 1)
+        # Put the five-row container between the paper rule and the footer.
+        self.text_layout.insertWidget(2, page2_container, 100)
+        self.text_layout.setStretchFactor(page2_container, 100)
         self.page2_widgets.append(page2_container)
 
 

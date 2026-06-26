@@ -12,6 +12,7 @@ class AutoFitLabel(QLabel):
         bold=False,
         alignment=Qt.AlignCenter,
         word_wrap=True,
+        font_family=None,
     ):
         super().__init__(text)
 
@@ -20,6 +21,12 @@ class AutoFitLabel(QLabel):
         self.bold = bold
         self.fit_alignment = alignment
         self.auto_fit_enabled = True
+        self.font_family = str(font_family or "").strip()
+
+        if self.font_family:
+            initial_font = QFont(self.font())
+            initial_font.setFamily(self.font_family)
+            self.setFont(initial_font)
 
         self.setAlignment(alignment)
         self.setWordWrap(word_wrap)
@@ -97,6 +104,10 @@ class AutoFitLabel(QLabel):
             return
 
         updated_font = QFont(current_font)
+
+        if self.font_family:
+            updated_font.setFamily(self.font_family)
+
         updated_font.setPointSize(point_size)
         updated_font.setBold(self.bold)
         self.setFont(updated_font)

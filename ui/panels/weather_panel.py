@@ -99,9 +99,10 @@ class WeatherRow(QWidget):
             icon,
             min_size=10,
             max_size=24,
-            bold=True,
+            bold=False,
             alignment=Qt.AlignCenter,
             word_wrap=False,
+            font_family="Apple Color Emoji",
         )
 
         self.hour_label = AutoFitLabel(
@@ -155,8 +156,13 @@ class WeatherRow(QWidget):
             color = "#22313b"
 
         font_css = f"color: {color}; background: transparent;"
+        icon_css = (
+            f"color: {color}; background: transparent; "
+            'font-family: "Apple Color Emoji";'
+        )
+
         self.temp_label.setStyleSheet(font_css)
-        self.icon_label.setStyleSheet(font_css)
+        self.icon_label.setStyleSheet(icon_css)
         self.hour_label.setStyleSheet(font_css)
         self.detail_label.setStyleSheet(font_css)
 
@@ -251,7 +257,7 @@ class WeatherRow(QWidget):
 
         # Force lightning storms to use lightning bolt icon everywhere.
         if condition == "storm":
-            icon = "⚡"
+            icon = "⚡️"
 
         # Save animation/background state
         self.condition = condition
@@ -324,7 +330,10 @@ class WeatherRow(QWidget):
 
         for label in labels:
             if label is icon_label:
-                label.setStyleSheet(f"color: {text_color};")
+                label.setStyleSheet(
+                    f"color: {text_color}; background: transparent; "
+                    'font-family: "Apple Color Emoji";'
+                )
             elif label is temp_label:
                 label.setStyleSheet(f"color: {text_color}; font-weight: 900;")
             elif label is time_label_widget:
@@ -1370,4 +1379,3 @@ class WeatherPanel(QWidget):
             "Weather forecast list begins at:",
             first_label,
         )
-

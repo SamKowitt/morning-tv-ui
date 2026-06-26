@@ -10,6 +10,7 @@ from PySide6.QtCore import (
     QObject,
     QThread,
     Signal,
+    Slot,
     Qt,
     QSettings,
     QEvent,
@@ -63,7 +64,11 @@ from services.weather_fetcher import (
     validate_zip_code,
 )
 from services.weather_radar_fetcher import preload_weathercom_radar_loops
-from services.apple_calendar_fetcher import fetch_dashboard_calendar_events
+from services.apple_calendar_fetcher import (
+    RELIGIOUS_HOLIDAY_OPTIONS,
+    fetch_dashboard_calendar_events,
+    holiday_country_options,
+)
 from services.article_text_fetcher import prefetch_article_text_payload
 
 from ui.styles import APP_STYLE
@@ -113,7 +118,7 @@ class WeatherFetchWorker(QObject):
     def run(self):
         try:
             rows = fetch_weather_rows(
-                max_rows=10,
+                max_rows=12,
                 location=self.location,
             )
             self.finished.emit(rows)
@@ -191,7 +196,7 @@ class SportsNewsFetchWorker(QObject):
 
     def run(self):
         try:
-            articles = fetch_espn_sports_articles(max_articles=4)
+            articles = fetch_espn_sports_articles(max_articles=5)
             self.finished.emit(articles)
         except Exception as error:
             self.failed.emit(str(error))
@@ -239,7 +244,7 @@ class MoreNewsFetchWorker(QObject):
             )
 
             # The main left card already shows the top article.
-            # Use the next four unique headlines for the replacement panel.
+            # Use the next five unique headlines for the replacement panel.
             articles = []
             seen_headlines = set()
 
@@ -258,11 +263,13 @@ class MoreNewsFetchWorker(QObject):
                     image_bytes=b"",
                 )
 
-                if article.link:
-                    articles.append(article)
-                    seen_headlines.add(headline_key)
+                # Keep actual source headlines even when one candidate
+                # does not include a click-through URL. This prevents the
+                # visible fifth slot from becoming "unavailable."
+                articles.append(article)
+                seen_headlines.add(headline_key)
 
-                if len(articles) >= 4:
+                if len(articles) >= 5:
                     break
 
             if not articles:
@@ -3571,14 +3578,32 @@ class DashboardWindow(QMainWindow):
         apple_calendar_title.setAlignment(Qt.AlignLeft)
         apple_calendar_title.setStyleSheet(section_title_style)
 
-        apple_calendar_subtitle = QLabel("Use your Apple ID email and an Apple app-specific password.")
+        apple_calendar_subtitle = QLabel(
+            "Connect one or two Apple Calendars. Each account uses its own Days Ahead range."
+        )
         apple_calendar_subtitle.setObjectName("SettingsSectionSubtitle")
         apple_calendar_subtitle.setAlignment(Qt.AlignLeft)
         apple_calendar_subtitle.setWordWrap(True)
 
+        calendar_accounts_frame = QFrame()
+        calendar_accounts_frame.setObjectName("CalendarAccountsFrame")
+        calendar_accounts_frame.setStyleSheet("""
+            QFrame#CalendarAccountsFrame {
+                background: transparent;
+                border: none;
+            }
+        """)
+
+        calendar_accounts_layout = QHBoxLayout()
+        calendar_accounts_layout.setContentsMargins(12, 10, 12, 10)
+        calendar_accounts_layout.setSpacing(12)
+        calendar_accounts_frame.setLayout(calendar_accounts_layout)
+
+        account_one_column = QVBoxLayout()
+        account_one_column.setSpacing(5)
+
         apple_email_label = QLabel("APPLE ID EMAIL")
         apple_email_label.setObjectName("SettingsFieldLabel")
-
         self.apple_calendar_email_input = QLineEdit()
         self.apple_calendar_email_input.setObjectName("SettingsLineEdit")
         self.apple_calendar_email_input.setPlaceholderText("name@example.com")
@@ -3586,7 +3611,6 @@ class DashboardWindow(QMainWindow):
 
         apple_password_label = QLabel("APP-SPECIFIC PASSWORD")
         apple_password_label.setObjectName("SettingsFieldLabel")
-
         self.apple_calendar_password_input = QLineEdit()
         self.apple_calendar_password_input.setObjectName("SettingsLineEdit")
         self.apple_calendar_password_input.setPlaceholderText("xxxx-xxxx-xxxx-xxxx")
@@ -3595,21 +3619,72 @@ class DashboardWindow(QMainWindow):
 
         apple_days_label = QLabel("DAYS AHEAD")
         apple_days_label.setObjectName("SettingsFieldLabel")
-
         self.apple_calendar_days_input = QLineEdit()
         self.apple_calendar_days_input.setObjectName("SettingsLineEdit")
-        self.apple_calendar_days_input.setPlaceholderText("14")
         self.apple_calendar_days_input.setText(str(self.apple_calendar_days_ahead))
+
+        for widget in [
+            apple_email_label,
+            self.apple_calendar_email_input,
+            apple_password_label,
+            self.apple_calendar_password_input,
+            apple_days_label,
+            self.apple_calendar_days_input,
+        ]:
+            account_one_column.addWidget(widget)
+
+        divider = QFrame()
+        divider.setFixedWidth(1)
+        divider.setStyleSheet("background: rgba(0, 0, 0, 0.78); border: none;")
+
+        account_two_column = QVBoxLayout()
+        account_two_column.setSpacing(5)
+
+        apple_email_two_label = QLabel("APPLE ID EMAIL #2")
+        apple_email_two_label.setObjectName("SettingsFieldLabel")
+        self.apple_calendar_email_2_input = QLineEdit()
+        self.apple_calendar_email_2_input.setObjectName("SettingsLineEdit")
+        self.apple_calendar_email_2_input.setPlaceholderText("name@example.com")
+        self.apple_calendar_email_2_input.setText(
+            getattr(self, "apple_calendar_email_2", "")
+        )
+
+        apple_password_two_label = QLabel("APP-SPECIFIC PASSWORD #2")
+        apple_password_two_label.setObjectName("SettingsFieldLabel")
+        self.apple_calendar_password_2_input = QLineEdit()
+        self.apple_calendar_password_2_input.setObjectName("SettingsLineEdit")
+        self.apple_calendar_password_2_input.setPlaceholderText("xxxx-xxxx-xxxx-xxxx")
+        self.apple_calendar_password_2_input.setEchoMode(QLineEdit.Password)
+        self.apple_calendar_password_2_input.setText(
+            getattr(self, "apple_calendar_password_2", "")
+        )
+
+        apple_days_two_label = QLabel("DAYS AHEAD #2")
+        apple_days_two_label.setObjectName("SettingsFieldLabel")
+        self.apple_calendar_days_2_input = QLineEdit()
+        self.apple_calendar_days_2_input.setObjectName("SettingsLineEdit")
+        self.apple_calendar_days_2_input.setText(
+            str(getattr(self, "apple_calendar_days_ahead_2", 14))
+        )
+
+        for widget in [
+            apple_email_two_label,
+            self.apple_calendar_email_2_input,
+            apple_password_two_label,
+            self.apple_calendar_password_2_input,
+            apple_days_two_label,
+            self.apple_calendar_days_2_input,
+        ]:
+            account_two_column.addWidget(widget)
+
+        calendar_accounts_layout.addLayout(account_one_column, 1)
+        calendar_accounts_layout.addWidget(divider)
+        calendar_accounts_layout.addLayout(account_two_column, 1)
 
         left_settings_col.addWidget(apple_calendar_title)
         left_settings_col.addWidget(self.build_settings_divider())
         left_settings_col.addWidget(apple_calendar_subtitle)
-        left_settings_col.addWidget(apple_email_label)
-        left_settings_col.addWidget(self.apple_calendar_email_input)
-        left_settings_col.addWidget(apple_password_label)
-        left_settings_col.addWidget(self.apple_calendar_password_input)
-        left_settings_col.addWidget(apple_days_label)
-        left_settings_col.addWidget(self.apple_calendar_days_input)
+        left_settings_col.addWidget(calendar_accounts_frame)
 
         self.build_recurring_calendar_section(left_settings_col)
 
@@ -4449,7 +4524,7 @@ class DashboardWindow(QMainWindow):
             )
             return
 
-        articles = list(articles or [])[:4]
+        articles = list(articles or [])[:5]
 
         if not articles:
             print(f"No extra articles returned for {source_key}")
@@ -4774,7 +4849,7 @@ class DashboardWindow(QMainWindow):
             )
             return
 
-        articles = list(articles or [])[:4]
+        articles = list(articles or [])[:5]
 
         if not articles:
             print(f"No extra right-side articles returned for {source_key}")
@@ -5155,8 +5230,10 @@ class DashboardWindow(QMainWindow):
             - (self.row_spacing * 2)
         )
 
+        # Give the bottom dashboard row enough room for the full
+        # Reminders daily brief while preserving the top-row height.
         top_height = int(available_height * 0.25)
-        middle_height = int(available_height * 0.50)
+        middle_height = int(available_height * 0.45)
         bottom_height = available_height - top_height - middle_height
 
         self.top_row_widget.setFixedHeight(top_height)
@@ -5166,3 +5243,1608 @@ class DashboardWindow(QMainWindow):
         print(
             f"FORCED HEIGHTS -> top: {top_height}, middle: {middle_height}, bottom: {bottom_height}"
         )
+
+# ---------------------------------------------------------------------------
+# CALENDAR ENHANCEMENT OVERRIDES
+# ---------------------------------------------------------------------------
+
+_original_dashboard_init = DashboardWindow.__init__
+_original_apply_news_settings = DashboardWindow.apply_news_settings
+
+
+def _calendar_enhanced_init(self):
+    settings = QSettings("MorningTVUI", "MorningTVUI")
+
+    self.apple_calendar_email_2 = str(
+        settings.value("apple_calendar_email_2", "") or ""
+    ).strip()
+    self.apple_calendar_password_2 = str(
+        settings.value("apple_calendar_password_2", "") or ""
+    ).strip()
+
+    try:
+        self.apple_calendar_days_ahead_2 = int(
+            settings.value("apple_calendar_days_ahead_2", 14) or 14
+        )
+    except Exception:
+        self.apple_calendar_days_ahead_2 = 14
+
+    self.apple_calendar_days_ahead_2 = max(
+        1,
+        min(self.apple_calendar_days_ahead_2, 60),
+    )
+
+    raw_national = str(
+        settings.value("national_holiday_codes", "") or ""
+    ).strip()
+    self.national_holiday_codes = [
+        code.strip().upper()
+        for code in raw_national.split(",")
+        if code.strip()
+    ] or ["US"]
+
+    raw_religious = str(
+        settings.value("religious_holiday_keys", "") or ""
+    ).strip()
+    self.religious_holiday_keys = [
+        key.strip().lower()
+        for key in raw_religious.split(",")
+        if key.strip()
+    ]
+
+    _original_dashboard_init(self)
+
+
+def _save_calendar_enhancement_settings(self):
+    self.saved_settings.setValue(
+        "apple_calendar_email_2",
+        self.apple_calendar_email_2,
+    )
+    self.saved_settings.setValue(
+        "apple_calendar_password_2",
+        self.apple_calendar_password_2,
+    )
+    self.saved_settings.setValue(
+        "apple_calendar_days_ahead_2",
+        self.apple_calendar_days_ahead_2,
+    )
+    self.saved_settings.setValue(
+        "national_holiday_codes",
+        ",".join(self.national_holiday_codes),
+    )
+    self.saved_settings.setValue(
+        "religious_holiday_keys",
+        ",".join(self.religious_holiday_keys),
+    )
+    self.saved_settings.sync()
+
+
+def _calendar_enhanced_apply_settings(self):
+    try:
+        requested_days_two = int(
+            self.apple_calendar_days_2_input.text().strip() or 14
+        )
+        requested_days_two = max(1, min(requested_days_two, 60))
+    except Exception:
+        QMessageBox.warning(
+            self,
+            "Invalid Calendar Range",
+            "Days Ahead #2 must be a number from 1 to 60.",
+        )
+        self.apple_calendar_days_2_input.setFocus()
+        return
+
+    self.apple_calendar_email_2 = (
+        self.apple_calendar_email_2_input.text().strip()
+    )
+    self.apple_calendar_password_2 = (
+        self.apple_calendar_password_2_input.text().strip()
+    )
+    self.apple_calendar_days_ahead_2 = requested_days_two
+
+    _original_apply_news_settings(self)
+
+    if self.page_stack.currentWidget() is not self.dashboard_page:
+        return
+
+    self._save_calendar_enhancement_settings()
+    self.start_apple_calendar_fetch()
+
+
+def _build_calendar_button(text):
+    button = QPushButton(text)
+    button.setCursor(Qt.PointingHandCursor)
+    button.setMinimumHeight(34)
+    button.setStyleSheet("""
+        QPushButton {
+            background-color: #d8c7a4;
+            color: #2d2114;
+            border: 1px solid rgba(83, 59, 33, 0.48);
+            border-radius: 8px;
+            padding: 7px 12px;
+            font-size: 12px;
+            font-weight: 1000;
+            text-align: center;
+        }
+        QPushButton:hover {
+            background-color: #eadab7;
+            border-color: rgba(83, 59, 33, 0.75);
+        }
+    """)
+    return button
+
+
+def _build_enhanced_recurring_section(self, parent_layout):
+    row = QHBoxLayout()
+    row.setContentsMargins(0, 6, 0, 0)
+    row.setSpacing(10)
+
+    event_button = _build_calendar_button("Add Calendar Event")
+    event_button.clicked.connect(self.open_recurring_events_popup)
+
+    holiday_button = _build_calendar_button("Add National/Religious Holidays")
+    holiday_button.clicked.connect(self.open_holiday_picker_popup)
+
+    row.addWidget(event_button, 1)
+    row.addWidget(holiday_button, 1)
+    parent_layout.addLayout(row)
+
+
+def _holiday_display_name(code):
+    for candidate_code, name in holiday_country_options():
+        if candidate_code == code:
+            return name
+    return code
+
+
+def _religion_display_name(key):
+    for candidate_key, name in RELIGIOUS_HOLIDAY_OPTIONS:
+        if candidate_key == key:
+            return name
+    return key
+
+
+def _open_holiday_picker_popup(self):
+    dialog = QDialog(self)
+    dialog.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+    dialog.setModal(True)
+    dialog.resize(660, 470)
+    dialog.setStyleSheet("""
+        QDialog {
+            background: #f5ead7;
+            border: 2px solid rgba(83, 59, 33, 0.42);
+            border-radius: 14px;
+        }
+        QLabel {
+            color: #2d2114;
+            background: transparent;
+            font-weight: 900;
+        }
+        QComboBox, QListWidget {
+            color: #2d2114;
+            background: rgba(255,255,255,0.80);
+            border: 1px solid rgba(83,59,33,0.35);
+            border-radius: 7px;
+            padding: 5px;
+            font-size: 12px;
+        }
+        QPushButton {
+            background: #d8c7a4;
+            color: #2d2114;
+            border: 1px solid rgba(83,59,33,0.48);
+            border-radius: 7px;
+            padding: 6px 12px;
+            font-weight: 1000;
+        }
+        QPushButton:hover {
+            background: #eadab7;
+        }
+    """)
+
+    root = QVBoxLayout(dialog)
+    root.setContentsMargins(18, 16, 18, 16)
+    root.setSpacing(10)
+
+    title = QLabel("NATIONAL / RELIGIOUS HOLIDAYS")
+    title.setAlignment(Qt.AlignCenter)
+    title.setStyleSheet("font-size: 20px; letter-spacing: 0.8px;")
+    root.addWidget(title)
+
+    selectors = QHBoxLayout()
+    selectors.setSpacing(10)
+
+    national_label = QLabel("National Holidays:")
+    national_combo = QComboBox()
+    national_combo.addItem("Select a country", "")
+
+    for code, name in holiday_country_options():
+        national_combo.addItem(name, code)
+
+    religious_label = QLabel("Religious Holidays:")
+    religious_combo = QComboBox()
+    religious_combo.addItem("Select a religion", "")
+
+    for key, name in RELIGIOUS_HOLIDAY_OPTIONS:
+        religious_combo.addItem(name, key)
+
+    selectors.addWidget(national_label)
+    selectors.addWidget(national_combo, 1)
+    selectors.addWidget(religious_label)
+    selectors.addWidget(religious_combo, 1)
+    root.addLayout(selectors)
+
+    selected_list = QListWidget()
+    selected_list.setMinimumHeight(210)
+    root.addWidget(selected_list, 1)
+
+    def refresh_list():
+        selected_list.clear()
+
+        for code in self.national_holiday_codes:
+            item = QListWidgetItem(
+                f"National: {_holiday_display_name(code)}"
+            )
+            item.setData(Qt.UserRole, ("national", code))
+            selected_list.addItem(item)
+
+        for key in self.religious_holiday_keys:
+            item = QListWidgetItem(
+                f"Religious: {_religion_display_name(key)}"
+            )
+            item.setData(Qt.UserRole, ("religious", key))
+            selected_list.addItem(item)
+
+    def add_selections():
+        country_code = national_combo.currentData() or ""
+        religion_key = religious_combo.currentData() or ""
+
+        if not country_code and not religion_key:
+            QMessageBox.information(
+                dialog,
+                "Choose Holidays",
+                "Select a country, religion, or both.",
+            )
+            return
+
+        if country_code and religion_key:
+            confirmation = QMessageBox.question(
+                dialog,
+                "Add Both Holiday Calendars",
+                (
+                    f"This will add both {_holiday_display_name(country_code)} "
+                    f"and {_religion_display_name(religion_key)} holidays. "
+                    "Do you wish to proceed?"
+                ),
+                QMessageBox.Yes | QMessageBox.Cancel,
+                QMessageBox.Cancel,
+            )
+
+            if confirmation != QMessageBox.Yes:
+                return
+
+        if (
+            country_code
+            and country_code not in self.national_holiday_codes
+        ):
+            self.national_holiday_codes.append(country_code)
+
+        if (
+            religion_key
+            and religion_key not in self.religious_holiday_keys
+        ):
+            self.religious_holiday_keys.append(religion_key)
+
+        self._save_calendar_enhancement_settings()
+        self.start_apple_calendar_fetch()
+        national_combo.setCurrentIndex(0)
+        religious_combo.setCurrentIndex(0)
+        refresh_list()
+
+    def remove_selection():
+        item = selected_list.currentItem()
+
+        if item is None:
+            return
+
+        kind, value = item.data(Qt.UserRole)
+
+        if kind == "national":
+            self.national_holiday_codes = [
+                code for code in self.national_holiday_codes
+                if code != value
+            ]
+        else:
+            self.religious_holiday_keys = [
+                key for key in self.religious_holiday_keys
+                if key != value
+            ]
+
+        self._save_calendar_enhancement_settings()
+        self.start_apple_calendar_fetch()
+        refresh_list()
+
+    actions = QHBoxLayout()
+    add_button = _build_calendar_button("Add Selection")
+    remove_button = _build_calendar_button("Remove Selected")
+    close_button = _build_calendar_button("Close")
+
+    add_button.clicked.connect(add_selections)
+    remove_button.clicked.connect(remove_selection)
+    close_button.clicked.connect(dialog.accept)
+
+    actions.addWidget(add_button)
+    actions.addWidget(remove_button)
+    actions.addStretch(1)
+    actions.addWidget(close_button)
+    root.addLayout(actions)
+
+    refresh_list()
+    dialog.exec()
+
+
+def _start_enhanced_apple_calendar_fetch(self):
+    active_thread = getattr(self, "apple_calendar_thread", None)
+
+    if active_thread is not None and active_thread.isRunning():
+        print("Calendar fetch already running; ignoring repeat request.")
+        return
+
+    self.apple_calendar_thread = QThread()
+    self.apple_calendar_worker = AppleCalendarFetchWorker(
+        apple_email=self.apple_calendar_email,
+        apple_password=self.apple_calendar_password,
+        days_ahead=self.apple_calendar_days_ahead,
+        apple_email_2=self.apple_calendar_email_2,
+        apple_password_2=self.apple_calendar_password_2,
+        days_ahead_2=self.apple_calendar_days_ahead_2,
+        national_holiday_codes=self.national_holiday_codes,
+        religious_holiday_keys=self.religious_holiday_keys,
+    )
+
+    self.apple_calendar_worker.moveToThread(self.apple_calendar_thread)
+    self.apple_calendar_thread.started.connect(
+        self.apple_calendar_worker.run
+    )
+    self.apple_calendar_worker.finished.connect(
+        self.on_apple_calendar_loaded
+    )
+    self.apple_calendar_worker.failed.connect(
+        self.on_apple_calendar_failed
+    )
+    self.apple_calendar_worker.finished.connect(
+        self.apple_calendar_thread.quit
+    )
+    self.apple_calendar_worker.failed.connect(
+        self.apple_calendar_thread.quit
+    )
+    self.apple_calendar_thread.finished.connect(
+        self.apple_calendar_worker.deleteLater
+    )
+    self.apple_calendar_thread.finished.connect(
+        self.apple_calendar_thread.deleteLater
+    )
+    self.apple_calendar_thread.start()
+
+
+class EnhancedAppleCalendarFetchWorker(QObject):
+    finished = Signal(object)
+    failed = Signal(str)
+
+    def __init__(
+        self,
+        apple_email,
+        apple_password,
+        days_ahead,
+        apple_email_2="",
+        apple_password_2="",
+        days_ahead_2=14,
+        national_holiday_codes=None,
+        religious_holiday_keys=None,
+    ):
+        super().__init__()
+        self.apple_email = apple_email
+        self.apple_password = apple_password
+        self.days_ahead = days_ahead
+        self.apple_email_2 = apple_email_2
+        self.apple_password_2 = apple_password_2
+        self.days_ahead_2 = days_ahead_2
+        self.national_holiday_codes = national_holiday_codes or []
+        self.religious_holiday_keys = religious_holiday_keys or []
+
+    def run(self):
+        try:
+            events = fetch_dashboard_calendar_events(
+                apple_id_email=self.apple_email,
+                app_specific_password=self.apple_password,
+                days_ahead=self.days_ahead,
+                apple_id_email_2=self.apple_email_2,
+                app_specific_password_2=self.apple_password_2,
+                days_ahead_2=self.days_ahead_2,
+                national_holiday_codes=self.national_holiday_codes,
+                religious_holiday_keys=self.religious_holiday_keys,
+            )
+            self.finished.emit(events)
+        except Exception as error:
+            self.failed.emit(str(error))
+
+
+
+# ---------------------------------------------------------------------------
+# CALENDAR HOLIDAY PICKER UI FIXES
+# ---------------------------------------------------------------------------
+
+def _open_holiday_picker_popup_fixed(self):
+    dialog = QDialog(self)
+    dialog.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+    dialog.setModal(True)
+    dialog.resize(760, 485)
+    dialog.setStyleSheet("""
+        QDialog {
+            background: #f5ead7;
+            border: 2px solid rgba(83, 59, 33, 0.42);
+            border-radius: 14px;
+        }
+
+        QLabel {
+            color: #2d2114;
+            background: transparent;
+            font-weight: 900;
+        }
+
+        QComboBox {
+            color: #1e160d;
+            background: #fff8ec;
+            border: 1px solid #72542d;
+            border-radius: 7px;
+            padding: 6px 10px;
+            min-height: 22px;
+            font-size: 12px;
+            font-weight: 800;
+        }
+
+        QComboBox:hover {
+            background: #fffdf7;
+            border-color: #3e2b18;
+        }
+
+        QComboBox::drop-down {
+            border: none;
+            width: 26px;
+            background: #d8c7a4;
+            border-top-right-radius: 6px;
+            border-bottom-right-radius: 6px;
+        }
+
+        QComboBox QAbstractItemView {
+            color: #1e160d;
+            background: #fff8ec;
+            selection-color: #fff8ec;
+            selection-background-color: #72542d;
+            border: 1px solid #72542d;
+            outline: none;
+            font-size: 12px;
+            font-weight: 800;
+        }
+
+        QListWidget {
+            color: #2d2114;
+            background: #fff8ec;
+            border: 1px solid rgba(83, 59, 33, 0.48);
+            border-radius: 7px;
+            padding: 5px;
+            font-size: 12px;
+            font-weight: 800;
+        }
+
+        QListWidget::item {
+            padding: 7px;
+            border-radius: 4px;
+        }
+
+        QListWidget::item:selected {
+            color: #fff8ec;
+            background: #72542d;
+        }
+
+        QPushButton {
+            background: #d8c7a4;
+            color: #2d2114;
+            border: 1px solid rgba(83, 59, 33, 0.60);
+            border-radius: 7px;
+            padding: 7px 12px;
+            font-weight: 1000;
+        }
+
+        QPushButton:hover {
+            background: #eadab7;
+            border-color: #3e2b18;
+        }
+    """)
+
+    root = QVBoxLayout(dialog)
+    root.setContentsMargins(18, 16, 18, 16)
+    root.setSpacing(10)
+
+    title = QLabel("NATIONAL / RELIGIOUS HOLIDAYS")
+    title.setAlignment(Qt.AlignCenter)
+    title.setStyleSheet("font-size: 20px; letter-spacing: 0.8px;")
+    root.addWidget(title)
+
+    selectors = QHBoxLayout()
+    selectors.setSpacing(10)
+
+    national_label = QLabel("National Holidays:")
+    national_combo = QComboBox()
+    national_combo.addItem("Select a country", "")
+
+    for code, name in holiday_country_options():
+        national_combo.addItem(name, code)
+
+    religious_label = QLabel("Religious Holidays:")
+    religious_combo = QComboBox()
+    religious_combo.addItem("Select a religion", "")
+
+    for key, name in RELIGIOUS_HOLIDAY_OPTIONS:
+        religious_combo.addItem(name, key)
+
+    selectors.addWidget(national_label)
+    selectors.addWidget(national_combo, 1)
+    selectors.addWidget(religious_label)
+    selectors.addWidget(religious_combo, 1)
+    root.addLayout(selectors)
+
+    selected_list = QListWidget()
+    selected_list.setMinimumHeight(220)
+    root.addWidget(selected_list, 1)
+
+    def refresh_list():
+        selected_list.clear()
+
+        for code in self.national_holiday_codes:
+            item = QListWidgetItem(
+                f"National: {_holiday_display_name(code)}"
+            )
+            item.setData(Qt.UserRole, ("national", code))
+            selected_list.addItem(item)
+
+        for key in self.religious_holiday_keys:
+            item = QListWidgetItem(
+                f"Religious: {_religion_display_name(key)}"
+            )
+            item.setData(Qt.UserRole, ("religious", key))
+            selected_list.addItem(item)
+
+    def add_selections():
+        country_code = str(national_combo.currentData() or "").strip().upper()
+        religion_key = str(religious_combo.currentData() or "").strip().lower()
+
+        if not country_code and not religion_key:
+            QMessageBox.information(
+                dialog,
+                "Choose Holidays",
+                "Select a country, religion, or both.",
+            )
+            return
+
+        if country_code and religion_key:
+            choice = QMessageBox.question(
+                dialog,
+                "Add Both Holiday Calendars",
+                (
+                    f"This will add both {_holiday_display_name(country_code)} "
+                    f"and {_religion_display_name(religion_key)} holidays. "
+                    "Do you wish to proceed?"
+                ),
+                QMessageBox.Yes | QMessageBox.Cancel,
+                QMessageBox.Cancel,
+            )
+            if choice != QMessageBox.Yes:
+                return
+
+        added_any = False
+
+        if country_code and country_code not in self.national_holiday_codes:
+            self.national_holiday_codes.append(country_code)
+            added_any = True
+
+        if religion_key and religion_key not in self.religious_holiday_keys:
+            self.religious_holiday_keys.append(religion_key)
+            added_any = True
+
+        national_combo.setCurrentIndex(0)
+        religious_combo.setCurrentIndex(0)
+        refresh_list()
+
+        if not added_any:
+            QMessageBox.information(
+                dialog,
+                "Already Added",
+                "That holiday calendar is already in the list.",
+            )
+            return
+
+        self._save_calendar_enhancement_settings()
+        QTimer.singleShot(0, self.start_apple_calendar_fetch)
+
+    def remove_selection():
+        item = selected_list.currentItem()
+
+        if item is None:
+            return
+
+        kind, value = item.data(Qt.UserRole)
+
+        if kind == "national":
+            self.national_holiday_codes = [
+                code for code in self.national_holiday_codes
+                if code != value
+            ]
+        elif kind == "religious":
+            self.religious_holiday_keys = [
+                key for key in self.religious_holiday_keys
+                if key != value
+            ]
+        else:
+            return
+
+        refresh_list()
+        self._save_calendar_enhancement_settings()
+        QTimer.singleShot(0, self.start_apple_calendar_fetch)
+
+    actions = QHBoxLayout()
+    add_button = _build_calendar_button("Add Selection")
+    remove_button = _build_calendar_button("Remove Selected")
+    close_button = _build_calendar_button("Close")
+
+    add_button.clicked.connect(add_selections)
+    remove_button.clicked.connect(remove_selection)
+    close_button.clicked.connect(dialog.accept)
+
+    actions.addWidget(add_button)
+    actions.addWidget(remove_button)
+    actions.addStretch(1)
+    actions.addWidget(close_button)
+    root.addLayout(actions)
+
+    refresh_list()
+    dialog.exec()
+
+
+DashboardWindow.open_holiday_picker_popup = _open_holiday_picker_popup_fixed
+
+DashboardWindow.__init__ = _calendar_enhanced_init
+DashboardWindow.apply_news_settings = _calendar_enhanced_apply_settings
+DashboardWindow.build_recurring_calendar_section = _build_enhanced_recurring_section
+DashboardWindow.open_holiday_picker_popup = _open_holiday_picker_popup
+DashboardWindow._save_calendar_enhancement_settings = (
+    _save_calendar_enhancement_settings
+)
+DashboardWindow.start_apple_calendar_fetch = (
+    _start_enhanced_apple_calendar_fetch
+)
+AppleCalendarFetchWorker = EnhancedAppleCalendarFetchWorker
+
+
+# ---------------------------------------------------------------------------
+# HOLIDAY PICKER TWO-COLUMN LIST OVERRIDE
+# ---------------------------------------------------------------------------
+
+def _open_holiday_picker_popup_two_columns(self):
+    dialog = QDialog(self)
+    dialog.setWindowFlags(
+        Qt.Dialog
+        | Qt.FramelessWindowHint
+        | Qt.NoDropShadowWindowHint
+    )
+    # Keep the cream rounded popup surface visible.
+    # Framing remains disabled, but the dialog itself must not be transparent.
+    dialog.setAttribute(Qt.WA_TranslucentBackground, False)
+    dialog.setModal(True)
+    dialog.resize(760, 500)
+    dialog.setStyleSheet("""
+        QDialog {
+            background: #f5ead7;
+            border: 2px solid rgba(83, 59, 33, 0.42);
+            border-radius: 14px;
+        }
+
+        QLabel {
+            color: #2d2114;
+            background: transparent;
+            font-weight: 900;
+        }
+
+        QComboBox {
+            color: #1e160d;
+            background: #fff8ec;
+            border: 1px solid #72542d;
+            border-radius: 7px;
+            padding: 6px 10px;
+            min-height: 22px;
+            font-size: 12px;
+            font-weight: 800;
+        }
+
+        QComboBox::drop-down {
+            border: none;
+            width: 26px;
+            background: #d8c7a4;
+            border-top-right-radius: 6px;
+            border-bottom-right-radius: 6px;
+        }
+
+        QComboBox QAbstractItemView {
+            color: #1e160d;
+            background: #fff8ec;
+            selection-color: #fff8ec;
+            selection-background-color: #72542d;
+            border: 1px solid #72542d;
+            outline: none;
+            font-size: 12px;
+            font-weight: 800;
+        }
+
+        QScrollArea {
+            background: #fff8ec;
+            border: 1px solid rgba(83, 59, 33, 0.48);
+            border-radius: 7px;
+        }
+
+        QPushButton {
+            background: #d8c7a4;
+            color: #2d2114;
+            border: 1px solid rgba(83, 59, 33, 0.60);
+            border-radius: 7px;
+            padding: 7px 12px;
+            font-weight: 1000;
+        }
+
+        QPushButton:hover {
+            background: #eadab7;
+            border-color: #3e2b18;
+        }
+
+        QPushButton#HolidayDeleteButton {
+            background: #b3261e;
+            color: #ffffff;
+            border: 1px solid #7f1a15;
+            border-radius: 6px;
+            padding: 2px 8px;
+            font-size: 10px;
+            font-weight: 1000;
+        }
+
+        QPushButton#HolidayDeleteButton:hover {
+            background: #d32f2f;
+            color: #ffffff;
+        }
+    """)
+
+    root = QVBoxLayout(dialog)
+    root.setContentsMargins(18, 16, 18, 16)
+    root.setSpacing(10)
+
+    title = QLabel("NATIONAL / RELIGIOUS HOLIDAYS")
+    title.setAlignment(Qt.AlignCenter)
+    title.setStyleSheet("font-size: 20px; letter-spacing: 0.8px;")
+    root.addWidget(title)
+
+    selectors = QHBoxLayout()
+    selectors.setSpacing(10)
+
+    national_label = QLabel("National Holidays:")
+    national_selector = HolidayChoiceButton(
+        "Select a country",
+        holiday_country_options(),
+        dialog,
+        columns=2,
+        show_all_rows=True,
+    )
+
+    religious_label = QLabel("Religious Holidays:")
+    religious_selector = HolidayChoiceButton(
+        "Select a religion",
+        RELIGIOUS_HOLIDAY_OPTIONS,
+        dialog,
+    )
+
+    selectors.addWidget(national_label)
+    selectors.addWidget(national_selector, 1)
+    selectors.addWidget(religious_label)
+    selectors.addWidget(religious_selector, 1)
+    root.addLayout(selectors)
+
+    lists_row = QHBoxLayout()
+    lists_row.setSpacing(12)
+
+    national_column = QVBoxLayout()
+    national_column.setSpacing(5)
+
+    national_header = QLabel("NATIONAL HOLIDAY CALENDARS")
+    national_header.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+    national_header.setStyleSheet(
+        "font-size: 11px; letter-spacing: 0.8px;"
+    )
+    national_column.addWidget(national_header)
+
+    national_scroll = QScrollArea()
+    national_scroll.setWidgetResizable(True)
+    national_scroll.setMinimumHeight(225)
+
+    national_content = QWidget()
+    national_content.setStyleSheet("background: transparent; border: none;")
+
+    national_list_layout = QVBoxLayout(national_content)
+    national_list_layout.setContentsMargins(7, 7, 7, 7)
+    national_list_layout.setSpacing(5)
+    national_list_layout.setAlignment(Qt.AlignTop)
+
+    national_scroll.setWidget(national_content)
+    national_column.addWidget(national_scroll, 1)
+
+    religious_column = QVBoxLayout()
+    religious_column.setSpacing(5)
+
+    religious_header = QLabel("RELIGIOUS HOLIDAY CALENDARS")
+    religious_header.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+    religious_header.setStyleSheet(
+        "font-size: 11px; letter-spacing: 0.8px;"
+    )
+    religious_column.addWidget(religious_header)
+
+    religious_scroll = QScrollArea()
+    religious_scroll.setWidgetResizable(True)
+    religious_scroll.setMinimumHeight(225)
+
+    religious_content = QWidget()
+    religious_content.setStyleSheet("background: transparent; border: none;")
+
+    religious_list_layout = QVBoxLayout(religious_content)
+    religious_list_layout.setContentsMargins(7, 7, 7, 7)
+    religious_list_layout.setSpacing(5)
+    religious_list_layout.setAlignment(Qt.AlignTop)
+
+    religious_scroll.setWidget(religious_content)
+    religious_column.addWidget(religious_scroll, 1)
+
+    lists_row.addLayout(national_column, 1)
+    lists_row.addLayout(religious_column, 1)
+    root.addLayout(lists_row, 1)
+
+    def clear_layout(layout):
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+
+            if widget is not None:
+                widget.deleteLater()
+
+    def delete_selection(kind, value):
+        if kind == "national":
+            self.national_holiday_codes = [
+                code
+                for code in self.national_holiday_codes
+                if code != value
+            ]
+        elif kind == "religious":
+            self.religious_holiday_keys = [
+                key
+                for key in self.religious_holiday_keys
+                if key != value
+            ]
+        else:
+            return
+
+        refresh_lists()
+        self._save_calendar_enhancement_settings()
+        QTimer.singleShot(0, self.start_apple_calendar_fetch)
+
+    def add_row(layout, label_text, kind, value):
+        row = QWidget()
+        row.setStyleSheet("""
+            QWidget {
+                background: rgba(245, 234, 215, 0.56);
+                border: 1px solid rgba(83, 59, 33, 0.24);
+                border-radius: 5px;
+            }
+        """)
+
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(8, 4, 5, 4)
+        row_layout.setSpacing(6)
+
+        name = QLabel(label_text)
+        name.setWordWrap(True)
+        name.setStyleSheet("""
+            QLabel {
+                color: #2d2114;
+                background: transparent;
+                border: none;
+                font-size: 12px;
+                font-weight: 800;
+            }
+        """)
+
+        delete_button = QPushButton("Delete")
+        delete_button.setObjectName("HolidayDeleteButton")
+        delete_button.setStyleSheet("""
+            QPushButton {
+                background-color: #c62828;
+                color: #ffffff;
+                border: 1px solid #8e1616;
+                border-radius: 6px;
+                padding: 2px 8px;
+                font-size: 10px;
+                font-weight: 1000;
+            }
+
+            QPushButton:hover {
+                background-color: #a91f1f;
+                color: #ffffff;
+            }
+
+            QPushButton:pressed {
+                background-color: #861818;
+                color: #ffffff;
+            }
+        """)
+        delete_button.setCursor(Qt.PointingHandCursor)
+        delete_button.setFixedHeight(24)
+        delete_button.clicked.connect(
+            lambda _checked=False, item_kind=kind, item_value=value:
+                delete_selection(item_kind, item_value)
+        )
+
+        row_layout.addWidget(name, 1)
+        row_layout.addWidget(delete_button, 0, Qt.AlignRight | Qt.AlignVCenter)
+        layout.addWidget(row)
+
+    def add_empty_state(layout, message):
+        empty = QLabel(message)
+        empty.setAlignment(Qt.AlignCenter)
+        empty.setWordWrap(True)
+        empty.setStyleSheet("""
+            QLabel {
+                color: rgba(45, 33, 20, 0.55);
+                background: transparent;
+                border: none;
+                padding: 18px 10px;
+                font-size: 12px;
+                font-style: italic;
+            }
+        """)
+        layout.addWidget(empty)
+
+    def refresh_lists():
+        clear_layout(national_list_layout)
+        clear_layout(religious_list_layout)
+
+        if self.national_holiday_codes:
+            for code in self.national_holiday_codes:
+                add_row(
+                    national_list_layout,
+                    _holiday_display_name(code),
+                    "national",
+                    code,
+                )
+        else:
+            add_empty_state(
+                national_list_layout,
+                "No national holiday calendars added.",
+            )
+
+        if self.religious_holiday_keys:
+            for key in self.religious_holiday_keys:
+                add_row(
+                    religious_list_layout,
+                    _religion_display_name(key),
+                    "religious",
+                    key,
+                )
+        else:
+            add_empty_state(
+                religious_list_layout,
+                "No religious holiday calendars added.",
+            )
+
+        national_list_layout.addStretch(1)
+        religious_list_layout.addStretch(1)
+
+    def add_selections():
+        country_code = str(
+            national_selector.currentData() or ""
+        ).strip().upper()
+        religion_key = str(
+            religious_selector.currentData() or ""
+        ).strip().lower()
+
+        if not country_code and not religion_key:
+            QMessageBox.information(
+                dialog,
+                "Choose Holidays",
+                "Select a country, religion, or both.",
+            )
+            return
+
+        if country_code and religion_key:
+            choice = QMessageBox.question(
+                dialog,
+                "Add Both Holiday Calendars",
+                (
+                    f"This will add both {_holiday_display_name(country_code)} "
+                    f"and {_religion_display_name(religion_key)} holidays. "
+                    "Do you wish to proceed?"
+                ),
+                QMessageBox.Yes | QMessageBox.Cancel,
+                QMessageBox.Cancel,
+            )
+
+            if choice != QMessageBox.Yes:
+                return
+
+        added_any = False
+
+        if country_code and country_code not in self.national_holiday_codes:
+            self.national_holiday_codes.append(country_code)
+            added_any = True
+
+        if religion_key and religion_key not in self.religious_holiday_keys:
+            self.religious_holiday_keys.append(religion_key)
+            added_any = True
+
+        national_selector.reset()
+        religious_selector.reset()
+        refresh_lists()
+
+        if not added_any:
+            QMessageBox.information(
+                dialog,
+                "Already Added",
+                "That holiday calendar is already listed.",
+            )
+            return
+
+        self._save_calendar_enhancement_settings()
+        QTimer.singleShot(0, self.start_apple_calendar_fetch)
+
+    actions = QHBoxLayout()
+
+    add_button = _build_calendar_button("Add")
+    add_button.setMinimumWidth(120)
+
+    close_button = _build_calendar_button("Close")
+
+    add_button.clicked.connect(add_selections)
+    close_button.clicked.connect(dialog.accept)
+
+    actions.addStretch(1)
+    actions.addWidget(add_button)
+    actions.addStretch(1)
+    actions.addWidget(close_button)
+    root.addLayout(actions)
+
+    refresh_lists()
+    dialog.exec()
+
+
+DashboardWindow.open_holiday_picker_popup = (
+    _open_holiday_picker_popup_two_columns
+)
+
+
+# ---------------------------------------------------------------------------
+# CALENDAR REFRESH / SETTINGS STARTUP GUARD
+# ---------------------------------------------------------------------------
+
+_calendar_guarded_init = DashboardWindow.__init__
+_calendar_guarded_start_fetch = DashboardWindow.start_apple_calendar_fetch
+_calendar_guarded_loaded = DashboardWindow.on_apple_calendar_loaded
+_calendar_guarded_failed = DashboardWindow.on_apple_calendar_failed
+_calendar_guarded_show_dashboard = DashboardWindow.show_dashboard_page
+
+
+def _calendar_startup_guard_init(self):
+    _calendar_guarded_init(self)
+
+    if hasattr(self, "settings_button"):
+        self.settings_button.setEnabled(False)
+
+        QTimer.singleShot(
+            1000,
+            lambda: (
+                self.settings_button.setEnabled(True)
+                if hasattr(self, "settings_button")
+                else None
+            ),
+        )
+
+
+def _calendar_queueable_fetch(self):
+    active_thread = getattr(self, "apple_calendar_thread", None)
+
+    if active_thread is not None and active_thread.isRunning():
+        self._calendar_refresh_pending = True
+        print("Calendar refresh queued until the active fetch completes.")
+        return
+
+    self._calendar_refresh_pending = False
+    _calendar_guarded_start_fetch(self)
+
+
+def _calendar_loaded_then_refresh(self, events):
+    _calendar_guarded_loaded(self, events)
+
+    if getattr(self, "_calendar_refresh_pending", False):
+        self._calendar_refresh_pending = False
+        QTimer.singleShot(0, self.start_apple_calendar_fetch)
+
+
+def _calendar_failed_then_refresh(self, error_message):
+    _calendar_guarded_failed(self, error_message)
+
+    if getattr(self, "_calendar_refresh_pending", False):
+        self._calendar_refresh_pending = False
+        QTimer.singleShot(0, self.start_apple_calendar_fetch)
+
+
+def _calendar_save_inputs_when_returning(self):
+    if (
+        hasattr(self, "apple_calendar_days_input")
+        and hasattr(self, "apple_calendar_days_2_input")
+    ):
+        try:
+            primary_days = max(
+                1,
+                min(
+                    int(
+                        self.apple_calendar_days_input.text().strip()
+                        or 14
+                    ),
+                    60,
+                ),
+            )
+            secondary_days = max(
+                1,
+                min(
+                    int(
+                        self.apple_calendar_days_2_input.text().strip()
+                        or 14
+                    ),
+                    60,
+                ),
+            )
+        except Exception:
+            primary_days = None
+            secondary_days = None
+
+        if primary_days is not None:
+            self.apple_calendar_email = (
+                self.apple_calendar_email_input.text().strip()
+            )
+            self.apple_calendar_password = (
+                self.apple_calendar_password_input.text().strip()
+            )
+            self.apple_calendar_days_ahead = primary_days
+
+            self.apple_calendar_email_2 = (
+                self.apple_calendar_email_2_input.text().strip()
+            )
+            self.apple_calendar_password_2 = (
+                self.apple_calendar_password_2_input.text().strip()
+            )
+            self.apple_calendar_days_ahead_2 = secondary_days
+
+            self.save_apple_calendar_settings()
+            self._save_calendar_enhancement_settings()
+            QTimer.singleShot(0, self.start_apple_calendar_fetch)
+
+    _calendar_guarded_show_dashboard(self)
+
+
+DashboardWindow.__init__ = _calendar_startup_guard_init
+DashboardWindow.start_apple_calendar_fetch = _calendar_queueable_fetch
+DashboardWindow.on_apple_calendar_loaded = _calendar_loaded_then_refresh
+DashboardWindow.on_apple_calendar_failed = _calendar_failed_then_refresh
+DashboardWindow.show_dashboard_page = _calendar_save_inputs_when_returning
+
+
+# ---------------------------------------------------------------------------
+# CALENDAR UI-THREAD SIGNAL DELIVERY FIX
+# ---------------------------------------------------------------------------
+
+def _start_calendar_fetch_on_ui_thread(self):
+    active_thread = getattr(self, "apple_calendar_thread", None)
+
+    if active_thread is not None and active_thread.isRunning():
+        self._calendar_refresh_pending = True
+        print("Calendar refresh queued until the active fetch completes.")
+        return
+
+    self._calendar_refresh_pending = False
+
+    self.apple_calendar_thread = QThread(self)
+    self.apple_calendar_worker = AppleCalendarFetchWorker(
+        apple_email=self.apple_calendar_email,
+        apple_password=self.apple_calendar_password,
+        days_ahead=self.apple_calendar_days_ahead,
+        apple_email_2=self.apple_calendar_email_2,
+        apple_password_2=self.apple_calendar_password_2,
+        days_ahead_2=self.apple_calendar_days_ahead_2,
+        national_holiday_codes=self.national_holiday_codes,
+        religious_holiday_keys=self.religious_holiday_keys,
+    )
+
+    self.apple_calendar_worker.moveToThread(
+        self.apple_calendar_thread
+    )
+
+    self.apple_calendar_thread.started.connect(
+        self.apple_calendar_worker.run
+    )
+
+    # These two explicit queued connections are the critical fix:
+    # reminder widgets may only be created or reparented on the UI thread.
+    self.apple_calendar_worker.finished.connect(
+        self.on_apple_calendar_loaded,
+        Qt.QueuedConnection,
+    )
+    self.apple_calendar_worker.failed.connect(
+        self.on_apple_calendar_failed,
+        Qt.QueuedConnection,
+    )
+
+    self.apple_calendar_worker.finished.connect(
+        self.apple_calendar_thread.quit
+    )
+    self.apple_calendar_worker.failed.connect(
+        self.apple_calendar_thread.quit
+    )
+
+    self.apple_calendar_thread.finished.connect(
+        self.apple_calendar_worker.deleteLater
+    )
+    self.apple_calendar_thread.finished.connect(
+        self.apple_calendar_thread.deleteLater
+    )
+
+    self.apple_calendar_thread.start()
+
+
+DashboardWindow.start_apple_calendar_fetch = (
+    _start_calendar_fetch_on_ui_thread
+)
+
+
+# ---------------------------------------------------------------------------
+# CALENDAR MAIN-THREAD DELIVERY BRIDGE
+# ---------------------------------------------------------------------------
+
+class CalendarFetchMainThreadBridge(QObject):
+    """
+    This object is created on the dashboard/UI thread.
+
+    Worker signals are delivered here with Qt.QueuedConnection, so every
+    RemindersPanel widget rebuild happens only on the main Qt thread.
+    """
+
+    def __init__(self, dashboard):
+        super().__init__(dashboard)
+        self.dashboard = dashboard
+
+    @Slot(object)
+    def receive_events(self, events):
+        self.dashboard.on_apple_calendar_loaded(events)
+
+    @Slot(str)
+    def receive_error(self, error_message):
+        self.dashboard.on_apple_calendar_failed(error_message)
+
+
+def _start_calendar_fetch_via_main_thread_bridge(self):
+    active_thread = getattr(self, "apple_calendar_thread", None)
+
+    if active_thread is not None:
+        try:
+            if active_thread.isRunning():
+                self._calendar_refresh_pending = True
+                print("Calendar refresh queued until the active fetch completes.")
+                return
+        except RuntimeError:
+            # Qt already destroyed the previous thread. Clear the stale Python
+            # reference so holiday changes can start a fresh calendar refresh.
+            self.apple_calendar_thread = None
+            self.apple_calendar_worker = None
+
+    self._calendar_refresh_pending = False
+
+    thread = QThread(self)
+    worker = AppleCalendarFetchWorker(
+        apple_email=self.apple_calendar_email,
+        apple_password=self.apple_calendar_password,
+        days_ahead=self.apple_calendar_days_ahead,
+        apple_email_2=self.apple_calendar_email_2,
+        apple_password_2=self.apple_calendar_password_2,
+        days_ahead_2=self.apple_calendar_days_ahead_2,
+        national_holiday_codes=self.national_holiday_codes,
+        religious_holiday_keys=self.religious_holiday_keys,
+    )
+    bridge = CalendarFetchMainThreadBridge(self)
+
+    worker.moveToThread(thread)
+    thread.started.connect(worker.run)
+
+    worker.finished.connect(
+        bridge.receive_events,
+        Qt.QueuedConnection,
+    )
+    worker.failed.connect(
+        bridge.receive_error,
+        Qt.QueuedConnection,
+    )
+
+    worker.finished.connect(thread.quit)
+    worker.failed.connect(thread.quit)
+
+    def clear_finished_calendar_thread():
+        if getattr(self, "apple_calendar_thread", None) is thread:
+            self.apple_calendar_thread = None
+            self.apple_calendar_worker = None
+
+        if getattr(self, "_calendar_refresh_pending", False):
+            self._calendar_refresh_pending = False
+            QTimer.singleShot(0, self.start_apple_calendar_fetch)
+
+    thread.finished.connect(clear_finished_calendar_thread)
+    thread.finished.connect(worker.deleteLater)
+    thread.finished.connect(thread.deleteLater)
+
+    self.apple_calendar_thread = thread
+    self.apple_calendar_worker = worker
+    self.apple_calendar_ui_bridge = bridge
+
+    thread.start()
+
+
+DashboardWindow.start_apple_calendar_fetch = (
+    _start_calendar_fetch_via_main_thread_bridge
+)
+
+
+# ---------------------------------------------------------------------------
+# CUSTOM HOLIDAY SELECTOR POPUP
+# ---------------------------------------------------------------------------
+
+class HolidayChoiceList(QListWidget):
+    """
+    This is an app-owned list, not a macOS native combo popup.
+    Hover explicitly changes the current row, guaranteeing a visible highlight.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMouseTracking(True)
+        self.viewport().setMouseTracking(True)
+        self.setSelectionMode(QListWidget.SingleSelection)
+        self.setVerticalScrollMode(QListWidget.ScrollPerPixel)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setStyleSheet("""
+            QListWidget {
+                background: #fff8ec;
+                color: #1e160d;
+                border: 1px solid #72542d;
+                border-radius: 7px;
+                outline: none;
+                padding: 3px;
+                font-size: 12px;
+                font-weight: 800;
+            }
+
+            QListWidget::item {
+                color: #1e160d;
+                background: #fff8ec;
+                border: none;
+                min-height: 22px;
+                padding: 2px 8px;
+            }
+
+            QListWidget::item:selected {
+                color: #ffffff;
+                background: #72542d;
+            }
+        """)
+
+    def mouseMoveEvent(self, event):
+        item = self.itemAt(event.position().toPoint())
+
+        if item is not None and item is not self.currentItem():
+            self.setCurrentItem(item)
+
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event):
+        self.clearSelection()
+        super().leaveEvent(event)
+
+
+class HolidayChoiceButton(QPushButton):
+    def __init__(
+        self,
+        placeholder,
+        choices,
+        parent=None,
+        max_visible_rows=20,
+        max_popup_height=500,
+        columns=1,
+        show_all_rows=False,
+    ):
+        super().__init__(placeholder, parent)
+
+        self.placeholder = str(placeholder)
+        self.choices = sorted(
+            list(choices or []),
+            key=lambda choice: str(choice[1]).casefold(),
+        )
+        self.max_visible_rows = int(max_visible_rows)
+        self.max_popup_height = int(max_popup_height)
+        self.columns = max(1, int(columns))
+        self.show_all_rows = bool(show_all_rows)
+        self.selected_value = ""
+        self.popup = None
+
+        self.setCursor(Qt.PointingHandCursor)
+        self.setMinimumHeight(36)
+        self.setStyleSheet("""
+            QPushButton {
+                color: #1e160d;
+                background: #fff8ec;
+                border: 1px solid #72542d;
+                border-radius: 7px;
+                padding: 6px 30px 6px 10px;
+                font-size: 12px;
+                font-weight: 800;
+                text-align: left;
+            }
+
+            QPushButton:hover {
+                background: #fffdf6;
+                border-color: #4f381f;
+            }
+        """)
+
+        self.clicked.connect(self.open_popup)
+
+    def currentData(self):
+        return self.selected_value
+
+    def reset(self):
+        self.selected_value = ""
+        self.setText(self.placeholder)
+
+    def open_popup(self):
+        if self.popup is not None:
+            self.popup.close()
+
+        popup = QFrame(None, Qt.Popup | Qt.FramelessWindowHint)
+        popup.setObjectName("HolidayChoicePopup")
+        popup.setStyleSheet("""
+            QFrame#HolidayChoicePopup {
+                background: #fff8ec;
+                border: none;
+                border-radius: 7px;
+            }
+        """)
+
+        root = QVBoxLayout(popup)
+        root.setContentsMargins(2, 2, 2, 2)
+        root.setSpacing(0)
+
+        all_items = [(self.placeholder, "")]
+        all_items.extend(
+            (str(label), str(value))
+            for value, label in self.choices
+        )
+
+        columns = min(self.columns, max(1, len(all_items)))
+        rows_per_column = (
+            len(all_items) + columns - 1
+        ) // columns
+
+        row_height = 24
+
+        if self.show_all_rows:
+            visible_rows = rows_per_column
+        else:
+            visible_rows = min(
+                max(1, self.max_visible_rows),
+                rows_per_column,
+            )
+
+        list_height = max(34, (visible_rows * row_height) + 8)
+
+        if self.show_all_rows and columns == 2:
+            # National countries: keep the full two-column list tall enough
+            # for the final country row plus its frame/padding.
+            list_height += row_height + 24
+        else:
+            # Religious holidays: restore the taller standalone selector box.
+            list_height = max(list_height, 260)
+
+        lists_row = QHBoxLayout()
+        lists_row.setContentsMargins(0, 0, 0, 0)
+        lists_row.setSpacing(3)
+
+        def choose(item):
+            self.selected_value = str(item.data(Qt.UserRole) or "")
+            self.setText(item.text())
+            popup.close()
+
+        selected_found = False
+
+        for column_index in range(columns):
+            choices_list = HolidayChoiceList(popup)
+            choices_list.setVerticalScrollBarPolicy(
+                Qt.ScrollBarAlwaysOff
+                if self.show_all_rows
+                else Qt.ScrollBarAsNeeded
+            )
+            choices_list.setFixedHeight(list_height)
+
+            start_index = column_index * rows_per_column
+            end_index = min(
+                start_index + rows_per_column,
+                len(all_items),
+            )
+
+            for label, value in all_items[start_index:end_index]:
+                item = QListWidgetItem(label)
+                item.setData(Qt.UserRole, value)
+                choices_list.addItem(item)
+
+                if value == self.selected_value and not selected_found:
+                    choices_list.setCurrentItem(item)
+                    selected_found = True
+
+            if choices_list.count() and not selected_found:
+                choices_list.setCurrentRow(0)
+
+            choices_list.itemClicked.connect(choose)
+            lists_row.addWidget(choices_list, 1)
+
+        root.addLayout(lists_row)
+
+        if columns == 2:
+            popup_width = max(500, self.width() * 2)
+        else:
+            popup_width = max(self.width(), 230)
+
+        popup_height = list_height + 4
+        popup.setFixedSize(popup_width, popup_height)
+
+        global_position = self.mapToGlobal(
+            self.rect().bottomLeft()
+        )
+
+        # Keep the complete two-column country list on screen. When there is
+        # not enough room below the selector, open the popup upward instead
+        # of clipping the final country rows.
+        from PySide6.QtGui import QGuiApplication
+
+        screen = QGuiApplication.screenAt(global_position)
+        if screen is None:
+            screen = QGuiApplication.primaryScreen()
+
+        available = screen.availableGeometry()
+        popup_x = global_position.x()
+        popup_y = global_position.y() + 2
+
+        if popup_y + popup.height() > available.bottom():
+            popup_y = self.mapToGlobal(
+                self.rect().topLeft()
+            ).y() - popup.height() - 2
+
+        popup_y = max(available.top(), popup_y)
+        popup.move(popup_x, popup_y)
+
+        self.popup = popup
+        popup.show()
+        popup.raise_()

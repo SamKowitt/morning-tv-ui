@@ -23,7 +23,7 @@ class SportsNewsPanel(QWidget):
         self.setMinimumHeight(120)
 
     def update_articles(self, articles):
-        self.articles = list(articles or [])[:4]
+        self.articles = list(articles or [])[:5]
 
         # Start article-text requests in background immediately after the
         # Sports Desk receives new stories. The popup will use the cache when
@@ -110,7 +110,7 @@ class SportsNewsPanel(QWidget):
             return
 
         lead = self.articles[0]
-        small_articles = self.articles[1:4]
+        small_articles = self.articles[1:5]
 
         lead_rect = QRectF(
             body.left(),
@@ -260,7 +260,7 @@ class SportsNewsPanel(QWidget):
         painter.restore()
 
     def draw_small_stories(self, painter, rect, articles):
-        count = 3
+        count = 4
         column_width = rect.width() / count
 
         for index in range(count):
