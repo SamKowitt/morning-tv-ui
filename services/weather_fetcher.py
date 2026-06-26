@@ -275,7 +275,7 @@ def condition_from_text(text, is_day=True):
         return "snow", "🌨️"
 
     if any(word in lowered for word in ["fog", "mist", "haze", "smoke"]):
-        return "fog", "🌫️"
+        return "fog", "☁️"
 
     if any(word in lowered for word in ["cloud", "overcast", "partly", "mostly cloudy"]):
         return "cloud", "☁️"
@@ -312,7 +312,7 @@ def condition_from_open_meteo_code(weather_code, precipitation_probability, is_d
         return "snow", "🌨️"
 
     if code in [45, 48]:
-        return "fog", "🌫️"
+        return "fog", "☁️"
 
     if code in [2, 3]:
         return "cloud", "☁️"

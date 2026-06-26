@@ -96,7 +96,7 @@ class WeatherRow(QWidget):
         )
 
         self.icon_label = AutoFitLabel(
-            icon,
+            "",
             min_size=10,
             max_size=24,
             bold=False,
@@ -156,10 +156,7 @@ class WeatherRow(QWidget):
             color = "#22313b"
 
         font_css = f"color: {color}; background: transparent;"
-        icon_css = (
-            f"color: {color}; background: transparent; "
-            'font-family: "Apple Color Emoji";'
-        )
+        icon_css = "background: transparent;"
 
         self.temp_label.setStyleSheet(font_css)
         self.icon_label.setStyleSheet(icon_css)
@@ -241,6 +238,20 @@ class WeatherRow(QWidget):
         else:
             self.draw_clear(painter, rect)
 
+        # Draw weather emoji via QPainter (bypasses Qt6 QLabel colour-emoji bug on macOS)
+        if hasattr(self, "icon") and self.icon and hasattr(self, "icon_label"):
+            icon_geom = self.icon_label.geometry()
+            if icon_geom.width() > 4 and icon_geom.height() > 4:
+                emoji_font = QFont()
+                emoji_font.setFamilies(["Apple Color Emoji"])
+                emoji_font.setPointSize(max(10, min(22, icon_geom.height() - 10)))
+                painter.save()
+                painter.setFont(emoji_font)
+                dark_bg = self.is_night or self.condition in {"rain", "storm"}
+                painter.setPen(QColor(255, 255, 255, 230) if dark_bg else QColor(30, 30, 30, 230))
+                painter.drawText(icon_geom, Qt.AlignCenter, self.icon)
+                painter.restore()
+
         painter.end()
 
     def update_weather(
@@ -258,6 +269,7 @@ class WeatherRow(QWidget):
         # Force lightning storms to use lightning bolt icon everywhere.
         if condition == "storm":
             icon = "⚡️"
+        self.icon = icon
 
         # Save animation/background state
         self.condition = condition
@@ -308,8 +320,7 @@ class WeatherRow(QWidget):
         if temp_label is not None:
             temp_label.setText(temp_text)
 
-        if icon_label is not None:
-            icon_label.setText(icon)
+        # icon stored in self.icon and drawn via paintEvent; do not setText on icon_label
 
         if time_label_widget is not None:
             time_label_widget.setText(time_label)
@@ -331,8 +342,7 @@ class WeatherRow(QWidget):
         for label in labels:
             if label is icon_label:
                 label.setStyleSheet(
-                    f"color: {text_color}; background: transparent; "
-                    'font-family: "Apple Color Emoji";'
+                    'background: transparent; font-family: "Apple Color Emoji";'
                 )
             elif label is temp_label:
                 label.setStyleSheet(f"color: {text_color}; font-weight: 900;")
