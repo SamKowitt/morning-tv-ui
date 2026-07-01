@@ -14,7 +14,10 @@ from difflib import SequenceMatcher
 
 import certifi
 from services.article_text_fetcher import prefetch_article_text_payload
-from services.newsmax_chrome import fetch_newsmax_homepage_article
+from services.newsmax_chrome import (
+    fetch_newsmax_homepage_article,
+    fetch_newsmax_image_jpeg_bytes,
+)
 
 
 @dataclass
@@ -1042,18 +1045,45 @@ def fetch_configured_article(source_key):
         try:
             payload = fetch_newsmax_homepage_article()
 
-            article_url = payload.get("link", "") or ""
+            article_url = str(payload.get("link", "") or "").strip()
+            image_url = str(payload.get("image_url", "") or "").strip()
+            image_bytes = b""
 
-            # Return the Newsmax card immediately. Its image is fetched separately
-            # after the dashboard is visible so Chrome image work cannot stall launch.
+            # Use only the image from the same #nmCanvas1 homepage lead module.
+            # Do not fall back to the article-page og:image; that can be a
+            # different editorial image than the lead-card image.
+            if image_url:
+                try:
+                    image_bytes = fetch_newsmax_image_jpeg_bytes(image_url)
+
+                    if image_bytes:
+                        print(
+                            "NEWSMAX CANVAS-ONE IMAGE READY: "
+                            f"{len(image_bytes)} bytes | {image_url}"
+                        )
+                    else:
+                        print(
+                            "NEWSMAX CANVAS-ONE IMAGE NOT READY: "
+                            f"no usable JPEG bytes | {image_url}"
+                        )
+
+                except Exception as image_error:
+                    print(
+                        "NEWSMAX canvas-one image fetch failed: "
+                        f"{image_error}"
+                    )
+            else:
+                print("NEWSMAX canvas-one lead image was not found.")
+
             return NewsArticle(
                 title=payload.get("title", "") or "",
                 source=NEWS_SOURCES["NEWSMAX"]["source_name"],
-                image_url="",
+                image_url=image_url,
                 link=article_url,
-                image_bytes=b"",
+                image_bytes=image_bytes,
                 breaking_headline=payload.get("breaking_headline", "") or "",
             )
+
         except Exception as error:
             print(f"NEWSMAX Chrome resolver failed: {error}")
             return fallback_article(
@@ -1088,9 +1118,20 @@ def fetch_configured_article(source_key):
 
     if source_key == "CNBC":
         try:
-            return fetch_cnbc_homepage_lead_article(source_key)
+            return fetch_cnbc_rendered_largest_text_lead_article(source_key)
         except Exception as error:
-            print(f"CNBC direct homepage resolver failed: {error}; falling back to generic logic")
+            print(
+                "CNBC rendered-largest-text resolver failed: "
+                f"{error}; falling back to existing CNBC resolver"
+            )
+
+            try:
+                return fetch_cnbc_homepage_lead_article(source_key)
+            except Exception as fallback_error:
+                print(
+                    "CNBC existing homepage resolver failed: "
+                    f"{fallback_error}; falling back to generic logic"
+                )
 
     if source_key not in NEWS_SOURCES:
         print(f"Unknown news source key {source_key}; falling back to FOX NEWS")
@@ -1223,10 +1264,233 @@ if __name__ == "__main__":
     debug_all_news_sources()
 
 
-# --- CNBC homepage lead override ---
-# CNBC's first article in the raw page is often the marketsBanner article.
-# That is not the editorial homepage lead. This parser reads window.__s_data
-# and skips banner/market/rail/video/pro modules before selecting normal homepage articles.
+def fetch_cnbc_rendered_largest_text_lead_article(source_key="CNBC"):
+    """
+    Select CNBC's true visible homepage lead from the largest rendered
+    editorial headline element, not from a pre-filtered list of links.
+    """
+    from services.newsmax_chrome import (
+        _close_page,
+        _create_page,
+        _eval,
+        _navigate,
+    )
+
+    target_id = ""
+    ws_url = ""
+
+    try:
+        target_id, ws_url = _create_page()
+        _navigate(ws_url, CNBC_HOMEPAGE)
+
+        payload = _eval(
+            ws_url,
+            r"""
+(() => {
+    const clean = value => String(value || "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    const isVisible = node => {
+        const style = window.getComputedStyle(node);
+        const rect = node.getBoundingClientRect();
+
+        return (
+            style.display !== "none" &&
+            style.visibility !== "hidden" &&
+            Number(style.opacity || 1) > 0 &&
+            rect.width >= 100 &&
+            rect.height >= 16
+        );
+    };
+
+    const isEditorialCnbcUrl = href => {
+        const value = String(href || "").toLowerCase();
+
+        if (
+            !/^https:\/\/www\.cnbc\.com\/20\d{2}\/\d{2}\/\d{2}\/.+\.html$/i.test(
+                String(href || "")
+            )
+        ) {
+            return false;
+        }
+
+        const blockedPaths = [
+            "/pro/",
+            "/video/",
+            "/watch/",
+            "stock-market-today-live-updates"
+        ];
+
+        return !blockedPaths.some(bit => value.includes(bit));
+    };
+
+    const blockedTitleBits = [
+        "watch live",
+        "subscribe",
+        "newsletter",
+        "advertisement",
+        "cnbc pro",
+        "investing club",
+        "sign in",
+        "stock market today",
+        "live updates"
+    ];
+
+    const headlineSelector = [
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "[role='heading']",
+        "[class*='headline' i]",
+        "[class*='headLine' i]",
+        "[class*='title' i]"
+    ].join(",");
+
+    const candidates = [];
+    const seen = new Set();
+
+    for (const headlineNode of document.querySelectorAll(headlineSelector)) {
+        if (!isVisible(headlineNode)) {
+            continue;
+        }
+
+        const title = clean(
+            headlineNode.innerText ||
+            headlineNode.textContent ||
+            ""
+        );
+
+        const titleLower = title.toLowerCase();
+
+        if (
+            title.length < 20 ||
+            blockedTitleBits.some(bit => titleLower.includes(bit))
+        ) {
+            continue;
+        }
+
+        let link = headlineNode.closest("a[href]");
+
+        if (!link) {
+            const card = headlineNode.closest(
+                "article, [class*='card' i], [class*='content' i], [class*='story' i]"
+            );
+
+            if (card) {
+                link = card.querySelector("a[href]");
+            }
+        }
+
+        const href = String(link?.href || "").trim();
+
+        if (!isEditorialCnbcUrl(href)) {
+            continue;
+        }
+
+        const rect = headlineNode.getBoundingClientRect();
+        const style = window.getComputedStyle(headlineNode);
+        const fontSize = parseFloat(style.fontSize) || 0;
+        const fontWeight = parseInt(style.fontWeight, 10) || 0;
+        const area = Math.round(rect.width * rect.height);
+
+        const image = (
+            link?.querySelector("img") ||
+            headlineNode.closest("article, [class*='card' i]")?.querySelector("img")
+        );
+
+        const imageUrl = image
+            ? String(image.currentSrc || image.src || "")
+            : "";
+
+        const key = `${title}|${href}`;
+        if (seen.has(key)) {
+            continue;
+        }
+        seen.add(key);
+
+        candidates.push({
+            title,
+            link: href,
+            imageUrl,
+            fontSize,
+            fontWeight,
+            area,
+            top: Math.round(rect.top),
+            left: Math.round(rect.left),
+            tag: headlineNode.tagName,
+            className: String(headlineNode.className || "").slice(0, 180)
+        });
+    }
+
+    candidates.sort((a, b) => (
+        b.fontSize - a.fontSize ||
+        b.area - a.area ||
+        b.fontWeight - a.fontWeight ||
+        a.top - b.top ||
+        a.left - b.left
+    ));
+
+    return {
+        count: candidates.length,
+        selected: candidates[0] || null,
+        topCandidates: candidates.slice(0, 20)
+    };
+})()
+""",
+            timeout=25,
+        )
+
+        if not isinstance(payload, dict):
+            raise RuntimeError("Chrome did not return CNBC homepage data")
+
+        print("\n===== CNBC RENDERED HEADLINE CANDIDATES =====")
+        for index, candidate in enumerate(
+            payload.get("topCandidates", []) or [],
+            start=1,
+        ):
+            print(
+                f"{index}. font={candidate.get('fontSize')}px "
+                f"area={candidate.get('area')} "
+                f"top={candidate.get('top')} "
+                f"tag={candidate.get('tag')} "
+                f"title={candidate.get('title')}"
+            )
+            print(f"   link={candidate.get('link')}")
+
+        selected = payload.get("selected") or {}
+        title = clean_text(selected.get("title", ""))
+        link = str(selected.get("link", "") or "").strip()
+        image_url = str(selected.get("imageUrl", "") or "").strip()
+
+        if not title or not link:
+            raise RuntimeError(
+                "No usable CNBC rendered homepage headline found. "
+                f"Candidates seen: {payload.get('count', 0)}"
+            )
+
+        article = NewsArticle(
+            title=title,
+            source=NEWS_SOURCES[source_key]["source_name"],
+            image_url=image_url,
+            link=link,
+        )
+
+        print(
+            "CNBC TRUE LARGEST-TEXT LEAD: "
+            f'"{article.title}" '
+            f'(font={selected.get("fontSize", 0)}px, '
+            f'area={selected.get("area", 0)})'
+        )
+        print(f"CNBC TRUE LEAD LINK: {article.link}")
+
+        return article
+
+    finally:
+        if target_id:
+            _close_page(target_id)
+
 def extract_cnbc_candidates_from_embedded_json(page_html, base_url):
     import json
     import re

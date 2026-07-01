@@ -541,7 +541,7 @@ class DashboardWindow(QMainWindow):
         self.hide_reminders = self.load_saved_hide_reminders_setting()
 
         self.weather_location = self.load_saved_weather_location()
-        self.weather_zip_code = self.weather_location.zip_code or ZIP_CODE
+        self.weather_zip_code = self.weather_location.zip_code or self.load_saved_weather_zip()
         self.weather_location_label = self.weather_location.label
         self.weather_location_suggestions = {}
         self.selected_weather_location = self.weather_location

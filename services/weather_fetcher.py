@@ -183,14 +183,52 @@ def fetch_open_meteo_hourly_display_details(location):
     return precipitation_by_hour, solar_event_by_hour
 
 
+def apply_precipitation_visual_threshold(row):
+    """
+    Keep low-impact precipitation visible in the hourly detail text, while
+    using Cloudy artwork unless the forecast is meaningfully wet or snowy.
+    """
+    precipitation_condition = str(
+        getattr(row, "precipitation_forecast_condition", "")
+        or getattr(row, "condition", "")
+        or ""
+    ).strip().lower()
+
+    if precipitation_condition not in {"rain", "snow", "storm"}:
+        return
+
+    try:
+        precipitation_probability = int(
+            getattr(row, "precipitation_probability", None)
+        )
+    except (TypeError, ValueError):
+        precipitation_probability = 0
+
+    try:
+        precipitation_amount = float(
+            getattr(row, "precipitation_amount_inches", None)
+        )
+    except (TypeError, ValueError):
+        precipitation_amount = 0.0
+
+    if (
+        precipitation_probability < 50
+        and precipitation_amount <= 0.10
+    ):
+        row.condition = "cloud"
+        row.icon = "☁️"
+
+
 def apply_open_meteo_hourly_display_details(rows, location):
+    precipitation_by_hour = {}
+    solar_event_by_hour = {}
+
     try:
         precipitation_by_hour, solar_event_by_hour = (
             fetch_open_meteo_hourly_display_details(location)
         )
     except Exception as error:
         print(f"Open-Meteo hourly display details unavailable: {error}")
-        return rows
 
     for row in rows:
         hour_key = local_hour_key(
@@ -198,22 +236,31 @@ def apply_open_meteo_hourly_display_details(rows, location):
             location.timezone,
         )
 
-        if hour_key is None:
-            continue
+        precipitation_condition = str(
+            getattr(row, "precipitation_forecast_condition", "")
+            or getattr(row, "condition", "")
+            or ""
+        ).strip().lower()
 
-        condition = str(getattr(row, "condition", "") or "").lower()
+        if (
+            hour_key is not None
+            and precipitation_condition in {"rain", "snow", "storm"}
+        ):
+            row.precipitation_amount_inches = (
+                precipitation_by_hour.get(hour_key)
+            )
 
-        if condition in {"rain", "storm"}:
-            row.precipitation_amount_inches = precipitation_by_hour.get(hour_key)
+        if hour_key is not None:
+            solar_event = solar_event_by_hour.get(hour_key)
 
-        solar_event = solar_event_by_hour.get(hour_key)
+            if solar_event:
+                row.solar_event_time = solar_event[0]
+                row.solar_event_label = solar_event[1]
+            else:
+                row.solar_event_time = ""
+                row.solar_event_label = ""
 
-        if solar_event:
-            row.solar_event_time = solar_event[0]
-            row.solar_event_label = solar_event[1]
-        else:
-            row.solar_event_time = ""
-            row.solar_event_label = ""
+        apply_precipitation_visual_threshold(row)
 
     return rows
 
@@ -506,20 +553,26 @@ def build_rows_from_nws_periods(periods, max_rows, alerts=None, observation=None
         except Exception:
             precipitation_probability = None
 
-        rows.append(
-            WeatherRow(
-                temperature=temperature or "--",
-                icon=icon,
-                time_label=format_hour_label(start_time) or period.get("name", ""),
-                condition=condition,
-                is_night=not is_day,
-                forecast_start=start_time,
-                detailed_forecast=period.get("detailedForecast", "") or short_forecast,
-                wind_speed=period.get("windSpeed", "") or "",
-                precipitation_probability=precipitation_probability,
-                source="NWS",
-            )
+        weather_row = WeatherRow(
+            temperature=temperature or "--",
+            icon=icon,
+            time_label=format_hour_label(start_time) or period.get("name", ""),
+            condition=condition,
+            is_night=not is_day,
+            forecast_start=start_time,
+            detailed_forecast=period.get("detailedForecast", "") or short_forecast,
+            wind_speed=period.get("windSpeed", "") or "",
+            precipitation_probability=precipitation_probability,
+            source="NWS",
         )
+
+        weather_row.precipitation_forecast_condition = (
+            condition
+            if condition in {"rain", "snow", "storm"}
+            else ""
+        )
+
+        rows.append(weather_row)
 
     return rows
 
@@ -688,28 +741,34 @@ def fetch_weather_rows_from_open_meteo(max_rows=9, location=None):
         except Exception:
             local_start = str(time_value or "")
 
-        rows.append(
-            WeatherRow(
-                temperature=temperature or "--",
-                icon=icon,
-                time_label=format_hour_label(time_value),
-                condition=condition,
-                is_night=not is_day,
-                forecast_start=local_start,
-                detailed_forecast="Open-Meteo hourly forecast",
-                wind_speed=(
-                    f"{round(float(wind_speed))} mph"
-                    if wind_speed is not None
-                    else ""
-                ),
-                precipitation_probability=(
-                    int(precipitation_probability)
-                    if precipitation_probability is not None
-                    else None
-                ),
-                source="Open-Meteo",
-            )
+        weather_row = WeatherRow(
+            temperature=temperature or "--",
+            icon=icon,
+            time_label=format_hour_label(time_value),
+            condition=condition,
+            is_night=not is_day,
+            forecast_start=local_start,
+            detailed_forecast="Open-Meteo hourly forecast",
+            wind_speed=(
+                f"{round(float(wind_speed))} mph"
+                if wind_speed is not None
+                else ""
+            ),
+            precipitation_probability=(
+                int(precipitation_probability)
+                if precipitation_probability is not None
+                else None
+            ),
+            source="Open-Meteo",
         )
+
+        weather_row.precipitation_forecast_condition = (
+            condition
+            if condition in {"rain", "snow", "storm"}
+            else ""
+        )
+
+        rows.append(weather_row)
 
     rows = apply_open_meteo_hourly_display_details(rows, location)
 

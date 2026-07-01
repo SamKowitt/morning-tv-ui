@@ -1263,7 +1263,7 @@ class WeatherPanel(QWidget):
                     start_time = start_time.replace(tzinfo=timezone.utc)
 
                 parsed_rows.append(
-                    (original_index, row, start_time)
+                    (original_index, row, start_time.astimezone(timezone.utc))
                 )
 
             except Exception:
@@ -1272,10 +1272,9 @@ class WeatherPanel(QWidget):
         if not parsed_rows:
             return []
 
-        local_zone = parsed_rows[0][2].tzinfo
-        now_local = datetime.now(local_zone)
+        now_utc = datetime.now(timezone.utc)
 
-        next_full_hour = now_local.replace(
+        next_full_hour_utc = now_utc.replace(
             minute=0,
             second=0,
             microsecond=0,
@@ -1283,9 +1282,27 @@ class WeatherPanel(QWidget):
 
         return [
             (original_index, row)
-            for original_index, row, start_time in parsed_rows
-            if start_time >= next_full_hour
+            for original_index, row, start_time_utc in parsed_rows
+            if start_time_utc >= next_full_hour_utc
         ]
+
+    def _display_hour_for_row(self, row):
+        raw_start = str(
+            getattr(row, "forecast_start", "") or ""
+        ).strip()
+
+        if raw_start:
+            try:
+                value = datetime.fromisoformat(
+                    raw_start.replace("Z", "+00:00")
+                )
+                return value.strftime("%-I%p").lower()
+            except Exception:
+                pass
+
+        return str(
+            getattr(row, "time_label", "") or ""
+        ).strip()
 
     def emit_selected_hour(self, index):
         if 0 <= index < len(self.visible_rows):
@@ -1329,12 +1346,19 @@ class WeatherPanel(QWidget):
                 getattr(row, "condition", "") or ""
             ).strip().lower()
 
+            precipitation_condition = str(
+                getattr(row, "precipitation_forecast_condition", "")
+                or condition
+            ).strip().lower()
+
+            precipitation_detail = ""
+
             if precipitation_amount >= 0.005:
                 precipitation_text = (
                     f"{precipitation_amount:.2f}".rstrip("0").rstrip(".")
                 )
-                detail_parts.append(f'{precipitation_text}"')
-            elif condition in {"rain", "storm"}:
+                precipitation_detail = f'{precipitation_text}"'
+            elif precipitation_condition in {"rain", "snow", "storm"}:
                 precipitation_probability = getattr(
                     row,
                     "precipitation_probability",
@@ -1349,9 +1373,20 @@ class WeatherPanel(QWidget):
                     precipitation_probability = None
 
                 if precipitation_probability is not None:
-                    detail_parts.append(
+                    precipitation_detail = (
                         f"{max(0, min(100, precipitation_probability))}%"
                     )
+
+            if precipitation_detail:
+                precipitation_emoji = {
+                    "rain": "🌧️",
+                    "snow": "🌨️",
+                    "storm": "⚡️",
+                }.get(precipitation_condition, "🌧️")
+
+                detail_parts.append(
+                    f"{precipitation_emoji}\n{precipitation_detail}"
+                )
 
             solar_event_time = str(
                 getattr(row, "solar_event_time", "") or ""
@@ -1369,14 +1404,26 @@ class WeatherPanel(QWidget):
                 else:
                     detail_parts.append(solar_event_time)
 
+            displayed_hour = self._display_hour_for_row(row)
+
             weather_row_widget.update_weather(
                 temperature=row.temperature,
                 icon=row.icon,
-                time_label=row.time_label,
+                time_label=displayed_hour,
                 condition=row.condition,
                 is_night=row.is_night,
                 detail_text="\n".join(detail_parts),
                 moon_datetime=getattr(row, "forecast_start", ""),
+            )
+
+            print(
+                "Weather row display -> "
+                f"hour={displayed_hour}, "
+                f"forecast_start={getattr(row, 'forecast_start', '')}, "
+                f"chance={getattr(row, 'precipitation_probability', None)}, "
+                f"amount={getattr(row, 'precipitation_amount_inches', None)}, "
+                f"condition={getattr(row, 'condition', '')}, "
+                f"precip_type={getattr(row, 'precipitation_forecast_condition', '')}"
             )
 
         first_label = (

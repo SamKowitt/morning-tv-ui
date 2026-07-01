@@ -145,6 +145,39 @@ def _navigate(ws_url, url):
 
     _cdp_call(
         ws_url,
+        "Network.enable",
+        timeout=CHROME_TIMEOUT,
+    )
+
+    _cdp_call(
+        ws_url,
+        "Emulation.setDeviceMetricsOverride",
+        {
+            "width": 1440,
+            "height": 1200,
+            "deviceScaleFactor": 1,
+            "mobile": False,
+        },
+        timeout=CHROME_TIMEOUT,
+    )
+
+    _cdp_call(
+        ws_url,
+        "Network.setUserAgentOverride",
+        {
+            "userAgent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/149.0.0.0 Safari/537.36"
+            ),
+            "acceptLanguage": "en-US,en;q=0.9",
+            "platform": "macOS",
+        },
+        timeout=CHROME_TIMEOUT,
+    )
+
+    _cdp_call(
+        ws_url,
         "Page.navigate",
         {"url": url},
         timeout=CHROME_TIMEOUT,
@@ -156,12 +189,12 @@ def _navigate(ws_url, url):
         state = _eval(ws_url, "document.readyState", timeout=4)
 
         if state in {"interactive", "complete"}:
-            time.sleep(1.2)
+            time.sleep(3.5)
             return
 
         time.sleep(0.2)
 
-    raise TimeoutError(f"Newsmax page did not finish loading within {PAGE_TIMEOUT} seconds")
+    raise TimeoutError(f"Page did not finish loading within {PAGE_TIMEOUT} seconds")
 
 
 def _is_newsmax_article_url(url):
@@ -298,6 +331,65 @@ def fetch_newsmax_homepage_article():
         document.querySelector("#nmCanvas1Headline h1") ||
         document.querySelector("#nmCanvas1 h1");
 
+    const normalize = value => clean(value).toLowerCase();
+
+    const leadTitleKey = normalize(
+        leadLink
+            ? (leadLink.innerText || leadLink.textContent || "")
+            : (
+                leadHeading
+                    ? (leadHeading.innerText || leadHeading.textContent || "")
+                    : ""
+            )
+    );
+
+    const isVisibleImage = image => {
+        const style = window.getComputedStyle(image);
+        const rect = image.getBoundingClientRect();
+
+        return (
+            style.display !== "none" &&
+            style.visibility !== "hidden" &&
+            Number(style.opacity || 1) > 0 &&
+            rect.width >= 120 &&
+            rect.height >= 90
+        );
+    };
+
+    const homepageLeadImages = Array.from(document.querySelectorAll("img"))
+        .map(image => {
+            const rect = image.getBoundingClientRect();
+
+            return {
+                alt: clean(image.alt || ""),
+                src: String(
+                    image.currentSrc ||
+                    image.src ||
+                    image.getAttribute("data-src") ||
+                    image.getAttribute("data-lazy-src") ||
+                    ""
+                ).trim(),
+                visible: isVisibleImage(image),
+                width: Math.round(rect.width),
+                height: Math.round(rect.height)
+            };
+        })
+        .filter(item =>
+            item.visible &&
+            item.src &&
+            !item.src.startsWith("data:") &&
+            item.width >= 120 &&
+            item.height >= 90
+        );
+
+    const exactLeadImage = homepageLeadImages.find(
+        item => normalize(item.alt) === leadTitleKey
+    );
+
+    const leadImageUrl = exactLeadImage
+        ? exactLeadImage.src
+        : "";
+
     return {
         breakingHeadline: clean(
             breakingLink
@@ -311,6 +403,7 @@ def fetch_newsmax_homepage_article():
                 : (leadHeading ? (leadHeading.innerText || leadHeading.textContent || "") : "")
         ),
         leadUrl: leadLink ? (leadLink.href || "") : "",
+        leadImageUrl,
         pageTitle: document.title || ""
     };
 })()
@@ -326,6 +419,10 @@ def fetch_newsmax_homepage_article():
         lead_url = urljoin(
             "https://www.newsmax.com/",
             str(payload.get("leadUrl", "") or ""),
+        )
+        lead_image_url = urljoin(
+            "https://www.newsmax.com/",
+            str(payload.get("leadImageUrl", "") or ""),
         )
 
         if not lead_title or not lead_url:
@@ -347,11 +444,12 @@ def fetch_newsmax_homepage_article():
         print(f'NEWSMAX BREAKING HEADLINE: "{breaking_headline}"')
         print(f'NEWSMAX ACTUAL LEAD: "{lead_title}"')
         print(f'NEWSMAX ACTUAL LEAD LINK: "{lead_url}"')
+        print(f'NEWSMAX CANVAS-ONE LEAD IMAGE: "{lead_image_url}"')
 
         return {
             "title": lead_title,
             "link": lead_url,
-            "image_url": "",
+            "image_url": lead_image_url,
             "image_bytes": b"",
             "breaking_headline": breaking_headline,
             "breaking_url": str(payload.get("breakingUrl", "") or ""),

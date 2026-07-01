@@ -45,20 +45,28 @@ def get_child_text(item, tag_name):
 
 
 def is_valid_article(article):
+    link = str(getattr(article, "link", "") or "").strip().lower()
+
     return bool(
         article
-        and clean_text(article.title)
-        and str(article.link or "").startswith("http")
+        and clean_text(getattr(article, "title", ""))
+        and link.startswith("http")
+        and (
+            "/story/_/id/" in link
+            or "/report/_/gameid/" in link
+            or "/video/" in link
+            or "/watch/" in link
+        )
     )
 
 
 
 def fetch_espn_homepage_lead():
     """
-    Select ESPN's actual overall homepage lead sports story.
+    Select ESPN's structural homepage hero lead.
 
-    Only real ESPN story URLs are eligible. Schedule, scores, standings,
-    team pages, and other navigation links are excluded.
+    ESPN may use a normal story, match report, video, or /watch/ page for
+    the lead module. The hero module itself determines priority.
     """
     target_id = ""
     ws_url = ""
@@ -75,81 +83,173 @@ def fetch_espn_homepage_lead():
         .replace(/\s+/g, " ")
         .trim();
 
-    const badTitleBits = [
-        "schedule",
-        "scores",
-        "standings",
-        "teams",
-        "fixtures",
-        "watch",
-        "listen",
-        "menu",
-        "search"
-    ];
+    const isVisible = node => {
+        if (!node) return false;
 
-    const links = Array.from(
-        document.querySelectorAll('a[href*="/story/_/id/"]')
-    );
+        const style = window.getComputedStyle(node);
+        const rect = node.getBoundingClientRect();
 
-    const candidates = [];
+        return (
+            style.display !== "none"
+            && style.visibility !== "hidden"
+            && Number(style.opacity || 1) > 0
+            && rect.width >= 80
+            && rect.height >= 14
+            && rect.bottom > 0
+            && rect.top < window.innerHeight + 900
+        );
+    };
 
-    for (const link of links) {
-        const href = String(link.href || "").trim();
+    const isEligibleHref = href => {
+        const value = String(href || "").toLowerCase();
 
-        if (
-            !href.includes("espn.com/") ||
-            !href.includes("/story/_/id/")
-        ) {
-            continue;
-        }
+        return (
+            value.includes("espn.com/")
+            && (
+                value.includes("/story/_/id/")
+                || value.includes("/report/_/gameid/")
+                || value.includes("/video/")
+                || value.includes("/watch/")
+            )
+        );
+    };
 
-        const headingNode = link.querySelector("h1, h2, h3, h4");
-        const title = clean(
-            headingNode
-                ? (headingNode.innerText || headingNode.textContent)
-                : (link.innerText || link.textContent)
+    const getHeroCandidate = hero => {
+        const heading = hero.querySelector(
+            "h1, h2, h3, h4, [role='heading']"
         );
 
-        const titleLower = title.toLowerCase();
+        if (!heading || !isVisible(heading)) return null;
 
-        if (
-            title.length < 18 ||
-            badTitleBits.some(bit => titleLower === bit || titleLower.startsWith(bit))
-        ) {
-            continue;
-        }
+        const title = clean(heading.innerText || heading.textContent);
 
-        const rect = link.getBoundingClientRect();
+        if (title.length < 12) return null;
 
-        if (rect.width < 80 || rect.height < 15) {
-            continue;
-        }
+        const directLink = heading.closest("a[href]");
+        const containedLink = hero.querySelector("a[href]");
+        const popupNode = hero.querySelector("[data-popup-href]");
 
-        const hasHeading = Boolean(headingNode);
-        const hasImage = Boolean(link.querySelector("img"));
+        const rawHref = (
+            directLink?.href
+            || containedLink?.href
+            || popupNode?.getAttribute("data-popup-href")
+            || ""
+        );
 
-        let score = 0;
-        if (hasHeading) score += 500;
-        if (hasImage) score += 200;
+        const href = rawHref
+            ? new URL(rawHref, window.location.href).href
+            : "";
 
-        score += Math.max(0, 500 - Math.max(0, rect.top));
-        score += Math.max(0, 250 - Math.max(0, rect.left));
+        if (!isEligibleHref(href)) return null;
 
-        candidates.push({
+        const rect = hero.getBoundingClientRect();
+
+        return {
             title,
             link: href,
-            score,
-            top: rect.top,
-            left: rect.left
+            kind: "hero",
+            headingTag: heading.tagName,
+            headingClass: clean(heading.className || ""),
+            heroClass: clean(hero.className || ""),
+            top: Math.round(rect.top),
+            left: Math.round(rect.left),
+            width: Math.round(rect.width),
+            height: Math.round(rect.height),
+            score: 100000
+                + Math.max(0, 3000 - Math.max(0, rect.top))
+                + Math.min(
+                    3000,
+                    Math.round((rect.width * rect.height) / 250)
+                )
+        };
+    };
+
+    const heroSelectors = [
+        "section.contentItem--collection.contentCollection--hero",
+        "section.contentCollection--hero",
+        "section.contentItem:has(.contentItem__title--hero)",
+        "[class*='contentCollection--hero']",
+        "[class*='contentItem--hero']"
+    ];
+
+    const heroNodes = [];
+    const seenHeroes = new Set();
+
+    for (const selector of heroSelectors) {
+        for (const hero of document.querySelectorAll(selector)) {
+            if (seenHeroes.has(hero)) continue;
+            seenHeroes.add(hero);
+
+            const candidate = getHeroCandidate(hero);
+
+            if (candidate) {
+                heroNodes.push(candidate);
+            }
+        }
+    }
+
+    heroNodes.sort((a, b) => {
+        if (a.top !== b.top) return a.top - b.top;
+        if (b.score !== a.score) return b.score - a.score;
+        return a.left - b.left;
+    });
+
+    if (heroNodes.length) {
+        return {
+            selected: heroNodes[0],
+            mode: "structural_hero",
+            heroCandidates: heroNodes.slice(0, 8)
+        };
+    }
+
+    const fallbackCandidates = [];
+    const seen = new Set();
+
+    for (const heading of document.querySelectorAll(
+        "h1, h2, h3, h4, [role='heading']"
+    )) {
+        if (!isVisible(heading)) continue;
+
+        const title = clean(heading.innerText || heading.textContent);
+
+        if (title.length < 12) continue;
+
+        const link = heading.closest("a[href]");
+        const href = link ? String(link.href || "").trim() : "";
+
+        if (!isEligibleHref(href)) continue;
+
+        const rect = heading.getBoundingClientRect();
+        const key = `${title}|${href}`;
+
+        if (seen.has(key)) continue;
+        seen.add(key);
+
+        fallbackCandidates.push({
+            title,
+            link: href,
+            kind: "fallback_heading",
+            headingTag: heading.tagName,
+            headingClass: clean(heading.className || ""),
+            top: Math.round(rect.top),
+            left: Math.round(rect.left),
+            width: Math.round(rect.width),
+            height: Math.round(rect.height),
+            score: Math.max(0, 5000 - Math.max(0, rect.top))
         });
     }
 
-    candidates.sort((a, b) => b.score - a.score);
+    fallbackCandidates.sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        if (a.top !== b.top) return a.top - b.top;
+        return a.left - b.left;
+    });
 
     return {
-        count: candidates.length,
-        selected: candidates[0] || null,
-        topCandidates: candidates.slice(0, 12)
+        selected: fallbackCandidates[0] || null,
+        mode: "fallback_heading",
+        heroCandidates: [],
+        fallbackCandidates: fallbackCandidates.slice(0, 12)
     };
 })()
 """,
@@ -163,10 +263,10 @@ def fetch_espn_homepage_lead():
         title = clean_text(selected.get("title", ""))
         link = str(selected.get("link", "") or "").strip()
 
-        if not title or not link or "/story/_/id/" not in link:
+        if not title or not link:
             raise RuntimeError(
-                "No usable ESPN homepage story lead was found. "
-                f"Story candidates seen: {payload.get('count', 0)}"
+                "No usable ESPN homepage lead was found. "
+                f"Selection mode: {payload.get('mode', 'unknown')}"
             )
 
         article = SportsArticle(
@@ -175,7 +275,11 @@ def fetch_espn_homepage_lead():
             category="ESPN",
         )
 
-        print(f'ESPN HOMEPAGE LEAD: "{article.title}"')
+        print(
+            "ESPN HOMEPAGE LEAD "
+            f"[{payload.get('mode', 'unknown')}]: "
+            f'"{article.title}"'
+        )
         print(f"ESPN HOMEPAGE LEAD LINK: {article.link}")
 
         return article
@@ -183,7 +287,6 @@ def fetch_espn_homepage_lead():
     finally:
         if target_id:
             _close_page(target_id)
-
 
 
 def resolve_truncated_espn_title(article):
@@ -258,14 +361,30 @@ def resolve_truncated_espn_title(article):
 
 def fetch_espn_sports_articles(max_articles=4):
     """
-    Sports Desk uses ESPN RSS story entries only.
+    Put ESPN's homepage lead first, then fill remaining slots from RSS.
 
-    No homepage scraping: ESPN's homepage mixes editorial articles with
-    schedule links, scoreboards, navigation, and promotional modules.
+    This preserves live-event hero items that may not appear in the RSS feed.
     """
     articles = []
     used_links = set()
     errors = []
+
+    try:
+        homepage_lead = fetch_espn_homepage_lead()
+
+        if is_valid_article(homepage_lead):
+            normalized_link = homepage_lead.link.rstrip("/").lower()
+            articles.append(homepage_lead)
+            used_links.add(normalized_link)
+
+            print(
+                "Loaded ESPN homepage lead first: "
+                f"{homepage_lead.title}"
+            )
+    except Exception as error:
+        message = f"homepage -> {error}"
+        print(f"ESPN homepage lead fetch failed: {message}")
+        errors.append(message)
 
     for feed_url in ESPN_FEEDS:
         try:
@@ -277,18 +396,6 @@ def fetch_espn_sports_articles(max_articles=4):
                     continue
 
                 normalized_link = article.link.rstrip("/").lower()
-
-                # ESPN uses both editorial story URLs and match-report URLs
-                # for real homepage headline content.
-                is_editorial_story = "/story/_/id/" in normalized_link
-                is_match_report = "/report/_/gameid/" in normalized_link
-
-                if not (is_editorial_story or is_match_report):
-                    print(
-                        "Skipping non-article ESPN feed entry: "
-                        f"{article.title} -> {article.link}"
-                    )
-                    continue
 
                 if normalized_link in used_links:
                     continue

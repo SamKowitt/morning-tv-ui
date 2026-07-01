@@ -112,9 +112,48 @@ class DateCard(QWidget):
         )
         self.low_high_label.setObjectName("DateLowHighWeather")
 
+        self.precipitation_widget = QWidget()
+        self.precipitation_widget.setObjectName("DatePrecipitationWeather")
+
+        precipitation_layout = QHBoxLayout()
+        precipitation_layout.setContentsMargins(0, 0, 0, 0)
+        precipitation_layout.setSpacing(4)
+        self.precipitation_widget.setLayout(precipitation_layout)
+
+        self.precipitation_emoji_label = AutoFitLabel(
+            "",
+            min_size=9,
+            max_size=18,
+            bold=False,
+            alignment=Qt.AlignLeft | Qt.AlignVCenter,
+            word_wrap=False,
+            font_family="Apple Color Emoji",
+        )
+        self.precipitation_emoji_label.setObjectName(
+            "DatePrecipitationEmojiWeather"
+        )
+
+        self.precipitation_detail_label = AutoFitLabel(
+            "",
+            min_size=9,
+            max_size=18,
+            bold=True,
+            alignment=Qt.AlignRight | Qt.AlignVCenter,
+            word_wrap=False,
+        )
+        self.precipitation_detail_label.setObjectName(
+            "DatePrecipitationDetailWeather"
+        )
+
+        precipitation_layout.addWidget(self.precipitation_emoji_label, 0)
+        precipitation_layout.addWidget(self.precipitation_detail_label, 1)
+
+        self.precipitation_widget.hide()
+
         weather_block.addStretch(1)
         weather_block.addWidget(self.current_weather_label, 0)
         weather_block.addWidget(self.low_high_label, 0)
+        weather_block.addWidget(self.precipitation_widget, 0)
 
         bottom_row.addLayout(date_block, 64)
         bottom_row.addLayout(weather_block, 36)
@@ -226,6 +265,7 @@ class DateCard(QWidget):
             label.hide()
 
         self.current_weather_label.setText(f"{row.temperature}°")
+        self.update_precipitation_indicator(row)
 
         low = (
             getattr(row, "low_temperature", None)
@@ -252,6 +292,57 @@ class DateCard(QWidget):
         self.stacked.setCurrentWidget(self.overlay)
         self.background_weather_row.lower()
         self.overlay.raise_()
+
+    def update_precipitation_indicator(self, row):
+        precipitation_condition = str(
+            getattr(row, "precipitation_forecast_condition", "")
+            or getattr(row, "condition", "")
+            or ""
+        ).strip().lower()
+
+        precipitation_emoji = {
+            "rain": "🌧️",
+            "snow": "🌨️",
+            "storm": "⚡️",
+        }.get(precipitation_condition, "")
+
+        try:
+            precipitation_amount = float(
+                getattr(row, "precipitation_amount_inches", None)
+            )
+        except (TypeError, ValueError):
+            precipitation_amount = 0.0
+
+        precipitation_detail = ""
+
+        if precipitation_amount >= 0.005:
+            precipitation_text = (
+                f"{precipitation_amount:.2f}".rstrip("0").rstrip(".")
+            )
+            precipitation_detail = f'{precipitation_text}"'
+        elif precipitation_emoji:
+            try:
+                precipitation_probability = int(
+                    getattr(row, "precipitation_probability", None)
+                )
+            except (TypeError, ValueError):
+                precipitation_probability = None
+
+            if precipitation_probability is not None:
+                precipitation_detail = (
+                    f"{max(0, min(100, precipitation_probability))}%"
+                )
+
+        if precipitation_emoji and precipitation_detail:
+            self.precipitation_emoji_label.setText(precipitation_emoji)
+            self.precipitation_detail_label.setText(precipitation_detail)
+            self.precipitation_widget.show()
+        else:
+            self.precipitation_emoji_label.setText("")
+            self.precipitation_detail_label.setText("")
+            self.precipitation_widget.hide()
+
+        self.apply_text_color()
 
     def set_low_high(self, low, high):
         low_text = str(low).replace("°", "")
@@ -293,6 +384,7 @@ class DateCard(QWidget):
             self.date_number_label,
             self.current_weather_label,
             self.low_high_label,
+            self.precipitation_detail_label,
         ]:
             self.force_label_color(label, self.text_color)
 
