@@ -38,7 +38,7 @@ def moon_illumination_fraction(moment=None):
 
 from PySide6.QtCore import Qt, QTimer, QPointF, Signal
 from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPen, QPainterPath, QBrush
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from ui.auto_fit_label import AutoFitLabel
 
@@ -107,26 +107,91 @@ class WeatherRow(QWidget):
 
         self.hour_label = AutoFitLabel(
             hour,
-            min_size=9,
-            max_size=24,
+            min_size=15,
+            max_size=15,
             bold=True,
             alignment=Qt.AlignRight | Qt.AlignVCenter,
             word_wrap=False,
         )
+        self.hour_label.set_auto_fit_enabled(False)
 
-        self.detail_label = AutoFitLabel(
+        hour_font = QFont(self.hour_label.font())
+        hour_font.setPointSize(15)
+        hour_font.setBold(True)
+        self.hour_label.setFont(hour_font)
+
+        self.detail_widget = QWidget()
+        self.detail_widget.setAttribute(Qt.WA_StyledBackground, False)
+
+        detail_layout = QVBoxLayout()
+        detail_layout.setContentsMargins(0, 0, 0, 0)
+        detail_layout.setSpacing(0)
+        self.detail_widget.setLayout(detail_layout)
+
+        self.precipitation_detail_label = AutoFitLabel(
             detail_text,
-            min_size=7,
-            max_size=14,
+            min_size=12,
+            max_size=12,
             bold=True,
-            alignment=Qt.AlignRight | Qt.AlignVCenter,
+            alignment=Qt.AlignRight | Qt.AlignBottom,
             word_wrap=False,
         )
+        self.precipitation_detail_label.set_auto_fit_enabled(False)
 
-        layout.addWidget(self.hour_label, 26)
-        layout.addWidget(self.icon_label, 20)
-        layout.addWidget(self.temp_label, 24)
-        layout.addWidget(self.detail_label, 30)
+        self.solar_detail_label = AutoFitLabel(
+            "",
+            min_size=12,
+            max_size=12,
+            bold=True,
+            alignment=Qt.AlignRight | Qt.AlignBottom,
+            word_wrap=False,
+        )
+        self.solar_detail_label.set_auto_fit_enabled(False)
+
+        for detail_label in [
+            self.precipitation_detail_label,
+            self.solar_detail_label,
+        ]:
+            detail_font = QFont(detail_label.font())
+            detail_font.setPointSize(12)
+            detail_font.setBold(True)
+            detail_label.setFont(detail_font)
+
+        # Pin the complete detail stack to the actual bottom of the card.
+        # Fixed label heights prevent Qt from expanding the labels upward into
+        # the moon-art area on nighttime rows.
+        self.precipitation_detail_label.setSizePolicy(
+            QSizePolicy.Expanding,
+            QSizePolicy.Fixed,
+        )
+        self.solar_detail_label.setSizePolicy(
+            QSizePolicy.Expanding,
+            QSizePolicy.Fixed,
+        )
+        # One compact precipitation line sits directly above the solar line.
+        # This keeps the forecast emoji below the moon-art zone.
+        self.precipitation_detail_label.setFixedHeight(18)
+        self.solar_detail_label.setFixedHeight(16)
+
+        detail_layout.addStretch(1)
+        detail_layout.addWidget(
+            self.precipitation_detail_label,
+            0,
+            Qt.AlignRight | Qt.AlignBottom,
+        )
+        detail_layout.addWidget(
+            self.solar_detail_label,
+            0,
+            Qt.AlignRight | Qt.AlignBottom,
+        )
+
+        # Give the time its own slightly larger left section, then shift
+        # the main weather emoji and temperature farther right.
+        layout.addWidget(self.hour_label, 20)
+        layout.addSpacing(10)
+        layout.addWidget(self.icon_label, 16)
+        layout.addWidget(self.temp_label, 20)
+        layout.addWidget(self.detail_widget, 44)
 
         self.apply_text_colors()
 
@@ -161,7 +226,8 @@ class WeatherRow(QWidget):
         self.temp_label.setStyleSheet(font_css)
         self.icon_label.setStyleSheet(icon_css)
         self.hour_label.setStyleSheet(font_css)
-        self.detail_label.setStyleSheet(font_css)
+        self.precipitation_detail_label.setStyleSheet(font_css)
+        self.solar_detail_label.setStyleSheet(font_css)
 
     def should_draw_night_art(self):
         return bool(self.is_night)
@@ -262,6 +328,8 @@ class WeatherRow(QWidget):
         condition,
         is_night=False,
         detail_text="",
+        precipitation_detail_text=None,
+        solar_detail_text="",
         moon_datetime=None,
     ):
         temp_text = f"{temperature}°"
@@ -325,8 +393,15 @@ class WeatherRow(QWidget):
         if time_label_widget is not None:
             time_label_widget.setText(time_label)
 
-        if hasattr(self, "detail_label"):
-            self.detail_label.setText(detail_text)
+        if precipitation_detail_text is None:
+            precipitation_detail_text = detail_text
+
+        self.precipitation_detail_label.setText(
+            str(precipitation_detail_text or "")
+        )
+        self.solar_detail_label.setText(
+            str(solar_detail_text or "")
+        )
 
         # Rain and thunderstorms use dark art even during daytime.
         # Keep time and temperature white whenever that art is active.
@@ -1089,16 +1164,21 @@ class WeatherRow(QWidget):
         )
 
         # Moon placement can be customized by specific rows.
-        moon_x_ratio = getattr(self, "moon_x_ratio", 0.90)
-        moon_y_ratio = getattr(self, "moon_y_ratio", 0.17)
+        # Keep moon art fully above the compact precipitation / solar band.
+        # Keep the moon fully inside the upper-right of the hourly card.
+        # The lower-right detail band remains reserved for precipitation and
+        # sunrise/sunset text.
+        moon_x_ratio = getattr(self, "moon_x_ratio", 0.86)
+        moon_y_ratio = getattr(self, "moon_y_ratio", 0.22)
 
         moon_x = rect.left() + int(w * moon_x_ratio)
         moon_y = rect.top() + int(h * moon_y_ratio)
-        moon_radius = max(7, min(w, h) * 0.105)
+        moon_radius = max(6, min(w, h) * 0.075)
 
-        for layer in range(4):
-            radius = moon_radius + layer * 7
-            alpha = max(12, 50 - layer * 10)
+        # Smaller glow prevents it from spilling into the lower-right text band.
+        for layer in range(2):
+            radius = moon_radius + layer * 4
+            alpha = max(16, 42 - layer * 12)
 
             painter.setOpacity(0.28)
             painter.setPen(Qt.NoPen)
@@ -1329,7 +1409,8 @@ class WeatherPanel(QWidget):
             weather_row_widget.show()
             weather_row_widget.is_now = False
             weather_row_widget.weather_data = row
-            detail_parts = []
+            precipitation_display_text = ""
+            solar_display_text = ""
 
             precipitation_amount = getattr(
                 row,
@@ -1351,31 +1432,30 @@ class WeatherPanel(QWidget):
                 or condition
             ).strip().lower()
 
-            precipitation_detail = ""
+            precipitation_detail_parts = []
 
-            if precipitation_amount >= 0.005:
+            try:
+                precipitation_probability = int(
+                    getattr(row, "precipitation_probability", None)
+                )
+            except (TypeError, ValueError):
+                precipitation_probability = None
+
+            if precipitation_amount > 0.01:
                 precipitation_text = (
                     f"{precipitation_amount:.2f}".rstrip("0").rstrip(".")
                 )
-                precipitation_detail = f'{precipitation_text}"'
-            elif precipitation_condition in {"rain", "snow", "storm"}:
-                precipitation_probability = getattr(
-                    row,
-                    "precipitation_probability",
-                    None,
+                precipitation_detail_parts.append(f'{precipitation_text}"')
+
+            if (
+                precipitation_condition in {"rain", "snow", "storm"}
+                and precipitation_probability is not None
+            ):
+                precipitation_detail_parts.append(
+                    f"{max(0, min(100, precipitation_probability))}%"
                 )
 
-                try:
-                    precipitation_probability = int(
-                        precipitation_probability
-                    )
-                except (TypeError, ValueError):
-                    precipitation_probability = None
-
-                if precipitation_probability is not None:
-                    precipitation_detail = (
-                        f"{max(0, min(100, precipitation_probability))}%"
-                    )
+            precipitation_detail = "  ".join(precipitation_detail_parts)
 
             if precipitation_detail:
                 precipitation_emoji = {
@@ -1384,9 +1464,24 @@ class WeatherPanel(QWidget):
                     "storm": "⚡️",
                 }.get(precipitation_condition, "🌧️")
 
-                detail_parts.append(
-                    f"{precipitation_emoji}\n{precipitation_detail}"
-                )
+                if (
+                    not bool(getattr(row, "is_night", False))
+                    and precipitation_amount > 0.01
+                    and precipitation_probability is not None
+                ):
+                    chance_text = (
+                        f"{max(0, min(100, precipitation_probability))}%"
+                    )
+                    amount_text = (
+                        f'{precipitation_text}"'
+                    )
+                    precipitation_display_text = (
+                        f"{precipitation_emoji} {chance_text}\n{amount_text}"
+                    )
+                else:
+                    precipitation_display_text = (
+                        f"{precipitation_emoji} {precipitation_detail}"
+                    )
 
             solar_event_time = str(
                 getattr(row, "solar_event_time", "") or ""
@@ -1398,11 +1493,11 @@ class WeatherPanel(QWidget):
 
             if solar_event_time:
                 if solar_event_label in {"sunrise", "sunset"}:
-                    detail_parts.append(
-                        f"{solar_event_time}\n{solar_event_label}"
+                    solar_display_text = (
+                        f"{solar_event_time} {solar_event_label}"
                     )
                 else:
-                    detail_parts.append(solar_event_time)
+                    solar_display_text = solar_event_time
 
             displayed_hour = self._display_hour_for_row(row)
 
@@ -1412,7 +1507,8 @@ class WeatherPanel(QWidget):
                 time_label=displayed_hour,
                 condition=row.condition,
                 is_night=row.is_night,
-                detail_text="\n".join(detail_parts),
+                precipitation_detail_text=precipitation_display_text,
+                solar_detail_text=solar_display_text,
                 moon_datetime=getattr(row, "forecast_start", ""),
             )
 
