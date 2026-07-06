@@ -183,11 +183,17 @@ def fetch_open_meteo_hourly_display_details(location):
     return precipitation_by_hour, solar_event_by_hour
 
 
-def apply_precipitation_visual_threshold(row):
+def apply_precipitation_visual_threshold(row, is_current=False):
     """
-    Keep low-impact precipitation visible in the hourly detail text, while
+    Keep low-impact precipitation visible in future hourly detail text, while
     using Cloudy artwork unless the forecast is meaningfully wet or snowy.
+
+    Never soften the current row: the DateCard must preserve the live observed
+    condition, including active rain, drizzle, snow, or storms.
     """
+    if is_current:
+        return
+
     precipitation_condition = str(
         getattr(row, "precipitation_forecast_condition", "")
         or getattr(row, "condition", "")
@@ -230,7 +236,7 @@ def apply_open_meteo_hourly_display_details(rows, location):
     except Exception as error:
         print(f"Open-Meteo hourly display details unavailable: {error}")
 
-    for row in rows:
+    for row_index, row in enumerate(rows):
         hour_key = local_hour_key(
             getattr(row, "forecast_start", ""),
             location.timezone,
@@ -260,7 +266,10 @@ def apply_open_meteo_hourly_display_details(rows, location):
                 row.solar_event_time = ""
                 row.solar_event_label = ""
 
-        apply_precipitation_visual_threshold(row)
+        apply_precipitation_visual_threshold(
+            row,
+            is_current=(row_index == 0),
+        )
 
     return rows
 

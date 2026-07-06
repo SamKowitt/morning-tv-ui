@@ -313,25 +313,30 @@ class DateCard(QWidget):
         except (TypeError, ValueError):
             precipitation_amount = 0.0
 
-        precipitation_detail = ""
+        precipitation_detail_parts = []
 
-        if precipitation_amount >= 0.005:
+        try:
+            precipitation_probability = int(
+                getattr(row, "precipitation_probability", None)
+            )
+        except (TypeError, ValueError):
+            precipitation_probability = None
+
+        if precipitation_amount > 0.01:
             precipitation_text = (
                 f"{precipitation_amount:.2f}".rstrip("0").rstrip(".")
             )
-            precipitation_detail = f'{precipitation_text}"'
-        elif precipitation_emoji:
-            try:
-                precipitation_probability = int(
-                    getattr(row, "precipitation_probability", None)
-                )
-            except (TypeError, ValueError):
-                precipitation_probability = None
+            precipitation_detail_parts.append(f'{precipitation_text}"')
 
-            if precipitation_probability is not None:
-                precipitation_detail = (
-                    f"{max(0, min(100, precipitation_probability))}%"
-                )
+        if (
+            precipitation_emoji
+            and precipitation_probability is not None
+        ):
+            precipitation_detail_parts.append(
+                f"{max(0, min(100, precipitation_probability))}%"
+            )
+
+        precipitation_detail = "  ".join(precipitation_detail_parts)
 
         if precipitation_emoji and precipitation_detail:
             self.precipitation_emoji_label.setText(precipitation_emoji)
