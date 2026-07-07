@@ -1318,8 +1318,7 @@ def fetch_cnbc_rendered_largest_text_lead_article(source_key="CNBC"):
         const blockedPaths = [
             "/pro/",
             "/video/",
-            "/watch/",
-            "stock-market-today-live-updates"
+            "/watch/"
         ];
 
         return !blockedPaths.some(bit => value.includes(bit));
@@ -1395,13 +1394,39 @@ def fetch_cnbc_rendered_largest_text_lead_article(source_key="CNBC"):
         const fontWeight = parseInt(style.fontWeight, 10) || 0;
         const area = Math.round(rect.width * rect.height);
 
-        const image = (
+        let image = (
             link?.querySelector("img") ||
             headlineNode.closest("article, [class*='card' i]")?.querySelector("img")
         );
 
+        // CNBC's main live-market lead frequently places its image beside the
+        // headline rather than inside the headline link/card. Walk upward through
+        // the rendered lead module and use the first real image in that module.
+        if (!image) {
+            let container = headlineNode;
+
+            for (let depth = 0; container && depth < 7; depth += 1) {
+                container = container.parentElement;
+
+                const candidateImage = container?.querySelector(
+                    "img[src], img[data-src], img[data-original]"
+                );
+
+                if (candidateImage) {
+                    image = candidateImage;
+                    break;
+                }
+            }
+        }
+
         const imageUrl = image
-            ? String(image.currentSrc || image.src || "")
+            ? String(
+                image.currentSrc ||
+                image.src ||
+                image.getAttribute("data-src") ||
+                image.getAttribute("data-original") ||
+                ""
+            )
             : "";
 
         const key = `${title}|${href}`;
@@ -1419,16 +1444,20 @@ def fetch_cnbc_rendered_largest_text_lead_article(source_key="CNBC"):
             area,
             top: Math.round(rect.top),
             left: Math.round(rect.left),
+            isMarketLiveLead: href.toLowerCase().includes(
+                "stock-market-today-live-updates"
+            ),
             tag: headlineNode.tagName,
             className: String(headlineNode.className || "").slice(0, 180)
         });
     }
 
     candidates.sort((a, b) => (
+        Number(b.isMarketLiveLead) - Number(a.isMarketLiveLead) ||
+        a.top - b.top ||
         b.fontSize - a.fontSize ||
         b.area - a.area ||
         b.fontWeight - a.fontWeight ||
-        a.top - b.top ||
         a.left - b.left
     ));
 
