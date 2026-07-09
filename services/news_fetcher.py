@@ -1118,18 +1118,18 @@ def fetch_configured_article(source_key):
 
     if source_key == "CNBC":
         try:
-            return fetch_cnbc_rendered_largest_text_lead_article(source_key)
+            return fetch_cnbc_homepage_lead_article(source_key)
         except Exception as error:
             print(
-                "CNBC rendered-largest-text resolver failed: "
-                f"{error}; falling back to existing CNBC resolver"
+                "CNBC homepage featured-story resolver failed: "
+                f"{error}; falling back to rendered resolver"
             )
 
             try:
-                return fetch_cnbc_homepage_lead_article(source_key)
+                return fetch_cnbc_rendered_largest_text_lead_article(source_key)
             except Exception as fallback_error:
                 print(
-                    "CNBC existing homepage resolver failed: "
+                    "CNBC rendered resolver failed: "
                     f"{fallback_error}; falling back to generic logic"
                 )
 
@@ -1453,7 +1453,6 @@ def fetch_cnbc_rendered_largest_text_lead_article(source_key="CNBC"):
     }
 
     candidates.sort((a, b) => (
-        Number(b.isMarketLiveLead) - Number(a.isMarketLiveLead) ||
         a.top - b.top ||
         b.fontSize - a.fontSize ||
         b.area - a.area ||

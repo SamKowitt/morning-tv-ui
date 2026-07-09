@@ -88,8 +88,8 @@ class WeatherRow(QWidget):
 
         self.temp_label = AutoFitLabel(
             f"{temp}°",
-            min_size=15,
-            max_size=36,
+            min_size=20,
+            max_size=44,
             bold=True,
             alignment=Qt.AlignLeft | Qt.AlignVCenter,
             word_wrap=False,
@@ -97,8 +97,8 @@ class WeatherRow(QWidget):
 
         self.icon_label = AutoFitLabel(
             "",
-            min_size=10,
-            max_size=24,
+            min_size=12,
+            max_size=26,
             bold=False,
             alignment=Qt.AlignCenter,
             word_wrap=False,
@@ -107,18 +107,12 @@ class WeatherRow(QWidget):
 
         self.hour_label = AutoFitLabel(
             hour,
-            min_size=15,
-            max_size=15,
+            min_size=20,
+            max_size=44,
             bold=True,
             alignment=Qt.AlignRight | Qt.AlignVCenter,
             word_wrap=False,
         )
-        self.hour_label.set_auto_fit_enabled(False)
-
-        hour_font = QFont(self.hour_label.font())
-        hour_font.setPointSize(15)
-        hour_font.setBold(True)
-        self.hour_label.setFont(hour_font)
 
         self.detail_widget = QWidget()
         self.detail_widget.setAttribute(Qt.WA_StyledBackground, False)
@@ -187,11 +181,11 @@ class WeatherRow(QWidget):
 
         # Give the time its own slightly larger left section, then shift
         # the main weather emoji and temperature farther right.
-        layout.addWidget(self.hour_label, 20)
-        layout.addSpacing(10)
-        layout.addWidget(self.icon_label, 16)
+        layout.addWidget(self.hour_label, 24)
+        layout.addSpacing(2)
+        layout.addWidget(self.icon_label, 22)
         layout.addWidget(self.temp_label, 20)
-        layout.addWidget(self.detail_widget, 44)
+        layout.addWidget(self.detail_widget, 34)
 
         self.apply_text_colors()
 
@@ -306,11 +300,11 @@ class WeatherRow(QWidget):
 
         # Draw weather emoji via QPainter (bypasses Qt6 QLabel colour-emoji bug on macOS)
         if hasattr(self, "icon") and self.icon and hasattr(self, "icon_label"):
-            icon_geom = self.icon_label.geometry()
+            icon_geom = self.icon_label.geometry().adjusted(-8, -2, 8, 2)
             if icon_geom.width() > 4 and icon_geom.height() > 4:
                 emoji_font = QFont()
                 emoji_font.setFamilies(["Apple Color Emoji"])
-                emoji_font.setPointSize(max(10, min(22, icon_geom.height() - 10)))
+                emoji_font.setPointSize(max(14, min(24, icon_geom.height() - 12)))
                 painter.save()
                 painter.setFont(emoji_font)
                 dark_bg = self.is_night or self.condition in {"rain", "storm"}
