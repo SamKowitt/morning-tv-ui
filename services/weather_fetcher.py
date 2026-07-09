@@ -273,6 +273,182 @@ def apply_open_meteo_hourly_display_details(rows, location):
 
     return rows
 
+
+def trim_rows_to_current_local_hour(rows, location, max_rows):
+    """Drop stale hourly rows so row[0] is the current local hour or later."""
+    if not rows:
+        return rows
+
+    try:
+        now_hour = datetime.now(ZoneInfo(location.timezone)).replace(
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+    except Exception:
+        return rows[:max_rows]
+
+    trimmed = []
+
+    for row in rows:
+        hour_key = local_hour_key(
+            getattr(row, "forecast_start", ""),
+            location.timezone,
+        )
+
+        if hour_key is not None and hour_key >= now_hour:
+            trimmed.append(row)
+
+    if trimmed:
+        return trimmed[:max_rows]
+
+    return rows[:max_rows]
+
+
+def apply_open_meteo_actual_temperatures(rows, location):
+    """Force all displayed weather rows to use actual Open-Meteo temperature_2m.
+
+    NWS can still supply forecast text, precipitation chances, conditions, and
+    alerts, but DateCard and hourly weather rows must display actual temp only.
+    Never use apparent_temperature / feels-like.
+    """
+    if not rows:
+        return rows
+
+    params = {
+        "latitude": location.latitude,
+        "longitude": location.longitude,
+        "current": "temperature_2m",
+        "hourly": "temperature_2m",
+        "temperature_unit": "fahrenheit",
+        "timezone": location.timezone,
+        "forecast_days": 2,
+    }
+
+    url = OPEN_METEO_URL + "?" + urllib.parse.urlencode(params)
+
+    try:
+        data = fetch_json(url)
+    except Exception as error:
+        print(f"Open-Meteo actual temperature overlay unavailable: {error}")
+        return rows
+
+    actual_temperature_by_hour = {}
+
+    current = data.get("current", {}) or {}
+    current_time = str(current.get("time", "") or "").strip()
+    current_temperature = safe_round_temperature(
+        current.get("temperature_2m")
+    )
+
+    current_hour = local_hour_key(current_time, location.timezone)
+
+    if current_hour is not None and current_temperature is not None:
+        actual_temperature_by_hour[current_hour] = current_temperature
+
+    hourly = data.get("hourly", {}) or {}
+    hourly_times = hourly.get("time", []) or []
+    hourly_temperatures = hourly.get("temperature_2m", []) or []
+
+    for index, time_value in enumerate(hourly_times):
+        if index >= len(hourly_temperatures):
+            continue
+
+        hour_key = local_hour_key(time_value, location.timezone)
+        temperature = safe_round_temperature(hourly_temperatures[index])
+
+        if hour_key is not None and temperature is not None:
+            actual_temperature_by_hour[hour_key] = temperature
+
+    for row in rows:
+        hour_key = local_hour_key(
+            getattr(row, "forecast_start", ""),
+            location.timezone,
+        )
+
+        actual_temperature = actual_temperature_by_hour.get(hour_key)
+
+        if actual_temperature is not None:
+            old_temperature = getattr(row, "temperature", "--")
+            row.temperature = actual_temperature
+            row.temperature_source = "Open-Meteo temperature_2m"
+
+            print(
+                "Weather actual temp overlay -> "
+                f"hour={getattr(row, 'time_label', '')}, "
+                f"forecast_start={getattr(row, 'forecast_start', '')}, "
+                f"old={old_temperature}°, "
+                f"actual={actual_temperature}°"
+            )
+
+    return rows
+
+
+def apply_open_meteo_daily_high_low(rows, location):
+    """Attach today's true daily high/low to every row.
+
+    DateCard should show full-day high/low, not min/max of the remaining
+    displayed hourly rows.
+    """
+    if not rows:
+        return rows
+
+    params = {
+        "latitude": location.latitude,
+        "longitude": location.longitude,
+        "daily": "temperature_2m_max,temperature_2m_min",
+        "temperature_unit": "fahrenheit",
+        "timezone": location.timezone,
+        "forecast_days": 2,
+    }
+
+    url = OPEN_METEO_URL + "?" + urllib.parse.urlencode(params)
+
+    try:
+        data = fetch_json(url)
+    except Exception as error:
+        print(f"Open-Meteo daily high/low unavailable: {error}")
+        return rows
+
+    daily = data.get("daily", {}) or {}
+    daily_times = daily.get("time", []) or []
+    daily_highs = daily.get("temperature_2m_max", []) or []
+    daily_lows = daily.get("temperature_2m_min", []) or []
+
+    try:
+        today_key = datetime.now(ZoneInfo(location.timezone)).date().isoformat()
+    except Exception:
+        today_key = ""
+
+    selected_index = 0
+
+    if today_key in daily_times:
+        selected_index = daily_times.index(today_key)
+
+    if selected_index >= len(daily_highs) or selected_index >= len(daily_lows):
+        return rows
+
+    high = safe_round_temperature(daily_highs[selected_index])
+    low = safe_round_temperature(daily_lows[selected_index])
+
+    if high is None or low is None:
+        return rows
+
+    for row in rows:
+        row.high_temperature = high
+        row.low_temperature = low
+        row.daily_high = high
+        row.daily_low = low
+        row.high_low_source = "Open-Meteo daily temperature_2m_max/min"
+
+    print(
+        "Weather daily high/low overlay -> "
+        f"date={daily_times[selected_index] if selected_index < len(daily_times) else today_key}, "
+        f"high={high}°, low={low}°"
+    )
+
+    return rows
+
 def is_day_from_nws_period(period):
     nws_is_day = period.get("isDay", None)
 
@@ -677,14 +853,25 @@ def fetch_weather_rows_from_nws(max_rows=9, location=None):
 
     rows = build_rows_from_nws_periods(
         periods=periods,
-        max_rows=max_rows,
+        # Build a few extra rows because NWS can include the previous hour
+        # as the first period. We trim to the current local hour below.
+        max_rows=max_rows + 3,
         alerts=alerts,
         observation=observation,
     )
 
     rows = apply_open_meteo_hourly_display_details(rows, location)
+    rows = trim_rows_to_current_local_hour(rows, location, max_rows)
+    rows = apply_open_meteo_actual_temperatures(rows, location)
+    rows = apply_open_meteo_daily_high_low(rows, location)
 
-    print(f"Loaded NWS weather rows for {location.zip_code}: {len(rows)}")
+    print(
+        f"Loaded NWS weather rows for {location.zip_code}: {len(rows)} "
+        f"starting at {rows[0].time_label if rows else 'none'}; "
+        f"display temp={rows[0].temperature if rows else '--'}°; "
+        f"daily high={getattr(rows[0], 'high_temperature', '--') if rows else '--'}° "
+        f"low={getattr(rows[0], 'low_temperature', '--') if rows else '--'}°"
+    )
 
     return rows
 
@@ -697,6 +884,8 @@ def fetch_weather_rows_from_open_meteo(max_rows=9, location=None):
     params = {
         "latitude": location.latitude,
         "longitude": location.longitude,
+        # Actual temperature only. Do not request or display apparent_temperature
+        # here because DateCard and hourly weather rows must always show actual temp.
         "current": "temperature_2m,weather_code,is_day",
         "hourly": "temperature_2m,weather_code,precipitation_probability,is_day,wind_speed_10m",
         "temperature_unit": "fahrenheit",
@@ -707,20 +896,53 @@ def fetch_weather_rows_from_open_meteo(max_rows=9, location=None):
     url = OPEN_METEO_URL + "?" + urllib.parse.urlencode(params)
     data = fetch_json(url)
 
-    hourly = data.get("hourly", {})
-    times = hourly.get("time", [])
-    temperatures = hourly.get("temperature_2m", [])
-    weather_codes = hourly.get("weather_code", [])
-    precipitation_probabilities = hourly.get("precipitation_probability", [])
-    is_day_values = hourly.get("is_day", [])
-    wind_speeds = hourly.get("wind_speed_10m", [])
+    current = data.get("current", {}) or {}
+    current_time = str(current.get("time", "") or "").strip()
+    current_temperature = current.get("temperature_2m")
+
+    hourly = data.get("hourly", {}) or {}
+    times = hourly.get("time", []) or []
+    temperatures = hourly.get("temperature_2m", []) or []
+    weather_codes = hourly.get("weather_code", []) or []
+    precipitation_probabilities = hourly.get("precipitation_probability", []) or []
+    is_day_values = hourly.get("is_day", []) or []
+    wind_speeds = hourly.get("wind_speed_10m", []) or []
 
     rows = []
 
-    for index, time_value in enumerate(times[:max_rows]):
-        temperature = safe_round_temperature(
-            temperatures[index] if index < len(temperatures) else None
+    now_local = datetime.now(ZoneInfo(location.timezone)).replace(
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
+
+    start_index = 0
+
+    for index, time_value in enumerate(times):
+        try:
+            row_time = datetime.fromisoformat(str(time_value)).replace(
+                tzinfo=ZoneInfo(location.timezone)
+            )
+        except Exception:
+            continue
+
+        if row_time >= now_local:
+            start_index = index
+            break
+
+    selected_indexes = list(range(start_index, min(len(times), start_index + max_rows)))
+
+    for row_position, index in enumerate(selected_indexes):
+        time_value = times[index]
+
+        # Always use actual temperature_2m. Never use apparent_temperature.
+        temperature_source = (
+            current_temperature
+            if row_position == 0 and current_time == time_value
+            else temperatures[index] if index < len(temperatures) else None
         )
+
+        temperature = safe_round_temperature(temperature_source)
 
         weather_code = weather_codes[index] if index < len(weather_codes) else 0
         precipitation_probability = (
@@ -744,7 +966,7 @@ def fetch_weather_rows_from_open_meteo(max_rows=9, location=None):
         )
 
         try:
-            local_start = datetime.fromisoformat(time_value).replace(
+            local_start = datetime.fromisoformat(str(time_value)).replace(
                 tzinfo=ZoneInfo(location.timezone)
             ).isoformat()
         except Exception:
@@ -780,8 +1002,15 @@ def fetch_weather_rows_from_open_meteo(max_rows=9, location=None):
         rows.append(weather_row)
 
     rows = apply_open_meteo_hourly_display_details(rows, location)
+    rows = apply_open_meteo_daily_high_low(rows, location)
 
-    print(f"Loaded Open-Meteo weather rows for {location.zip_code}: {len(rows)}")
+    print(
+        f"Loaded Open-Meteo weather rows for {location.zip_code}: {len(rows)} "
+        f"starting at {rows[0].time_label if rows else 'none'}; "
+        f"actual current temp={rows[0].temperature if rows else '--'}°; "
+        f"daily high={getattr(rows[0], 'high_temperature', '--') if rows else '--'}° "
+        f"low={getattr(rows[0], 'low_temperature', '--') if rows else '--'}°"
+    )
 
     return rows
 

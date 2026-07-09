@@ -117,15 +117,15 @@ class DateCard(QWidget):
 
         precipitation_layout = QHBoxLayout()
         precipitation_layout.setContentsMargins(0, 0, 0, 0)
-        precipitation_layout.setSpacing(4)
+        precipitation_layout.setSpacing(1)
         self.precipitation_widget.setLayout(precipitation_layout)
 
         self.precipitation_emoji_label = AutoFitLabel(
             "",
-            min_size=9,
-            max_size=18,
+            min_size=13,
+            max_size=26,
             bold=False,
-            alignment=Qt.AlignLeft | Qt.AlignVCenter,
+            alignment=Qt.AlignRight | Qt.AlignVCenter,
             word_wrap=False,
             font_family="Apple Color Emoji",
         )
@@ -135,8 +135,8 @@ class DateCard(QWidget):
 
         self.precipitation_detail_label = AutoFitLabel(
             "",
-            min_size=9,
-            max_size=18,
+            min_size=13,
+            max_size=26,
             bold=True,
             alignment=Qt.AlignRight | Qt.AlignVCenter,
             word_wrap=False,
@@ -145,15 +145,28 @@ class DateCard(QWidget):
             "DatePrecipitationDetailWeather"
         )
 
+        precipitation_layout.addStretch(1)
         precipitation_layout.addWidget(self.precipitation_emoji_label, 0)
-        precipitation_layout.addWidget(self.precipitation_detail_label, 1)
+        precipitation_layout.addWidget(self.precipitation_detail_label, 0)
 
         self.precipitation_widget.hide()
+
+        self.solar_detail_label = AutoFitLabel(
+            "",
+            min_size=12,
+            max_size=22,
+            bold=True,
+            alignment=Qt.AlignRight | Qt.AlignTop,
+            word_wrap=False,
+        )
+        self.solar_detail_label.setObjectName("DateSolarDetailWeather")
+        self.solar_detail_label.hide()
 
         weather_block.addStretch(1)
         weather_block.addWidget(self.current_weather_label, 0)
         weather_block.addWidget(self.low_high_label, 0)
         weather_block.addWidget(self.precipitation_widget, 0)
+        weather_block.addWidget(self.solar_detail_label, 0)
 
         bottom_row.addLayout(date_block, 64)
         bottom_row.addLayout(weather_block, 36)
@@ -266,6 +279,7 @@ class DateCard(QWidget):
 
         self.current_weather_label.setText(f"{row.temperature}°")
         self.update_precipitation_indicator(row)
+        self.update_solar_indicator(row)
 
         low = (
             getattr(row, "low_temperature", None)
@@ -349,6 +363,42 @@ class DateCard(QWidget):
 
         self.apply_text_color()
 
+    def update_solar_indicator(self, row):
+        solar_event_time = str(
+            getattr(row, "solar_event_time", "") or ""
+        ).strip()
+
+        solar_event_label = str(
+            getattr(row, "solar_event_label", "") or ""
+        ).strip().lower()
+
+        if solar_event_time:
+            if solar_event_label in {"sunrise", "sunset"}:
+                self.solar_detail_label.setText(
+                    f"{solar_event_time} {solar_event_label}"
+                )
+            else:
+                self.solar_detail_label.setText(solar_event_time)
+
+            self.solar_detail_label.show()
+        else:
+            self.solar_detail_label.setText("")
+            self.solar_detail_label.hide()
+
+        self.apply_text_color()
+
+    def update_solar_indicator_from_rows(self, rows):
+        for row in rows or []:
+            solar_event_time = str(
+                getattr(row, "solar_event_time", "") or ""
+            ).strip()
+
+            if solar_event_time:
+                self.update_solar_indicator(row)
+                return
+
+        self.update_solar_indicator(None)
+
     def set_low_high(self, low, high):
         low_text = str(low).replace("°", "")
         high_text = str(high).replace("°", "")
@@ -356,9 +406,31 @@ class DateCard(QWidget):
         self.apply_text_color()
 
     def update_low_high_from_rows(self, rows):
+        rows = list(rows or [])
+        self.update_solar_indicator_from_rows(rows)
+
+        for row in rows:
+            low = (
+                getattr(row, "low_temperature", None)
+                or getattr(row, "low_temp", None)
+                or getattr(row, "daily_low", None)
+                or getattr(row, "low", None)
+            )
+
+            high = (
+                getattr(row, "high_temperature", None)
+                or getattr(row, "high_temp", None)
+                or getattr(row, "daily_high", None)
+                or getattr(row, "high", None)
+            )
+
+            if low is not None and high is not None:
+                self.set_low_high(low, high)
+                return
+
         temperatures = []
 
-        for row in rows or []:
+        for row in rows:
             try:
                 temperatures.append(int(float(str(row.temperature).replace("°", ""))))
             except Exception:
@@ -390,6 +462,7 @@ class DateCard(QWidget):
             self.current_weather_label,
             self.low_high_label,
             self.precipitation_detail_label,
+            self.solar_detail_label,
         ]:
             self.force_label_color(label, self.text_color)
 
