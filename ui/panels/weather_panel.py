@@ -127,7 +127,7 @@ class WeatherRow(QWidget):
             min_size=12,
             max_size=12,
             bold=True,
-            alignment=Qt.AlignRight | Qt.AlignBottom,
+            alignment=Qt.AlignLeft | Qt.AlignTop,
             word_wrap=False,
         )
         self.precipitation_detail_label.set_auto_fit_enabled(False)
@@ -147,7 +147,7 @@ class WeatherRow(QWidget):
             self.solar_detail_label,
         ]:
             detail_font = QFont(detail_label.font())
-            detail_font.setPointSize(12)
+            detail_font.setPointSize(11)
             detail_font.setBold(True)
             detail_label.setFont(detail_font)
 
@@ -164,15 +164,12 @@ class WeatherRow(QWidget):
         )
         # One compact precipitation line sits directly above the solar line.
         # This keeps the forecast emoji below the moon-art zone.
-        self.precipitation_detail_label.setFixedHeight(18)
+        self.precipitation_detail_label.setFixedHeight(16)
+        self.precipitation_detail_label.setParent(self)
+        self.precipitation_detail_label.hide()
         self.solar_detail_label.setFixedHeight(16)
 
         detail_layout.addStretch(1)
-        detail_layout.addWidget(
-            self.precipitation_detail_label,
-            0,
-            Qt.AlignRight | Qt.AlignBottom,
-        )
         detail_layout.addWidget(
             self.solar_detail_label,
             0,
@@ -188,10 +185,52 @@ class WeatherRow(QWidget):
         layout.addWidget(self.detail_widget, 34)
 
         self.apply_text_colors()
+        self.position_precipitation_detail()
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.tick)
         self.timer.start(50)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.position_precipitation_detail()
+
+    def position_precipitation_detail(self):
+        if not hasattr(self, "precipitation_detail_label"):
+            return
+
+        detail_text = str(self.precipitation_detail_label.text() or "").strip()
+
+        if not detail_text:
+            self.precipitation_detail_label.hide()
+            return
+
+        if not hasattr(self, "temp_label"):
+            self.precipitation_detail_label.hide()
+            return
+
+        temp_rect = self.temp_label.geometry()
+
+        if temp_rect.width() <= 0 or temp_rect.height() <= 0:
+            self.precipitation_detail_label.hide()
+            return
+
+        precip_height = 16
+        precip_width = max(44, min(82, temp_rect.width() + 30))
+        precip_x = max(0, temp_rect.left() - 14)
+        precip_y = min(
+            self.height() - precip_height - 4,
+            temp_rect.top() + int(temp_rect.height() * 0.69),
+        )
+
+        self.precipitation_detail_label.setGeometry(
+            precip_x,
+            max(0, precip_y),
+            precip_width,
+            precip_height,
+        )
+        self.precipitation_detail_label.show()
+        self.precipitation_detail_label.raise_()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -204,6 +243,7 @@ class WeatherRow(QWidget):
     def tick(self):
         # Smooth medium-speed rainfall
         self.phase += 1.5
+        self.position_precipitation_detail()
         self.update()
 
     def apply_text_colors(self):
@@ -393,6 +433,7 @@ class WeatherRow(QWidget):
         self.precipitation_detail_label.setText(
             str(precipitation_detail_text or "")
         )
+        self.position_precipitation_detail()
         self.solar_detail_label.setText(
             str(solar_detail_text or "")
         )
