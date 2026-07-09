@@ -36,7 +36,7 @@ def moon_illumination_fraction(moment=None):
     phase_fraction = moon_phase_fraction(moment)
     return (1.0 - math.cos(2.0 * math.pi * phase_fraction)) / 2.0
 
-from PySide6.QtCore import Qt, QTimer, QPointF, Signal
+from PySide6.QtCore import Qt, QTimer, QPointF, Signal, QRect
 from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPen, QPainterPath, QBrush
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
@@ -65,6 +65,7 @@ class WeatherRow(QWidget):
         self.is_night = is_night
         self.is_now = is_now
         self.moon_datetime = None
+        self.solar_detail_text = ""
         self.phase = 0.0
         self.lightning_cooldown = random.randint(18, 48)
         self.lightning_frames_left = 0
@@ -77,7 +78,8 @@ class WeatherRow(QWidget):
         self.lightning_offset = random.randint(0, self.lightning_cycle_length - 1)
         self.lightning_seed = random.randint(1000, 999999)
 
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setMinimumWidth(0)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
         self.setMinimumHeight(48)
         self.setCursor(Qt.PointingHandCursor)
 
@@ -110,11 +112,13 @@ class WeatherRow(QWidget):
             min_size=20,
             max_size=44,
             bold=True,
-            alignment=Qt.AlignRight | Qt.AlignVCenter,
+            alignment=Qt.AlignLeft | Qt.AlignVCenter,
             word_wrap=False,
         )
 
         self.detail_widget = QWidget()
+        self.detail_widget.setMinimumWidth(0)
+        self.detail_widget.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
         self.detail_widget.setAttribute(Qt.WA_StyledBackground, False)
 
         detail_layout = QVBoxLayout()
@@ -159,30 +163,33 @@ class WeatherRow(QWidget):
             QSizePolicy.Fixed,
         )
         self.solar_detail_label.setSizePolicy(
-            QSizePolicy.Expanding,
+            QSizePolicy.Ignored,
             QSizePolicy.Fixed,
         )
+        self.solar_detail_label.setMinimumWidth(0)
         # One compact precipitation line sits directly above the solar line.
         # This keeps the forecast emoji below the moon-art zone.
         self.precipitation_detail_label.setFixedHeight(16)
         self.precipitation_detail_label.setParent(self)
         self.precipitation_detail_label.hide()
-        self.solar_detail_label.setFixedHeight(16)
+        self.solar_detail_label.setFixedHeight(0)
+        self.solar_detail_label.setMaximumWidth(0)
+        self.solar_detail_label.setText("")
+        self.solar_detail_label.hide()
 
         detail_layout.addStretch(1)
-        detail_layout.addWidget(
-            self.solar_detail_label,
-            0,
-            Qt.AlignRight | Qt.AlignBottom,
-        )
 
-        # Give the time its own slightly larger left section, then shift
-        # the main weather emoji and temperature farther right.
-        layout.addWidget(self.hour_label, 24)
+        # Keep all row children inside the existing weather-row width.
+        # These labels must not increase the left column's size hint.
+        for compact_label in (self.hour_label, self.icon_label, self.temp_label):
+            compact_label.setMinimumWidth(0)
+            compact_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
+
+        layout.addWidget(self.hour_label, 31)
         layout.addSpacing(2)
-        layout.addWidget(self.icon_label, 22)
-        layout.addWidget(self.temp_label, 20)
-        layout.addWidget(self.detail_widget, 34)
+        layout.addWidget(self.icon_label, 18)
+        layout.addWidget(self.temp_label, 24)
+        layout.addWidget(self.detail_widget, 27)
 
         self.apply_text_colors()
         self.position_precipitation_detail()
@@ -340,7 +347,7 @@ class WeatherRow(QWidget):
 
         # Draw weather emoji via QPainter (bypasses Qt6 QLabel colour-emoji bug on macOS)
         if hasattr(self, "icon") and self.icon and hasattr(self, "icon_label"):
-            icon_geom = self.icon_label.geometry().adjusted(-8, -2, 8, 2)
+            icon_geom = self.icon_label.geometry().adjusted(-6, -2, 2, 2)
             if icon_geom.width() > 4 and icon_geom.height() > 4:
                 emoji_font = QFont()
                 emoji_font.setFamilies(["Apple Color Emoji"])
@@ -350,6 +357,44 @@ class WeatherRow(QWidget):
                 dark_bg = self.is_night or self.condition in {"rain", "storm"}
                 painter.setPen(QColor(255, 255, 255, 230) if dark_bg else QColor(30, 30, 30, 230))
                 painter.drawText(icon_geom, Qt.AlignCenter, self.icon)
+                painter.restore()
+
+        solar_text = str(getattr(self, "solar_detail_text", "") or "").strip()
+        if solar_text and hasattr(self, "temp_label"):
+            temp_rect = self.temp_label.geometry()
+
+            if temp_rect.width() > 0 and temp_rect.height() > 0:
+                painter.save()
+
+                solar_font = QFont("Times New Roman")
+                solar_font.setPointSize(10)
+                solar_font.setBold(True)
+                painter.setFont(solar_font)
+
+                dark_bg = self.is_night or self.condition in {"rain", "storm"}
+                painter.setPen(
+                    QColor(255, 255, 255, 225)
+                    if dark_bg
+                    else QColor(31, 45, 54, 235)
+                )
+
+                icon_rect = (
+                    self.icon_label.geometry()
+                    if hasattr(self, "icon_label")
+                    else temp_rect
+                )
+
+                solar_x = max(0, icon_rect.left() + 3)
+                solar_y = max(0, self.height() - 22)
+                solar_width = max(0, self.width() - solar_x - 8)
+
+                if solar_width >= 28:
+                    painter.drawText(
+                        QRect(solar_x, solar_y, solar_width, 16),
+                        Qt.AlignLeft | Qt.AlignVCenter,
+                        solar_text,
+                    )
+
                 painter.restore()
 
         painter.end()
@@ -434,9 +479,9 @@ class WeatherRow(QWidget):
             str(precipitation_detail_text or "")
         )
         self.position_precipitation_detail()
-        self.solar_detail_label.setText(
-            str(solar_detail_text or "")
-        )
+        self.solar_detail_text = str(solar_detail_text or "")
+        self.solar_detail_label.setText("")
+        self.solar_detail_label.hide()
 
         # Rain and thunderstorms use dark art even during daytime.
         # Keep time and temperature white whenever that art is active.
@@ -1322,6 +1367,9 @@ class WeatherPanel(QWidget):
     def __init__(self):
         super().__init__()
 
+        self.setMinimumWidth(0)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
+
         from PySide6.QtWidgets import QVBoxLayout
 
         main = QVBoxLayout()
@@ -1527,10 +1575,10 @@ class WeatherPanel(QWidget):
             ).strip().lower()
 
             if solar_event_time:
-                if solar_event_label in {"sunrise", "sunset"}:
-                    solar_display_text = (
-                        f"{solar_event_time} {solar_event_label}"
-                    )
+                if solar_event_label == "sunrise":
+                    solar_display_text = f"\u2600\ufe0f {solar_event_time}"
+                elif solar_event_label == "sunset":
+                    solar_display_text = f"\U0001F319 {solar_event_time}"
                 else:
                     solar_display_text = solar_event_time
 
