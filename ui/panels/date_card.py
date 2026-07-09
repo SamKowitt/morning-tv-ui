@@ -107,10 +107,27 @@ class DateCard(QWidget):
             min_size=12,
             max_size=24,
             bold=True,
-            alignment=Qt.AlignRight | Qt.AlignTop,
+            alignment=Qt.AlignRight | Qt.AlignBottom,
             word_wrap=False,
         )
         self.low_high_label.setObjectName("DateLowHighWeather")
+
+        self.footer_overlay = QWidget(self.overlay)
+        self.footer_overlay.setAttribute(Qt.WA_StyledBackground, False)
+        self.footer_overlay.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+
+        footer_row = QHBoxLayout()
+        footer_row.setContentsMargins(0, 0, 0, 0)
+        footer_row.setSpacing(0)
+        self.footer_overlay.setLayout(footer_row)
+
+        footer_row.addStretch(1)
+        footer_row.addWidget(
+            self.low_high_label,
+            0,
+            Qt.AlignRight | Qt.AlignBottom,
+        )
+        self.footer_overlay.hide()
 
         self.precipitation_widget = QWidget()
         self.precipitation_widget.setObjectName("DatePrecipitationWeather")
@@ -164,9 +181,9 @@ class DateCard(QWidget):
 
         weather_block.addStretch(1)
         weather_block.addWidget(self.current_weather_label, 0)
-        weather_block.addWidget(self.low_high_label, 0)
         weather_block.addWidget(self.precipitation_widget, 0)
         weather_block.addWidget(self.solar_detail_label, 0)
+        weather_block.addStretch(1)
 
         bottom_row.addLayout(date_block, 64)
         bottom_row.addLayout(weather_block, 36)
@@ -204,7 +221,26 @@ class DateCard(QWidget):
 
         self.sync_day_and_time_font_sizes()
         self.apply_text_color()
+        self.position_footer_overlay()
         self.overlay.raise_()
+
+    def position_footer_overlay(self):
+        if not hasattr(self, "footer_overlay"):
+            return
+
+        footer_height = max(24, int(self.height() * 0.075))
+        left_margin = 14
+        right_margin = 12
+        bottom_offset = 4
+
+        self.footer_overlay.setGeometry(
+            left_margin,
+            max(0, self.height() - footer_height - bottom_offset),
+            max(0, self.width() - left_margin - right_margin),
+            footer_height,
+        )
+        self.footer_overlay.show()
+        self.footer_overlay.raise_()
 
     def create_weather_background(self):
         try:
@@ -234,6 +270,7 @@ class DateCard(QWidget):
 
         self.sync_day_and_time_font_sizes()
         self.apply_text_color()
+        self.position_footer_overlay()
         self.overlay.raise_()
 
     def sync_day_and_time_font_sizes(self):
@@ -407,7 +444,6 @@ class DateCard(QWidget):
 
     def update_low_high_from_rows(self, rows):
         rows = list(rows or [])
-        self.update_solar_indicator_from_rows(rows)
 
         for row in rows:
             low = (
