@@ -37,7 +37,7 @@ def moon_illumination_fraction(moment=None):
     return (1.0 - math.cos(2.0 * math.pi * phase_fraction)) / 2.0
 
 from PySide6.QtCore import Qt, QTimer, QPointF, Signal, QRect
-from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPen, QPainterPath, QBrush
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QLinearGradient, QPainter, QPen, QPainterPath, QBrush
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from ui.auto_fit_label import AutoFitLabel
@@ -185,11 +185,15 @@ class WeatherRow(QWidget):
             compact_label.setMinimumWidth(0)
             compact_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
 
-        layout.addWidget(self.hour_label, 31)
+        # Give the hour section a larger proportional share and take the
+        # same share from the unused detail container. This shifts the main
+        # forecast emoji and temperature to the right while preserving their
+        # existing widths, font sizes, and artwork sizes.
+        layout.addWidget(self.hour_label, 36)
         layout.addSpacing(2)
         layout.addWidget(self.icon_label, 18)
         layout.addWidget(self.temp_label, 24)
-        layout.addWidget(self.detail_widget, 27)
+        layout.addWidget(self.detail_widget, 22)
 
         self.apply_text_colors()
         self.position_precipitation_detail()
@@ -202,6 +206,122 @@ class WeatherRow(QWidget):
         super().resizeEvent(event)
         self.position_precipitation_detail()
 
+    def detail_text_layout(self):
+        precip_text = str(
+            getattr(self, "precipitation_detail_label", None).text()
+            if hasattr(self, "precipitation_detail_label")
+            else ""
+        ).strip()
+        solar_text = str(
+            getattr(self, "solar_detail_text", "") or ""
+        ).strip()
+
+        precip_rect = QRect()
+        solar_rect = QRect()
+
+        if not hasattr(self, "temp_label"):
+            return precip_rect, solar_rect
+
+        temp_rect = self.temp_label.geometry()
+
+        if temp_rect.width() <= 0 or temp_rect.height() <= 0:
+            return precip_rect, solar_rect
+
+        line_height = 16
+        bottom_margin = 4
+        right_margin = 8
+        detail_gap = 8
+        bottom_y = max(0, self.height() - line_height - bottom_margin)
+
+        if not solar_text:
+            if not precip_text:
+                return precip_rect, solar_rect
+
+            precip_width = max(44, min(82, temp_rect.width() + 30))
+            precip_x = max(0, temp_rect.left() - 14)
+            precip_y = min(
+                bottom_y,
+                temp_rect.top() + int(temp_rect.height() * 0.69),
+            )
+
+            precip_rect = QRect(
+                precip_x,
+                max(0, precip_y),
+                precip_width,
+                line_height,
+            )
+            return precip_rect, solar_rect
+
+        icon_rect = (
+            self.icon_label.geometry()
+            if hasattr(self, "icon_label")
+            else temp_rect
+        )
+
+        available_left = max(0, icon_rect.left() + 3)
+        available_right = max(available_left, self.width() - right_margin)
+        available_width = max(0, available_right - available_left)
+
+        if available_width <= 0:
+            return precip_rect, solar_rect
+
+        if precip_text:
+            precip_metrics = QFontMetrics(
+                self.precipitation_detail_label.font()
+            )
+            precip_lines = precip_text.splitlines() or [precip_text]
+            precip_text_width = max(
+                precip_metrics.horizontalAdvance(line)
+                for line in precip_lines
+            )
+            precip_width = min(
+                available_width,
+                max(44, precip_text_width + 6),
+            )
+            precip_rect = QRect(
+                available_right - precip_width,
+                bottom_y,
+                precip_width,
+                line_height,
+            )
+
+        solar_font = QFont("Times New Roman")
+        solar_font.setPointSize(10)
+        solar_font.setBold(True)
+        solar_metrics = QFontMetrics(solar_font)
+        solar_width = min(
+            available_width,
+            max(28, solar_metrics.horizontalAdvance(solar_text) + 6),
+        )
+
+        if precip_rect.isValid():
+            same_line_right = precip_rect.left() - detail_gap
+            same_line_width = max(0, same_line_right - available_left)
+
+            if solar_width <= same_line_width:
+                solar_rect = QRect(
+                    same_line_right - solar_width,
+                    bottom_y,
+                    solar_width,
+                    line_height,
+                )
+            else:
+                solar_rect = QRect(
+                    available_right - solar_width,
+                    max(0, bottom_y - line_height - 2),
+                    solar_width,
+                    line_height,
+                )
+        else:
+            solar_rect = QRect(
+                available_right - solar_width,
+                bottom_y,
+                solar_width,
+                line_height,
+            )
+
+        return precip_rect, solar_rect
+
     def position_precipitation_detail(self):
         if not hasattr(self, "precipitation_detail_label"):
             return
@@ -212,30 +332,13 @@ class WeatherRow(QWidget):
             self.precipitation_detail_label.hide()
             return
 
-        if not hasattr(self, "temp_label"):
+        precip_rect, _solar_rect = self.detail_text_layout()
+
+        if not precip_rect.isValid():
             self.precipitation_detail_label.hide()
             return
 
-        temp_rect = self.temp_label.geometry()
-
-        if temp_rect.width() <= 0 or temp_rect.height() <= 0:
-            self.precipitation_detail_label.hide()
-            return
-
-        precip_height = 16
-        precip_width = max(44, min(82, temp_rect.width() + 30))
-        precip_x = max(0, temp_rect.left() - 14)
-        precip_y = min(
-            self.height() - precip_height - 4,
-            temp_rect.top() + int(temp_rect.height() * 0.69),
-        )
-
-        self.precipitation_detail_label.setGeometry(
-            precip_x,
-            max(0, precip_y),
-            precip_width,
-            precip_height,
-        )
+        self.precipitation_detail_label.setGeometry(precip_rect)
         self.precipitation_detail_label.show()
         self.precipitation_detail_label.raise_()
 
@@ -360,10 +463,10 @@ class WeatherRow(QWidget):
                 painter.restore()
 
         solar_text = str(getattr(self, "solar_detail_text", "") or "").strip()
-        if solar_text and hasattr(self, "temp_label"):
-            temp_rect = self.temp_label.geometry()
+        if solar_text:
+            _precip_rect, solar_rect = self.detail_text_layout()
 
-            if temp_rect.width() > 0 and temp_rect.height() > 0:
+            if solar_rect.isValid():
                 painter.save()
 
                 solar_font = QFont("Times New Roman")
@@ -378,22 +481,11 @@ class WeatherRow(QWidget):
                     else QColor(31, 45, 54, 235)
                 )
 
-                icon_rect = (
-                    self.icon_label.geometry()
-                    if hasattr(self, "icon_label")
-                    else temp_rect
+                painter.drawText(
+                    solar_rect,
+                    Qt.AlignLeft | Qt.AlignVCenter,
+                    solar_text,
                 )
-
-                solar_x = max(0, icon_rect.left() + 3)
-                solar_y = max(0, self.height() - 22)
-                solar_width = max(0, self.width() - solar_x - 8)
-
-                if solar_width >= 28:
-                    painter.drawText(
-                        QRect(solar_x, solar_y, solar_width, 16),
-                        Qt.AlignLeft | Qt.AlignVCenter,
-                        solar_text,
-                    )
 
                 painter.restore()
 
@@ -478,8 +570,8 @@ class WeatherRow(QWidget):
         self.precipitation_detail_label.setText(
             str(precipitation_detail_text or "")
         )
-        self.position_precipitation_detail()
         self.solar_detail_text = str(solar_detail_text or "")
+        self.position_precipitation_detail()
         self.solar_detail_label.setText("")
         self.solar_detail_label.hide()
 
