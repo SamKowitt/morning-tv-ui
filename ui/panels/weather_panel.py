@@ -37,7 +37,7 @@ def moon_illumination_fraction(moment=None):
     return (1.0 - math.cos(2.0 * math.pi * phase_fraction)) / 2.0
 
 from PySide6.QtCore import Qt, QTimer, QPointF, Signal, QRect
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QLinearGradient, QPainter, QPen, QPainterPath, QBrush
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QLinearGradient, QRadialGradient, QPainter, QPen, QPainterPath, QBrush
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from ui.auto_fit_label import AutoFitLabel
@@ -228,9 +228,12 @@ class WeatherRow(QWidget):
             return precip_rect, solar_rect
 
         line_height = 16
-        bottom_margin = 4
+        # Move precipitation and solar-event details 2 px lower.
+        bottom_margin = 2
         right_margin = 8
         detail_gap = 8
+        precipitation_left_shift = 11
+        solar_vertical_offset = 2
         bottom_y = max(0, self.height() - line_height - bottom_margin)
 
         if not solar_text:
@@ -238,10 +241,13 @@ class WeatherRow(QWidget):
                 return precip_rect, solar_rect
 
             precip_width = max(44, min(82, temp_rect.width() + 30))
-            precip_x = max(0, temp_rect.left() - 14)
+            precip_x = max(
+                0,
+                temp_rect.left() - 14 - precipitation_left_shift,
+            )
             precip_y = min(
                 bottom_y,
-                temp_rect.top() + int(temp_rect.height() * 0.69),
+                temp_rect.top() + int(temp_rect.height() * 0.69) + 2,
             )
 
             precip_rect = QRect(
@@ -265,6 +271,23 @@ class WeatherRow(QWidget):
         if available_width <= 0:
             return precip_rect, solar_rect
 
+        solar_font = QFont("Times New Roman")
+        solar_font.setPointSize(10)
+        solar_font.setBold(True)
+        solar_metrics = QFontMetrics(solar_font)
+        solar_width = min(
+            available_width,
+            max(28, solar_metrics.horizontalAdvance(solar_text) + 6),
+        )
+
+        # Keep sunrise/sunset pinned to the far-right side.
+        solar_rect = QRect(
+            available_right - solar_width,
+            max(0, bottom_y - solar_vertical_offset),
+            solar_width,
+            line_height,
+        )
+
         if precip_text:
             precip_metrics = QFontMetrics(
                 self.precipitation_detail_label.font()
@@ -278,47 +301,40 @@ class WeatherRow(QWidget):
                 available_width,
                 max(44, precip_text_width + 6),
             )
-            precip_rect = QRect(
-                available_right - precip_width,
-                bottom_y,
-                precip_width,
-                line_height,
+
+            # Use the same default precipitation anchor on every row,
+            # including the sunrise/sunset hour. Only move it farther left
+            # when needed to preserve the gap before the solar text.
+            default_precip_x = max(
+                0,
+                temp_rect.left() - 14 - precipitation_left_shift,
+            )
+            latest_same_line_x = (
+                solar_rect.left()
+                - detail_gap
+                - precip_width
+            )
+            same_line_x = min(
+                default_precip_x,
+                latest_same_line_x,
             )
 
-        solar_font = QFont("Times New Roman")
-        solar_font.setPointSize(10)
-        solar_font.setBold(True)
-        solar_metrics = QFontMetrics(solar_font)
-        solar_width = min(
-            available_width,
-            max(28, solar_metrics.horizontalAdvance(solar_text) + 6),
-        )
-
-        if precip_rect.isValid():
-            same_line_right = precip_rect.left() - detail_gap
-            same_line_width = max(0, same_line_right - available_left)
-
-            if solar_width <= same_line_width:
-                solar_rect = QRect(
-                    same_line_right - solar_width,
-                    bottom_y,
-                    solar_width,
+            if same_line_x >= available_left:
+                # During the sunrise/sunset hour, align the precipitation
+                # chance with the raised solar-event text baseline.
+                precip_rect = QRect(
+                    same_line_x,
+                    solar_rect.top(),
+                    precip_width,
                     line_height,
                 )
             else:
-                solar_rect = QRect(
-                    available_right - solar_width,
+                precip_rect = QRect(
+                    available_left,
                     max(0, bottom_y - line_height - 2),
-                    solar_width,
+                    min(precip_width, available_width),
                     line_height,
                 )
-        else:
-            solar_rect = QRect(
-                available_right - solar_width,
-                bottom_y,
-                solar_width,
-                line_height,
-            )
 
         return precip_rect, solar_rect
 
@@ -1133,171 +1149,284 @@ class WeatherRow(QWidget):
         moon_y,
         moon_radius,
     ):
-        """Paint an accurate lunar phase with correct illuminated geometry."""
+        """Paint a more realistic full lunar disk with softer earthshine."""
         moment = getattr(self, "moon_datetime", None)
         phase_fraction = moon_phase_fraction(moment)
         illumination_fraction = moon_illumination_fraction(moment)
         waxing = phase_fraction < 0.5
+        phase_cos = math.cos(2.0 * math.pi * phase_fraction)
 
         moon_center = QPointF(moon_x, moon_y)
+        moon_disk_path = QPainterPath()
+        moon_disk_path.addEllipse(
+            moon_center,
+            moon_radius,
+            moon_radius,
+        )
 
         painter.save()
+        painter.setPen(Qt.NoPen)
 
-        # Dark earthshine disk remains visible on the shadowed side.
+        # Restore the full dark side, but do not outline the lunar rim. Use a
+        # soft earthshine gradient instead of a darker border.
+        dark_disk_gradient = QRadialGradient(
+            moon_x - moon_radius * 0.10,
+            moon_y - moon_radius * 0.18,
+            moon_radius * 1.20,
+        )
+        dark_disk_gradient.setColorAt(0.00, QColor(86, 92, 101, 234))
+        dark_disk_gradient.setColorAt(0.42, QColor(58, 63, 72, 240))
+        dark_disk_gradient.setColorAt(0.78, QColor(34, 38, 46, 244))
+        dark_disk_gradient.setColorAt(1.00, QColor(22, 25, 32, 248))
+
         painter.setOpacity(0.96)
-        painter.setPen(QPen(QColor(172, 192, 230, 120), 0.8))
-        painter.setBrush(QColor(25, 37, 67, 245))
+        painter.setBrush(dark_disk_gradient)
         painter.drawEllipse(
             moon_center,
             moon_radius,
             moon_radius,
         )
 
-        moon_clip_path = QPainterPath()
-        moon_clip_path.addEllipse(
-            moon_center,
-            moon_radius,
-            moon_radius,
-        )
+        # Subtle global earthshine texture across the full disk keeps the dark
+        # side from reading as a flat cartoon fill.
+        painter.setClipPath(moon_disk_path)
+        shadow_texture_random = random.Random(11311)
+        full_disk_speckles = 42 if moon_radius >= 12 else 16
 
-        lit_width = max(
-            0.0,
-            min(2.0 * moon_radius, 2.0 * moon_radius * illumination_fraction),
-        )
-
-        if lit_width > 0.001:
-            lit_center_x = (
-                moon_x + (moon_radius - (lit_width / 2.0))
-                if waxing
-                else moon_x - (moon_radius - (lit_width / 2.0))
+        for _index in range(full_disk_speckles):
+            angle = shadow_texture_random.uniform(0.0, math.tau)
+            distance = moon_radius * math.sqrt(
+                shadow_texture_random.uniform(0.02, 0.92)
+            )
+            texture_x = moon_x + math.cos(angle) * distance
+            texture_y = moon_y + math.sin(angle) * distance
+            texture_radius = max(
+                0.18,
+                moon_radius * shadow_texture_random.uniform(0.010, 0.028),
             )
 
-            lit_path = QPainterPath()
-            lit_path.addEllipse(
-                QPointF(lit_center_x, moon_y),
-                max(0.001, lit_width / 2.0),
-                moon_radius,
-            )
+            if shadow_texture_random.random() < 0.68:
+                texture_color = QColor(112, 118, 126, 104)
+            else:
+                texture_color = QColor(170, 176, 182, 90)
 
-            painter.setClipPath(moon_clip_path.intersected(lit_path))
-
-            # Natural lunar base.
-            painter.setOpacity(0.96)
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(QColor(224, 224, 214, 244))
+            painter.setOpacity(shadow_texture_random.uniform(0.025, 0.065))
+            painter.setBrush(texture_color)
             painter.drawEllipse(
-                moon_center,
-                moon_radius,
-                moon_radius,
+                QPointF(texture_x, texture_y),
+                texture_radius * 1.7,
+                texture_radius,
             )
 
-            maria_regions = [
-                (-0.32, -0.26, 0.36, 0.24, QColor(112, 119, 123, 88)),
-                (0.20, -0.23, 0.30, 0.20, QColor(120, 126, 129, 76)),
-                (-0.05, 0.20, 0.48, 0.25, QColor(102, 111, 118, 84)),
-                (0.38, 0.24, 0.22, 0.16, QColor(112, 119, 123, 66)),
-                (-0.48, 0.17, 0.20, 0.14, QColor(127, 132, 131, 62)),
-            ]
-
-            for x_ratio, y_ratio, width_ratio, height_ratio, color in maria_regions:
-                painter.setOpacity(0.82)
-                painter.setBrush(color)
-                painter.drawEllipse(
-                    QPointF(
-                        moon_x + moon_radius * x_ratio,
-                        moon_y + moon_radius * y_ratio,
-                    ),
-                    max(1.0, moon_radius * width_ratio),
-                    max(1.0, moon_radius * height_ratio),
-                )
-
-            crater_specs = [
-                (-0.44, -0.41, 0.10, 0.52),
-                (-0.12, -0.48, 0.07, 0.42),
-                (0.24, -0.42, 0.11, 0.48),
-                (0.48, -0.08, 0.08, 0.42),
-                (-0.46, -0.04, 0.09, 0.45),
-                (-0.24, 0.02, 0.06, 0.38),
-                (0.08, 0.04, 0.09, 0.50),
-                (0.31, 0.13, 0.06, 0.40),
-                (-0.34, 0.31, 0.08, 0.46),
-                (0.00, 0.36, 0.11, 0.52),
-                (0.34, 0.38, 0.07, 0.42),
-                (-0.08, 0.52, 0.05, 0.36),
-            ]
-
-            for x_ratio, y_ratio, size_ratio, shade in crater_specs:
-                crater_x = moon_x + moon_radius * x_ratio
-                crater_y = moon_y + moon_radius * y_ratio
-                crater_radius = max(0.75, moon_radius * size_ratio)
-
-                painter.setOpacity(shade * 0.42)
-                painter.setBrush(QColor(78, 87, 98, 185))
-                painter.drawEllipse(
-                    QPointF(
-                        crater_x + crater_radius * 0.20,
-                        crater_y + crater_radius * 0.18,
-                    ),
-                    crater_radius,
-                    crater_radius * 0.82,
-                )
-
-                painter.setOpacity(shade * 0.34)
-                painter.setBrush(QColor(246, 246, 235, 185))
-                painter.drawEllipse(
-                    QPointF(
-                        crater_x - crater_radius * 0.18,
-                        crater_y - crater_radius * 0.18,
-                    ),
-                    crater_radius * 0.74,
-                    crater_radius * 0.61,
-                )
-
-            for index in range(18):
-                angle = index * 2.399963229728653
-                distance = moon_radius * (0.16 + ((index * 7) % 58) / 100.0)
-                texture_x = moon_x + math.cos(angle) * distance
-                texture_y = moon_y + math.sin(angle) * distance
-                texture_size = max(
-                    0.55,
-                    moon_radius * (0.025 + (index % 4) * 0.012),
-                )
-
-                painter.setOpacity(0.09 + (index % 3) * 0.025)
-                painter.setBrush(
-                    QColor(
-                        95 + (index % 4) * 8,
-                        103 + (index % 4) * 8,
-                        108 + (index % 4) * 8,
-                        145,
-                    )
-                )
-                painter.drawEllipse(
-                    QPointF(texture_x, texture_y),
-                    texture_size * 1.8,
-                    texture_size,
-                )
-
+        # At/near new moon, keep only the subtle earthshine disk.
+        if illumination_fraction <= 0.012:
             painter.setClipping(False)
+            painter.restore()
+            return
 
-        # A soft edge glow and rim keep the moon readable.
-        painter.setOpacity(0.18)
-        painter.setPen(QPen(QColor(222, 235, 255, 150), 2.0))
-        painter.setBrush(Qt.NoBrush)
+        # Build the illuminated region from the outer lunar limb and the true
+        # phase terminator.
+        steps = 128
+        lit_path = QPainterPath()
+
+        if waxing:
+            for index in range(steps + 1):
+                y = -moon_radius + ((2.0 * moon_radius) * index / steps)
+                x_extent = math.sqrt(
+                    max(0.0, (moon_radius * moon_radius) - (y * y))
+                )
+                terminator_x = phase_cos * x_extent
+                point = QPointF(moon_x + terminator_x, moon_y + y)
+
+                if index == 0:
+                    lit_path.moveTo(point)
+                else:
+                    lit_path.lineTo(point)
+
+            for index in range(steps, -1, -1):
+                y = -moon_radius + ((2.0 * moon_radius) * index / steps)
+                x_extent = math.sqrt(
+                    max(0.0, (moon_radius * moon_radius) - (y * y))
+                )
+                lit_path.lineTo(
+                    QPointF(moon_x + x_extent, moon_y + y)
+                )
+        else:
+            for index in range(steps + 1):
+                y = -moon_radius + ((2.0 * moon_radius) * index / steps)
+                x_extent = math.sqrt(
+                    max(0.0, (moon_radius * moon_radius) - (y * y))
+                )
+                point = QPointF(moon_x - x_extent, moon_y + y)
+
+                if index == 0:
+                    lit_path.moveTo(point)
+                else:
+                    lit_path.lineTo(point)
+
+            for index in range(steps, -1, -1):
+                y = -moon_radius + ((2.0 * moon_radius) * index / steps)
+                x_extent = math.sqrt(
+                    max(0.0, (moon_radius * moon_radius) - (y * y))
+                )
+                terminator_x = (-phase_cos) * x_extent
+                lit_path.lineTo(
+                    QPointF(moon_x + terminator_x, moon_y + y)
+                )
+
+        lit_path.closeSubpath()
+        lit_path = moon_disk_path.intersected(lit_path)
+        painter.setClipPath(lit_path)
+
+        # More photographic lit surface: neutral lunar regolith, softer warm
+        # highlights, and stronger spherical falloff.
+        surface_gradient = QRadialGradient(
+            moon_x + (moon_radius * (0.26 if waxing else -0.26)),
+            moon_y - moon_radius * 0.28,
+            moon_radius * 1.36,
+        )
+        surface_gradient.setColorAt(0.00, QColor(248, 245, 236, 252))
+        surface_gradient.setColorAt(0.20, QColor(232, 228, 217, 251))
+        surface_gradient.setColorAt(0.46, QColor(204, 198, 184, 249))
+        surface_gradient.setColorAt(0.72, QColor(160, 154, 142, 247))
+        surface_gradient.setColorAt(1.00, QColor(112, 109, 103, 244))
+
+        painter.setOpacity(1.0)
+        painter.setBrush(surface_gradient)
         painter.drawEllipse(
             moon_center,
-            moon_radius + 1.2,
-            moon_radius + 1.2,
+            moon_radius,
+            moon_radius,
         )
+
+        terminator_gradient = QLinearGradient(
+            moon_x - moon_radius,
+            moon_y,
+            moon_x + moon_radius,
+            moon_y,
+        )
+
+        if waxing:
+            terminator_gradient.setColorAt(0.00, QColor(30, 32, 36, 214))
+            terminator_gradient.setColorAt(0.28, QColor(70, 70, 69, 124))
+            terminator_gradient.setColorAt(0.54, QColor(156, 151, 141, 42))
+            terminator_gradient.setColorAt(1.00, QColor(255, 252, 242, 18))
+        else:
+            terminator_gradient.setColorAt(0.00, QColor(255, 252, 242, 18))
+            terminator_gradient.setColorAt(0.46, QColor(156, 151, 141, 42))
+            terminator_gradient.setColorAt(0.72, QColor(70, 70, 69, 124))
+            terminator_gradient.setColorAt(1.00, QColor(30, 32, 36, 214))
+
+        painter.setOpacity(0.74)
+        painter.setBrush(terminator_gradient)
+        painter.drawEllipse(
+            moon_center,
+            moon_radius,
+            moon_radius,
+        )
+
+        limb_highlight = QRadialGradient(
+            moon_x + (moon_radius * (0.52 if waxing else -0.52)),
+            moon_y - moon_radius * 0.18,
+            moon_radius * 1.02,
+        )
+        limb_highlight.setColorAt(0.00, QColor(255, 251, 240, 84))
+        limb_highlight.setColorAt(0.45, QColor(255, 249, 236, 26))
+        limb_highlight.setColorAt(1.00, QColor(255, 249, 236, 0))
+        painter.setOpacity(0.40)
+        painter.setBrush(limb_highlight)
+        painter.drawEllipse(
+            moon_center,
+            moon_radius,
+            moon_radius,
+        )
+
+        maria_regions = [
+            (-0.36, -0.24, 0.33, 0.22, QColor(84, 84, 86, 92)),
+            (0.13, -0.27, 0.25, 0.17, QColor(92, 90, 89, 82)),
+            (0.03, 0.15, 0.45, 0.24, QColor(76, 77, 80, 96)),
+            (0.39, 0.19, 0.18, 0.13, QColor(96, 93, 90, 72)),
+            (-0.48, 0.13, 0.17, 0.12, QColor(100, 96, 92, 64)),
+            (0.23, 0.43, 0.20, 0.11, QColor(86, 86, 88, 60)),
+        ]
 
         painter.setOpacity(0.72)
-        painter.setPen(QPen(QColor(235, 241, 255, 150), 0.75))
-        painter.drawEllipse(
-            moon_center,
-            moon_radius,
-            moon_radius,
-        )
+        for x_ratio, y_ratio, width_ratio, height_ratio, color in maria_regions:
+            painter.setBrush(color)
+            painter.drawEllipse(
+                QPointF(
+                    moon_x + moon_radius * x_ratio,
+                    moon_y + moon_radius * y_ratio,
+                ),
+                max(0.8, moon_radius * width_ratio),
+                max(0.8, moon_radius * height_ratio),
+            )
 
+        texture_random = random.Random(46027)
+        crater_count = 26 if moon_radius >= 12 else 11
+
+        for _index in range(crater_count):
+            angle = texture_random.uniform(0.0, math.tau)
+            distance = moon_radius * math.sqrt(
+                texture_random.uniform(0.02, 0.78)
+            )
+            crater_x = moon_x + math.cos(angle) * distance
+            crater_y = moon_y + math.sin(angle) * distance
+            crater_radius = max(
+                0.30,
+                moon_radius * texture_random.uniform(0.018, 0.060),
+            )
+
+            painter.setOpacity(texture_random.uniform(0.08, 0.18))
+            painter.setBrush(QColor(72, 72, 74, 145))
+            painter.drawEllipse(
+                QPointF(
+                    crater_x + crater_radius * 0.18,
+                    crater_y + crater_radius * 0.16,
+                ),
+                crater_radius,
+                crater_radius * 0.76,
+            )
+
+            painter.setOpacity(texture_random.uniform(0.05, 0.12))
+            painter.setBrush(QColor(250, 247, 238, 138))
+            painter.drawEllipse(
+                QPointF(
+                    crater_x - crater_radius * 0.16,
+                    crater_y - crater_radius * 0.17,
+                ),
+                crater_radius * 0.70,
+                crater_radius * 0.54,
+            )
+
+        speckle_count = 58 if moon_radius >= 12 else 20
+
+        for _index in range(speckle_count):
+            angle = texture_random.uniform(0.0, math.tau)
+            distance = moon_radius * math.sqrt(
+                texture_random.uniform(0.0, 0.88)
+            )
+            texture_x = moon_x + math.cos(angle) * distance
+            texture_y = moon_y + math.sin(angle) * distance
+            texture_radius = max(
+                0.18,
+                moon_radius * texture_random.uniform(0.007, 0.024),
+            )
+
+            if texture_random.random() < 0.58:
+                texture_color = QColor(68, 69, 72, 114)
+            else:
+                texture_color = QColor(248, 245, 235, 108)
+
+            painter.setOpacity(texture_random.uniform(0.030, 0.082))
+            painter.setBrush(texture_color)
+            painter.drawEllipse(
+                QPointF(texture_x, texture_y),
+                texture_radius * 1.6,
+                texture_radius,
+            )
+
+        painter.setClipping(False)
         painter.restore()
 
     def draw_night(self, painter, rect):
@@ -1347,15 +1476,8 @@ class WeatherRow(QWidget):
         moon_y = rect.top() + int(h * moon_y_ratio)
         moon_radius = max(6, min(w, h) * 0.075)
 
-        # Smaller glow prevents it from spilling into the lower-right text band.
-        for layer in range(2):
-            radius = moon_radius + layer * 4
-            alpha = max(16, 42 - layer * 12)
-
-            painter.setOpacity(0.28)
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(QColor(210, 225, 255, alpha))
-            painter.drawEllipse(QPointF(moon_x, moon_y), radius, radius)
+        # Do not draw a circular halo behind visible phases. The moon renderer
+        # below paints only the illuminated phase shape, except at new moon.
 
         self.draw_accurate_moon_phase(
             painter=painter,

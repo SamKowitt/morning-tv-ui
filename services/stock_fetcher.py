@@ -33,6 +33,23 @@ class MarketData:
     stocks: list[StockQuote]
 
 
+class StockFetchCancelled(RuntimeError):
+    """Raised when a superseded stock request is cooperatively cancelled."""
+
+
+def raise_if_stock_fetch_cancelled(should_cancel=None):
+    if should_cancel is None:
+        return
+
+    try:
+        cancelled = bool(should_cancel())
+    except Exception:
+        cancelled = False
+
+    if cancelled:
+        raise StockFetchCancelled("Stock fetch cancelled.")
+
+
 SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 
 FMP_API_KEY_ENV_NAME = "FMP_API_KEY"
@@ -965,13 +982,21 @@ def fetch_yahoo_index_quote(display_name, original_symbol):
     )
 
 
-def fetch_index_quote(display_name, symbol):
+def fetch_index_quote(display_name, symbol, should_cancel=None):
     # Use Yahoo's true index symbols for the three major indexes.
     # No ETF proxy fallback.
+    raise_if_stock_fetch_cancelled(should_cancel)
+
     try:
-        return fetch_yahoo_index_quote(display_name, symbol)
+        quote = fetch_yahoo_index_quote(display_name, symbol)
+        raise_if_stock_fetch_cancelled(should_cancel)
+        return quote
+    except StockFetchCancelled:
+        raise
     except Exception as error:
         print(f"Yahoo true index quote failed for {display_name}/{symbol}: {error}")
+
+    raise_if_stock_fetch_cancelled(should_cancel)
 
     return IndexQuote(
         name=display_name,
@@ -981,7 +1006,9 @@ def fetch_index_quote(display_name, symbol):
 
 
 
-def fetch_stock_quote(symbol):
+def fetch_stock_quote(symbol, should_cancel=None):
+    raise_if_stock_fetch_cancelled(should_cancel)
+
     try:
         item = fetch_finnhub_quote(symbol)
 
@@ -996,10 +1023,15 @@ def fetch_stock_quote(symbol):
         )
 
         print(f"Loaded Finnhub stock quote {symbol}: {stock.price} DAY {stock.ah_change}")
+        raise_if_stock_fetch_cancelled(should_cancel)
         return stock
 
+    except StockFetchCancelled:
+        raise
     except Exception as error:
         print(f"Finnhub stock quote failed for {symbol}, trying FMP: {error}")
+
+    raise_if_stock_fetch_cancelled(should_cancel)
 
     try:
         item = fetch_fmp_quote(symbol)
@@ -1015,12 +1047,17 @@ def fetch_stock_quote(symbol):
         )
 
         print(f"Loaded FMP stock quote {symbol}: {stock.price} DAY {stock.ah_change}")
+        raise_if_stock_fetch_cancelled(should_cancel)
         return stock
 
+    except StockFetchCancelled:
+        raise
     except Exception as error:
         print(f"FMP stock quote failed for {symbol}, trying Nasdaq fallback: {error}")
 
+    raise_if_stock_fetch_cancelled(should_cancel)
     price, change = fetch_nasdaq_quote(symbol)
+    raise_if_stock_fetch_cancelled(should_cancel)
 
     stock = StockQuote(
         ticker=symbol,
@@ -1033,31 +1070,47 @@ def fetch_stock_quote(symbol):
     return stock
 
 
-def fetch_stock_history(symbol, current_price):
+def fetch_stock_history(symbol, current_price, should_cancel=None):
+    raise_if_stock_fetch_cancelled(should_cancel)
+
     try:
         history = fetch_finnhub_history(symbol)
         print(f"Loaded Finnhub history {symbol}: {len(history)} points")
+        raise_if_stock_fetch_cancelled(should_cancel)
         return history
 
+    except StockFetchCancelled:
+        raise
     except Exception as error:
         print(f"Finnhub history unavailable for {symbol}, trying FMP: {error}")
+
+    raise_if_stock_fetch_cancelled(should_cancel)
 
     try:
         history = fetch_fmp_history(symbol)
         print(f"Loaded FMP history {symbol}: {len(history)} points")
+        raise_if_stock_fetch_cancelled(should_cancel)
         return history
 
+    except StockFetchCancelled:
+        raise
     except Exception as error:
         print(f"FMP history unavailable for {symbol}, trying Nasdaq fallback: {error}")
+
+    raise_if_stock_fetch_cancelled(should_cancel)
 
     try:
         history = fetch_nasdaq_history(symbol)
         print(f"Loaded Nasdaq history {symbol}: {len(history)} points")
+        raise_if_stock_fetch_cancelled(should_cancel)
         return history
 
+    except StockFetchCancelled:
+        raise
     except Exception as error:
         print(f"Nasdaq history unavailable for {symbol}: {error}")
 
+    raise_if_stock_fetch_cancelled(should_cancel)
     return placeholder_history_from_price(current_price)
 
 
@@ -1077,8 +1130,9 @@ def fallback_market_data():
     )
 
 
-def fetch_market_data():
+def fetch_market_data(should_cancel=None):
     print("Fetching stock data from Finnhub with FMP/Nasdaq fallback...")
+    raise_if_stock_fetch_cancelled(should_cancel)
 
     if not has_finnhub_api_key():
         print(f"Finnhub setup warning: missing {FINNHUB_API_KEY_ENV_NAME}. FMP/Nasdaq fallbacks will be used.")
@@ -1091,11 +1145,19 @@ def fetch_market_data():
     indexes = []
 
     for display_name, symbol in INDEX_SYMBOLS:
+        raise_if_stock_fetch_cancelled(should_cancel)
+
         try:
-            quote = fetch_index_quote(display_name, symbol)
+            quote = fetch_index_quote(
+                display_name,
+                symbol,
+                should_cancel=should_cancel,
+            )
             print(f"Loaded index {display_name}/{symbol}: {quote.price}")
             indexes.append(quote)
 
+        except StockFetchCancelled:
+            raise
         except Exception as error:
             print(f"Index fetch failed for {display_name}/{symbol}: {error}")
             indexes.append(IndexQuote(display_name, "—", [1, 1, 1]))
@@ -1103,24 +1165,37 @@ def fetch_market_data():
     stocks = []
 
     for symbol in STOCK_SYMBOLS:
+        raise_if_stock_fetch_cancelled(should_cancel)
+
         try:
-            stock = fetch_stock_quote(symbol)
+            stock = fetch_stock_quote(
+                symbol,
+                should_cancel=should_cancel,
+            )
             print(f"Loaded stock quote {symbol}: {stock.price} DAY {stock.ah_change}")
             stocks.append(stock)
 
+        except StockFetchCancelled:
+            raise
         except Exception as error:
             print(f"Stock quote failed for {symbol}: {error}")
             stocks.append(StockQuote(symbol, "—", "—", [1, 1, 1]))
 
     for index, stock in enumerate(stocks):
+        raise_if_stock_fetch_cancelled(should_cancel)
+
         if stock.price == "—":
             continue
 
-        history = fetch_stock_history(stock.ticker, stock.price)
+        history = fetch_stock_history(
+            stock.ticker,
+            stock.price,
+            should_cancel=should_cancel,
+        )
         stocks[index].history = history
 
+    raise_if_stock_fetch_cancelled(should_cancel)
     return MarketData(indexes=indexes, stocks=stocks)
-
 
 def fallback_market_data_for_symbols(index_symbols=None, stock_symbols=None):
     index_symbols = index_symbols or INDEX_SYMBOLS
@@ -1138,8 +1213,13 @@ def fallback_market_data_for_symbols(index_symbols=None, stock_symbols=None):
     )
 
 
-def fetch_market_data_for_symbols(index_symbols=None, stock_symbols=None):
+def fetch_market_data_for_symbols(
+    index_symbols=None,
+    stock_symbols=None,
+    should_cancel=None,
+):
     print("Fetching configurable stock data from Finnhub with FMP/Nasdaq fallback...")
+    raise_if_stock_fetch_cancelled(should_cancel)
 
     index_symbols = index_symbols or INDEX_SYMBOLS
     stock_symbols = stock_symbols or STOCK_SYMBOLS
@@ -1155,10 +1235,18 @@ def fetch_market_data_for_symbols(index_symbols=None, stock_symbols=None):
     indexes = []
 
     for display_name, symbol in index_symbols:
+        raise_if_stock_fetch_cancelled(should_cancel)
+
         try:
-            quote = fetch_index_quote(display_name, symbol)
+            quote = fetch_index_quote(
+                display_name,
+                symbol,
+                should_cancel=should_cancel,
+            )
             print(f"Loaded index {display_name}/{symbol}: {quote.price}")
             indexes.append(quote)
+        except StockFetchCancelled:
+            raise
         except Exception as error:
             print(f"Index fetch failed for {display_name}/{symbol}: {error}")
             indexes.append(IndexQuote(display_name, "—", [1, 1, 1]))
@@ -1166,13 +1254,25 @@ def fetch_market_data_for_symbols(index_symbols=None, stock_symbols=None):
     stocks = []
 
     for symbol in stock_symbols:
+        raise_if_stock_fetch_cancelled(should_cancel)
+
         try:
-            stock = fetch_stock_quote(symbol)
-            stock.history = fetch_stock_history(symbol, stock.price)
+            stock = fetch_stock_quote(
+                symbol,
+                should_cancel=should_cancel,
+            )
+            stock.history = fetch_stock_history(
+                symbol,
+                stock.price,
+                should_cancel=should_cancel,
+            )
             print(f"Loaded stock quote {symbol}: {stock.price} DAY {stock.ah_change}")
             stocks.append(stock)
+        except StockFetchCancelled:
+            raise
         except Exception as error:
             print(f"Stock fetch failed for {symbol}: {error}")
             stocks.append(StockQuote(symbol, "—", "—", [1, 1, 1]))
 
+    raise_if_stock_fetch_cancelled(should_cancel)
     return MarketData(indexes=indexes, stocks=stocks)

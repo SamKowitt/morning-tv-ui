@@ -209,14 +209,88 @@ def fetch_url_text(url, timeout=REQUEST_TIMEOUT):
     return data.decode("utf-8", errors="ignore")
 
 
+def _mojibake_penalty(value):
+    value = str(value or "")
+    penalty = 0
+
+    for marker in ("\u00c3", "\u00c2", "\u00e2", "\u00f0", "\ufffd"):
+        penalty += value.count(marker) * 4
+
+    for character in value:
+        codepoint = ord(character)
+
+        if codepoint < 32 and character not in "\t\n\r":
+            penalty += 8
+        elif 0x7F <= codepoint <= 0x9F:
+            penalty += 8
+
+    return penalty
+
+
+def repair_mojibake(value):
+    original = str(value or "")
+
+    if not original:
+        return ""
+
+    candidates = {original}
+    frontier = {original}
+
+    # Some publisher text arrives double-encoded, so inspect up to
+    # three reversible decoding layers.
+    for _depth in range(3):
+        next_frontier = set()
+
+        for current in frontier:
+            for source_encoding in ("cp1252", "latin-1"):
+                try:
+                    candidate = current.encode(
+                        source_encoding
+                    ).decode("utf-8")
+                except (UnicodeEncodeError, UnicodeDecodeError):
+                    continue
+
+                if candidate not in candidates:
+                    candidates.add(candidate)
+                    next_frontier.add(candidate)
+
+        if not next_frontier:
+            break
+
+        frontier = next_frontier
+
+    best = min(
+        candidates,
+        key=lambda candidate: (
+            _mojibake_penalty(candidate),
+            -sum(
+                character in "\u2018\u2019\u201c\u201d\u2014\u2013\u2026"
+                for character in candidate
+            ),
+        ),
+    )
+
+    if _mojibake_penalty(best) < _mojibake_penalty(original):
+        return best
+
+    return original
+
+
 def clean_text(value):
     if not value:
         return ""
 
-    value = html.unescape(str(value))
+    value = repair_mojibake(
+        html.unescape(str(value))
+    )
     value = re.sub(r"<script.*?</script>", "", value, flags=re.IGNORECASE | re.DOTALL)
     value = re.sub(r"<style.*?</style>", "", value, flags=re.IGNORECASE | re.DOTALL)
     value = re.sub(r"<[^>]+>", " ", value)
+    value = re.sub(
+        r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]",
+        "",
+        value,
+    )
     value = re.sub(r"\s+", " ", value).strip()
     value = re.sub(
         r"\s+(show all|read more|see more|view more|show more)$",
@@ -945,7 +1019,7 @@ def fallback_article(source_key, error_message=""):
 
 def build_article_from_candidate(candidate):
     return NewsArticle(
-        title=candidate.title,
+        title=clean_text(candidate.title),
         source=candidate.source,
         image_url=candidate.image_url,
         link=candidate.link,
@@ -1118,18 +1192,20 @@ def fetch_configured_article(source_key):
 
     if source_key == "CNBC":
         try:
-            return fetch_cnbc_homepage_lead_article(source_key)
+            # Use the actual rendered homepage hierarchy first. Selection is
+            # based only on visual headline prominence, never article subject.
+            return fetch_cnbc_rendered_largest_text_lead_article(source_key)
         except Exception as error:
             print(
-                "CNBC homepage featured-story resolver failed: "
-                f"{error}; falling back to rendered resolver"
+                "CNBC rendered lead resolver failed: "
+                f"{error}; falling back to homepage data resolver"
             )
 
             try:
-                return fetch_cnbc_rendered_largest_text_lead_article(source_key)
+                return fetch_cnbc_homepage_lead_article(source_key)
             except Exception as fallback_error:
                 print(
-                    "CNBC rendered resolver failed: "
+                    "CNBC homepage data resolver failed: "
                     f"{fallback_error}; falling back to generic logic"
                 )
 
@@ -1331,9 +1407,7 @@ def fetch_cnbc_rendered_largest_text_lead_article(source_key="CNBC"):
         "advertisement",
         "cnbc pro",
         "investing club",
-        "sign in",
-        "stock market today",
-        "live updates"
+        "sign in"
     ];
 
     const headlineSelector = [
@@ -1399,9 +1473,9 @@ def fetch_cnbc_rendered_largest_text_lead_article(source_key="CNBC"):
             headlineNode.closest("article, [class*='card' i]")?.querySelector("img")
         );
 
-        // CNBC's main live-market lead frequently places its image beside the
-        // headline rather than inside the headline link/card. Walk upward through
-        // the rendered lead module and use the first real image in that module.
+        // CNBC frequently places a lead image beside the headline rather than
+        // inside its link/card. Walk upward through the rendered story module
+        // and use the first real image contained by that same module.
         if (!image) {
             let container = headlineNode;
 
@@ -1444,19 +1518,18 @@ def fetch_cnbc_rendered_largest_text_lead_article(source_key="CNBC"):
             area,
             top: Math.round(rect.top),
             left: Math.round(rect.left),
-            isMarketLiveLead: href.toLowerCase().includes(
-                "stock-market-today-live-updates"
-            ),
             tag: headlineNode.tagName,
             className: String(headlineNode.className || "").slice(0, 180)
         });
     }
 
+    // Rank by generic rendered prominence. Article topic and URL pattern
+    // never affect selection.
     candidates.sort((a, b) => (
-        a.top - b.top ||
         b.fontSize - a.fontSize ||
         b.area - a.area ||
         b.fontWeight - a.fontWeight ||
+        a.top - b.top ||
         a.left - b.left
     ));
 
@@ -1786,11 +1859,9 @@ def fetch_cnbc_homepage_lead_article(source_key="CNBC"):
                 return resp.read().decode("utf-8", errors="replace")
 
     def _clean(value):
+        # json.loads() already decoded CNBC's JSON string. Applying
+        # unicode_escape again corrupts valid curly quotation marks.
         value = unescape(str(value or ""))
-        try:
-            value = value.encode("utf-8").decode("unicode_escape", errors="ignore")
-        except Exception:
-            pass
         value = re.sub(r"<[^>]+>", " ", value)
         value = re.sub(r"\s+", " ", value)
         try:
@@ -1919,9 +1990,6 @@ def fetch_cnbc_homepage_lead_article(source_key="CNBC"):
         }
 
         if module_l in skipped_modules:
-            return True
-
-        if "stock-market-today-live-updates" in url_l:
             return True
 
         if node.get("premium") is True:
@@ -2063,15 +2131,6 @@ def fetch_cnbc_homepage_lead_article(source_key="CNBC"):
     final_title = homepage_story["title"]
     final_url = homepage_story["url"]
     final_image = homepage_story.get("image_url", "")
-
-    if homepage_story["type"].lower() == "live_story" or "live" in final_url.lower():
-        try:
-            live_html = _fetch_url(final_url)
-            live_title = _extract_live_update_headline(live_html)
-            if live_title:
-                final_title = live_title
-        except Exception as error:
-            print(f"CNBC live story page headline fallback failed: {error}")
 
     class SimpleCandidate:
         pass

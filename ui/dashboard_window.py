@@ -56,7 +56,13 @@ from services.sports_games_fetcher import (
     fetch_espn_boxscore,
 )
 from services.sports_news_fetcher import fetch_espn_sports_articles
-from services.stock_fetcher import INDEX_SYMBOLS, STOCK_SYMBOLS, fetch_market_data, fetch_market_data_for_symbols
+from services.stock_fetcher import (
+    INDEX_SYMBOLS,
+    STOCK_SYMBOLS,
+    StockFetchCancelled,
+    fetch_market_data,
+    fetch_market_data_for_symbols,
+)
 from services.weather_fetcher import (
     WeatherLocation,
     fetch_address_suggestions,
@@ -359,13 +365,23 @@ class SportsBoxscorePrefetchWorker(QObject):
 
 
 class StockFetchWorker(QObject):
-    finished = Signal(object)
-    failed = Signal(str)
+    finished = Signal(int, object)
+    failed = Signal(int, str)
+    cancelled = Signal(int)
 
-    def __init__(self, index_symbols=None, stock_symbols=None):
+    def __init__(
+        self,
+        request_id,
+        index_symbols=None,
+        stock_symbols=None,
+    ):
         super().__init__()
+        self.request_id = int(request_id)
         self.index_symbols = index_symbols
         self.stock_symbols = stock_symbols
+
+    def should_cancel(self):
+        return QThread.currentThread().isInterruptionRequested()
 
     def run(self):
         try:
@@ -373,13 +389,21 @@ class StockFetchWorker(QObject):
                 market_data = fetch_market_data_for_symbols(
                     index_symbols=self.index_symbols,
                     stock_symbols=self.stock_symbols,
+                    should_cancel=self.should_cancel,
                 )
             else:
-                market_data = fetch_market_data()
+                market_data = fetch_market_data(
+                    should_cancel=self.should_cancel,
+                )
 
-            self.finished.emit(market_data)
+            if self.should_cancel():
+                raise StockFetchCancelled("Stock fetch cancelled.")
+
+            self.finished.emit(self.request_id, market_data)
+        except StockFetchCancelled:
+            self.cancelled.emit(self.request_id)
         except Exception as error:
-            self.failed.emit(str(error))
+            self.failed.emit(self.request_id, str(error))
 
 
 class AppleCalendarFetchWorker(QObject):
@@ -586,8 +610,10 @@ class DashboardWindow(QMainWindow):
         self.market_news_thread = None
         self.market_news_worker = None
 
+        self.stock_request_id = 0
         self.stock_thread = None
         self.stock_worker = None
+        self.stock_fetch_jobs = []
         self.calendar_has_no_events = False
         self.apple_calendar_events = []
 
@@ -4939,30 +4965,54 @@ class DashboardWindow(QMainWindow):
         # Preserve the current panel and any previously cached headlines.
 
     def clear_stock_fetch_references(self, thread, worker):
+        self.stock_fetch_jobs = [
+            job
+            for job in self.stock_fetch_jobs
+            if job[0] is not thread
+        ]
+
         if self.stock_thread is thread:
             self.stock_thread = None
 
         if self.stock_worker is worker:
             self.stock_worker = None
 
-    def start_stock_fetch(self):
-        active_thread = self.stock_thread
+    def cancel_active_stock_fetches(self):
+        cancelled_request_ids = []
 
-        if active_thread is not None:
+        for thread, _worker, request_id in list(self.stock_fetch_jobs):
             try:
-                if active_thread.isRunning():
-                    print("Market Tape refresh already running; skipping overlap.")
-                    return
+                if thread.isRunning():
+                    thread.requestInterruption()
+                    cancelled_request_ids.append(request_id)
             except RuntimeError:
-                self.stock_thread = None
-                self.stock_worker = None
+                continue
+
+        return cancelled_request_ids
+
+    def start_stock_fetch(self):
+        self.stock_request_id += 1
+        request_id = self.stock_request_id
+
+        cancelled_request_ids = self.cancel_active_stock_fetches()
+
+        if cancelled_request_ids:
+            print(
+                "Cancelling superseded Market Tape request(s): "
+                + ", ".join(str(value) for value in cancelled_request_ids)
+            )
 
         thread = QThread(self)
         worker = StockFetchWorker(
+            request_id=request_id,
             index_symbols=self.stock_index_symbols,
             stock_symbols=self.stock_favorite_symbols,
         )
 
+        # Keep every superseded QThread wrapper alive until that worker exits.
+        # This prevents Qt from destroying a still-running thread when the
+        # latest request replaces self.stock_thread/self.stock_worker.
+        self.stock_fetch_jobs.append((thread, worker, request_id))
         self.stock_thread = thread
         self.stock_worker = worker
 
@@ -4972,9 +5022,11 @@ class DashboardWindow(QMainWindow):
 
         worker.finished.connect(self.on_stock_data_loaded)
         worker.failed.connect(self.on_stock_data_failed)
+        worker.cancelled.connect(self.on_stock_fetch_cancelled)
 
         worker.finished.connect(thread.quit)
         worker.failed.connect(thread.quit)
+        worker.cancelled.connect(thread.quit)
 
         thread.finished.connect(worker.deleteLater)
         thread.finished.connect(
@@ -4986,13 +5038,31 @@ class DashboardWindow(QMainWindow):
         )
         thread.finished.connect(thread.deleteLater)
 
+        print(f"Starting Market Tape request {request_id}.")
         thread.start()
 
-    def on_stock_data_loaded(self, market_data):
+    def on_stock_data_loaded(self, request_id, market_data):
+        if request_id != self.stock_request_id:
+            print(
+                f"Ignoring stale Market Tape request {request_id}; "
+                f"latest request is {self.stock_request_id}."
+            )
+            return
+
         self.stocks_panel.update_market_data(market_data)
 
-    def on_stock_data_failed(self, error_message):
+    def on_stock_data_failed(self, request_id, error_message):
+        if request_id != self.stock_request_id:
+            print(
+                f"Ignoring stale failed Market Tape request {request_id}; "
+                f"latest request is {self.stock_request_id}."
+            )
+            return
+
         print(f"Stock data fetch failed: {error_message}")
+
+    def on_stock_fetch_cancelled(self, request_id):
+        print(f"Cancelled superseded Market Tape request {request_id}.")
 
     def start_sports_news_fetch(self):
         self.sports_news_thread = QThread()
@@ -5028,32 +5098,44 @@ class DashboardWindow(QMainWindow):
                 self.sports_games_thread = None
                 self.sports_games_worker = None
 
-        self.sports_games_thread = QThread(self)
-        self.sports_games_worker = SportsGamesFetchWorker(
+        thread = QThread(self)
+        worker = SportsGamesFetchWorker(
             sports_team_orders=self.sports_team_orders,
         )
-        self.sports_games_worker.moveToThread(self.sports_games_thread)
 
-        self.sports_games_thread.started.connect(self.sports_games_worker.run)
-        self.sports_games_worker.finished.connect(self.on_sports_games_loaded)
-        self.sports_games_worker.failed.connect(self.on_sports_games_failed)
+        self.sports_games_thread = thread
+        self.sports_games_worker = worker
 
-        self.sports_games_worker.finished.connect(self.sports_games_thread.quit)
-        self.sports_games_worker.failed.connect(self.sports_games_thread.quit)
+        worker.moveToThread(thread)
 
-        self.sports_games_thread.finished.connect(
-            self.sports_games_worker.deleteLater
+        thread.started.connect(worker.run)
+        worker.finished.connect(self.on_sports_games_loaded)
+        worker.failed.connect(self.on_sports_games_failed)
+
+        worker.finished.connect(thread.quit)
+        worker.failed.connect(thread.quit)
+
+        thread.finished.connect(worker.deleteLater)
+        thread.finished.connect(
+            lambda current_thread=thread, current_worker=worker:
+                self.clear_sports_games_fetch_references(
+                    current_thread,
+                    current_worker,
+                )
         )
-        self.sports_games_thread.finished.connect(
-            self.clear_sports_games_thread
-        )
+        thread.finished.connect(thread.deleteLater)
 
         print("Starting silent Game Times refresh.")
-        self.sports_games_thread.start()
+        thread.start()
 
-    def clear_sports_games_thread(self):
-        self.sports_games_worker = None
-        self.sports_games_thread = None
+    def clear_sports_games_fetch_references(self, thread, worker):
+        # The callback retains both wrappers until this method returns,
+        # preventing direct QObject destruction during attribute assignment.
+        if self.sports_games_thread is thread:
+            self.sports_games_thread = None
+
+        if self.sports_games_worker is worker:
+            self.sports_games_worker = None
 
     def on_sports_games_loaded(self, leagues):
         print("Live sports games loaded.")
@@ -5093,50 +5175,49 @@ class DashboardWindow(QMainWindow):
                 self.sports_boxscore_prefetch_thread = None
                 self.sports_boxscore_prefetch_worker = None
 
-        self.sports_boxscore_prefetch_thread = QThread(self)
-        self.sports_boxscore_prefetch_worker = SportsBoxscorePrefetchWorker(
-            leagues
-        )
-        self.sports_boxscore_prefetch_worker.moveToThread(
-            self.sports_boxscore_prefetch_thread
-        )
+        thread = QThread(self)
+        worker = SportsBoxscorePrefetchWorker(leagues)
 
-        self.sports_boxscore_prefetch_thread.started.connect(
-            self.sports_boxscore_prefetch_worker.run
-        )
+        self.sports_boxscore_prefetch_thread = thread
+        self.sports_boxscore_prefetch_worker = worker
 
-        self.sports_boxscore_prefetch_worker.finished.connect(
+        worker.moveToThread(thread)
+
+        thread.started.connect(worker.run)
+
+        worker.finished.connect(
             lambda warmed: print(
                 f"Box-score preload complete: {warmed} game(s)."
             )
         )
-        self.sports_boxscore_prefetch_worker.failed.connect(
+        worker.failed.connect(
             lambda error: print(f"Box-score preload failed: {error}")
         )
 
-        self.sports_boxscore_prefetch_worker.finished.connect(
-            self.sports_boxscore_prefetch_thread.quit
-        )
-        self.sports_boxscore_prefetch_worker.failed.connect(
-            self.sports_boxscore_prefetch_thread.quit
-        )
+        worker.finished.connect(thread.quit)
+        worker.failed.connect(thread.quit)
 
-        self.sports_boxscore_prefetch_thread.finished.connect(
-            self.sports_boxscore_prefetch_worker.deleteLater
+        thread.finished.connect(worker.deleteLater)
+        thread.finished.connect(
+            lambda current_thread=thread, current_worker=worker:
+                self.clear_sports_boxscore_prefetch_references(
+                    current_thread,
+                    current_worker,
+                )
         )
-        self.sports_boxscore_prefetch_thread.finished.connect(
-            self.clear_sports_boxscore_prefetch_thread
-        )
-        self.sports_boxscore_prefetch_thread.finished.connect(
-            self.sports_boxscore_prefetch_thread.deleteLater
-        )
+        thread.finished.connect(thread.deleteLater)
 
         print("Starting background box-score preload.")
-        self.sports_boxscore_prefetch_thread.start()
+        thread.start()
 
-    def clear_sports_boxscore_prefetch_thread(self):
-        self.sports_boxscore_prefetch_worker = None
-        self.sports_boxscore_prefetch_thread = None
+    def clear_sports_boxscore_prefetch_references(self, thread, worker):
+        # Retain the completed wrappers through cleanup so PySide does not
+        # destroy a shared QObject while setting these attributes to None.
+        if self.sports_boxscore_prefetch_thread is thread:
+            self.sports_boxscore_prefetch_thread = None
+
+        if self.sports_boxscore_prefetch_worker is worker:
+            self.sports_boxscore_prefetch_worker = None
 
         if self.radar_preload_waiting_for_boxscores:
             print(
