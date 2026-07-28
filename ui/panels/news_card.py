@@ -1,8 +1,10 @@
+import html as html_module
 import re
 import random
+from urllib.parse import unquote
 from PySide6.QtCore import Qt, QRectF, QUrl, QSize, QEvent, QPointF, Signal, QThread, QTimer
-from PySide6.QtGui import QColor, QDesktopServices, QFont, QFontDatabase, QFontMetrics, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
-from PySide6.QtWidgets import QSizePolicy, QLabel, QVBoxLayout, QWidget, QHBoxLayout, QFrame, QDialog, QTextEdit, QPushButton
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QFontDatabase, QFontMetrics, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QPolygonF, QTextDocument
+from PySide6.QtWidgets import QSizePolicy, QLabel, QVBoxLayout, QWidget, QHBoxLayout, QFrame, QDialog, QTextEdit, QTextBrowser, QPushButton
 
 from ui.auto_fit_label import AutoFitLabel
 from ui.newspaper_chrome import draw_stacked_newspaper_panel
@@ -491,6 +493,7 @@ class OpenNewspaperDialog(QDialog):
         self.headline = headline or ""
         self.article_url = article_url or ""
         self.pages = []
+        self.article_anchor_pages = {}
         self.spread_index = 0
         self.worker = None
 
@@ -525,7 +528,8 @@ class OpenNewspaperDialog(QDialog):
             }
 
             QLabel#NewspaperPage,
-            QTextEdit#NewspaperPage {
+            QTextEdit#NewspaperPage,
+            QTextBrowser#NewspaperPage {
                 background: transparent;
                 color: #1b130c;
                 border: none;
@@ -654,13 +658,25 @@ class OpenNewspaperDialog(QDialog):
 
         self.paper_headline_rule = PaperRule()
 
-        self.left_page = QLabel()
+        self.left_page = QTextBrowser()
         self.left_page.setObjectName("NewspaperPage")
-        self.left_page.setWordWrap(True)
-        self.left_page.setTextFormat(Qt.PlainText)
-        self.left_page.setTextInteractionFlags(Qt.NoTextInteraction)
+        self.left_page.setReadOnly(True)
+        self.left_page.setOpenLinks(False)
+        self.left_page.setOpenExternalLinks(False)
+        self.left_page.setTextInteractionFlags(
+            Qt.LinksAccessibleByMouse
+        )
+        self.left_page.setFrameShape(QFrame.NoFrame)
+        self.left_page.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarAlwaysOff
+        )
+        self.left_page.setVerticalScrollBarPolicy(
+            Qt.ScrollBarAlwaysOff
+        )
         self.left_page.setFocusPolicy(Qt.NoFocus)
-        self.left_page.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self.left_page.anchorClicked.connect(
+            self.handle_article_link
+        )
 
         left_page_layout.addWidget(self.paper_headline, 0)
         left_page_layout.addWidget(self.paper_headline_rule, 0)
@@ -668,13 +684,25 @@ class OpenNewspaperDialog(QDialog):
 
         # RIGHT NEWSPAPER PAGE:
         # no headline space, so article text starts at the very top.
-        self.right_page = QLabel()
+        self.right_page = QTextBrowser()
         self.right_page.setObjectName("NewspaperPage")
-        self.right_page.setWordWrap(True)
-        self.right_page.setTextFormat(Qt.PlainText)
-        self.right_page.setTextInteractionFlags(Qt.NoTextInteraction)
+        self.right_page.setReadOnly(True)
+        self.right_page.setOpenLinks(False)
+        self.right_page.setOpenExternalLinks(False)
+        self.right_page.setTextInteractionFlags(
+            Qt.LinksAccessibleByMouse
+        )
+        self.right_page.setFrameShape(QFrame.NoFrame)
+        self.right_page.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarAlwaysOff
+        )
+        self.right_page.setVerticalScrollBarPolicy(
+            Qt.ScrollBarAlwaysOff
+        )
         self.right_page.setFocusPolicy(Qt.NoFocus)
-        self.right_page.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self.right_page.anchorClicked.connect(
+            self.handle_article_link
+        )
 
         self.fold = QWidget()
         self.fold.setObjectName("NewspaperFold")
@@ -701,6 +729,23 @@ class OpenNewspaperDialog(QDialog):
         button_gap = 18
         holder_side_padding = 8
 
+        self.back_to_top_button = QPushButton("BACK TO TOP")
+        self.back_to_top_button.setObjectName("PageTurnButton")
+        self.back_to_top_button.setFixedSize(
+            button_width,
+            button_height,
+        )
+        self.back_to_top_button.setCursor(
+            Qt.PointingHandCursor
+        )
+
+        back_to_top_font = QFont("Georgia", 16)
+        back_to_top_font.setBold(True)
+        self.back_to_top_button.setFont(back_to_top_font)
+        self.back_to_top_button.clicked.connect(
+            self.return_to_first_spread
+        )
+
         self.prev_button = BackPageButton()
         self.prev_button.setObjectName("PageTurnButton")
         self.prev_button.setFixedSize(button_width, button_height)
@@ -725,7 +770,23 @@ class OpenNewspaperDialog(QDialog):
         navigation_offset = 80
 
         left_balance = QWidget()
-        left_balance.setFixedWidth(navigation_width + navigation_offset)
+        left_balance.setFixedSize(
+            navigation_width + navigation_offset,
+            button_height,
+        )
+
+        left_balance_layout = QHBoxLayout(left_balance)
+        left_balance_layout.setContentsMargins(
+            holder_side_padding,
+            0,
+            0,
+            0,
+        )
+        left_balance_layout.setSpacing(0)
+        left_balance_layout.addWidget(
+            self.back_to_top_button
+        )
+        left_balance_layout.addStretch(1)
 
         navigation_holder = QWidget()
         navigation_holder.setFixedSize(navigation_width, button_height)
@@ -762,8 +823,9 @@ class OpenNewspaperDialog(QDialog):
         self.start_fetch()
 
     def set_loading_state(self):
-        self.left_page.setText("Fetching article text...")
-        self.right_page.setText("")
+        self.left_page.setPlainText("Fetching article text...")
+        self.right_page.clear()
+        self.back_to_top_button.hide()
         self.prev_button.hide()
         self.next_button.show()
         self.next_button.setText("TURN PAGE  ›")
@@ -776,7 +838,9 @@ class OpenNewspaperDialog(QDialog):
         self.worker.start()
 
     def set_error(self, message):
-        self.pages = [f"Could not load article text.\n\n{message}"]
+        self.pages = self.paginate_text(
+            f"Could not load article text.\n\n{message}"
+        )
         self.spread_index = 0
         self.render_spread()
 
@@ -796,52 +860,136 @@ class OpenNewspaperDialog(QDialog):
         payload = payload or {}
         is_live = bool(payload.get("is_live"))
         updates = list(payload.get("updates") or [])
-        text = payload.get("text", "") or ""
+        text = str(payload.get("text", "") or "")
+        blocks = self.normalize_article_blocks(
+            payload.get("blocks", []) or []
+        )
 
         if is_live and updates:
-            formatted = []
+            blocks = []
+
             for index, update in enumerate(updates, 1):
-                formatted.append(f"LIVE UPDATE {index}\n{update}")
-            display_text = "\n\n".join(formatted)
-        else:
-            display_text = text
+                blocks.append({
+                    "type": "heading",
+                    "text": f"LIVE UPDATE {index}",
+                })
+                blocks.append({
+                    "type": "paragraph",
+                    "text": str(update or ""),
+                })
 
-        if not display_text.strip():
-            display_text = "No article text was found for this page."
+        if not blocks:
+            blocks = self.plain_text_to_blocks(text)
 
-        self.pages = self.paginate_text(display_text, chars_per_page=620)
+        if not blocks:
+            blocks = [{
+                "type": "paragraph",
+                "text": "No article text was found for this page.",
+            }]
+
+        self.pages = self.paginate_article_blocks(blocks)
         self.spread_index = 0
         self.render_spread()
 
-    def paginate_text(self, text, chars_per_page=1100):
-        """
-        Newspaper-style pagination:
-        - no scrolling
-        - preserve paragraph breaks
-        - split paragraphs/sentences across pages when needed
-        - measure actual rendered text height so bottom words do not get clipped
-        """
-        text = text.strip()
+    def normalize_article_blocks(self, blocks):
+        allowed_types = {
+            "heading",
+            "paragraph",
+            "list_item",
+            "quote",
+        }
+        normalized = []
+
+        for raw_block in blocks:
+            if not isinstance(raw_block, dict):
+                continue
+
+            block_type = str(
+                raw_block.get("type", "paragraph") or "paragraph"
+            ).strip().lower()
+            block_text = " ".join(
+                str(raw_block.get("text", "") or "").split()
+            )
+
+            if block_type not in allowed_types or not block_text:
+                continue
+
+            normalized_block = {
+                "type": block_type,
+                "text": block_text,
+            }
+            block_html = str(raw_block.get("html", "") or "").strip()
+
+            if block_html:
+                normalized_block["html"] = block_html
+
+            if bool(raw_block.get("continuation")):
+                normalized_block["continuation"] = True
+
+            raw_anchors = raw_block.get("anchors", []) or []
+
+            if isinstance(raw_anchors, str):
+                raw_anchors = [raw_anchors]
+
+            anchors = []
+
+            for raw_anchor in raw_anchors:
+                anchor = self.normalize_article_anchor(raw_anchor)
+
+                if anchor and anchor not in anchors:
+                    anchors.append(anchor)
+
+            if anchors:
+                normalized_block["anchors"] = anchors
+
+            normalized.append(normalized_block)
+
+        return normalized
+
+    def normalize_article_anchor(self, value):
+        anchor = unquote(
+            str(value or "").strip()
+        ).lstrip("#").strip().lower()
+
+        return anchor
+
+    def handle_article_link(self, link):
+        if isinstance(link, QUrl):
+            link_text = link.toString(QUrl.FullyEncoded)
+        else:
+            link_text = str(link or "").strip()
+
+        prefix = "article-anchor:"
+
+        if not link_text.lower().startswith(prefix):
+            return
+
+        encoded_anchor = link_text[len(prefix):]
+        anchor = self.normalize_article_anchor(
+            unquote(encoded_anchor)
+        )
+        page_index = self.article_anchor_pages.get(anchor)
+
+        if page_index is None:
+            print(
+                "Article anchor target was not found: "
+                f"{anchor}"
+            )
+            return
+
+        print(
+            f"ARTICLE INTERNAL LINK: {anchor} -> "
+            f"page {page_index + 1}"
+        )
+
+        self.spread_index = page_index // 2
+        self.render_spread()
+
+    def plain_text_to_blocks(self, text):
+        text = str(text or "").strip()
 
         if not text:
-            return [""]
-
-        page_width = max(320, int(self.left_page.width()) - 46)
-        page_height = max(320, int(self.left_page.height()) - 62)
-        metrics = self.left_page.fontMetrics()
-
-        def rendered_height(value):
-            return metrics.boundingRect(
-                0,
-                0,
-                page_width,
-                10000,
-                Qt.TextWordWrap,
-                value.strip(),
-            ).height()
-
-        def fits(value):
-            return rendered_height(value) <= page_height
+            return []
 
         raw_paragraphs = [
             part.strip()
@@ -860,90 +1008,359 @@ class OpenNewspaperDialog(QDialog):
             paragraph = ""
 
             for sentence in sentences:
-                test = f"{paragraph} {sentence}".strip()
+                candidate = f"{paragraph} {sentence}".strip()
 
-                if len(test) > 520 and paragraph:
-                    raw_paragraphs.append(paragraph.strip())
+                if len(candidate) > 520 and paragraph:
+                    raw_paragraphs.append(paragraph)
                     paragraph = sentence
                 else:
-                    paragraph = test
+                    paragraph = candidate
 
             if paragraph:
-                raw_paragraphs.append(paragraph.strip())
+                raw_paragraphs.append(paragraph)
 
-        pages = []
-        current = ""
-
-        def flush_current():
-            nonlocal current
-            if current.strip():
-                pages.append(current.strip())
-                current = ""
-
-        def add_words_as_needed(sentence, paragraph_break=False):
-            nonlocal current
-
-            words = sentence.split()
-            chunk = ""
-
-            for word in words:
-                test_chunk = f"{chunk} {word}".strip() if chunk else word
-
-                if fits(test_chunk):
-                    chunk = test_chunk
-                    continue
-
-                if chunk:
-                    add_piece(chunk, paragraph_break=paragraph_break)
-                    paragraph_break = False
-                    chunk = word
-                else:
-                    flush_current()
-                    pages.append(word)
-                    chunk = ""
-
-            if chunk:
-                add_piece(chunk, paragraph_break=paragraph_break)
-
-        def add_piece(piece, paragraph_break=False):
-            nonlocal current
-
-            piece = piece.strip()
-            if not piece:
-                return
-
-            separator = "\n\n" if paragraph_break and current else " "
-            candidate = f"{current}{separator}{piece}".strip() if current else piece
-
-            if fits(candidate):
-                current = candidate
-                return
-
-            if current:
-                flush_current()
-
-            if fits(piece):
-                current = piece
-                return
-
-            add_words_as_needed(piece, paragraph_break=False)
+        blocks = []
 
         for paragraph in raw_paragraphs:
-            sentences = [
-                sentence.strip()
-                for sentence in re.split(r"(?<=[.!?])\s+", paragraph)
-                if sentence.strip()
-            ]
+            block_type = "paragraph"
 
-            first_sentence = True
+            if re.match(
+                r"^(?:LIVE UPDATE\s+\d+|\d+\.\s+\S)",
+                paragraph,
+                flags=re.IGNORECASE,
+            ) and len(paragraph) <= 240:
+                block_type = "heading"
 
-            for sentence in sentences:
-                add_piece(sentence, paragraph_break=first_sentence and bool(current))
-                first_sentence = False
+            blocks.append({
+                "type": block_type,
+                "text": paragraph,
+            })
 
-        flush_current()
+        return blocks
 
-        return pages or [text]
+    def article_block_html(self, block):
+        block_type = str(
+            block.get("type", "paragraph") or "paragraph"
+        ).strip().lower()
+        block_text = str(block.get("text", "") or "").strip()
+        safe_text = html_module.escape(block_text).replace("\n", "<br>")
+        inline_html = str(block.get("html", "") or "").strip()
+        rendered_text = inline_html or safe_text
+
+        if block_type == "heading":
+            return (
+                '<div style="'
+                'font-family: Georgia; '
+                'font-size: 22px; '
+                'font-weight: 700; '
+                'line-height: 122%; '
+                'margin-top: 14px; '
+                'margin-bottom: 9px;'
+                '">'
+                f"{rendered_text}"
+                "</div>"
+            )
+
+        if block_type == "list_item":
+            list_prefix = (
+                ""
+                if bool(block.get("continuation"))
+                else "&#8226;&nbsp;&nbsp;"
+            )
+
+            return (
+                '<div style="'
+                "font-family: 'American Typewriter', "
+                "'Courier New', monospace; "
+                'font-size: 21px; '
+                'line-height: 145%; '
+                'margin-left: 12px; '
+                'margin-bottom: 12px;'
+                '">'
+                f"{list_prefix}{rendered_text}"
+                "</div>"
+            )
+
+        if block_type == "quote":
+            return (
+                '<div style="'
+                "font-family: 'American Typewriter', "
+                "'Courier New', monospace; "
+                'font-size: 21px; '
+                'font-style: italic; '
+                'line-height: 145%; '
+                'margin-left: 14px; '
+                'margin-right: 8px; '
+                'margin-bottom: 14px;'
+                '">'
+                f"{rendered_text}"
+                "</div>"
+            )
+
+        return (
+            '<div style="'
+            "font-family: 'American Typewriter', "
+            "'Courier New', monospace; "
+            'font-size: 21px; '
+            'line-height: 145%; '
+            'margin-bottom: 14px;'
+            '">'
+            f"{rendered_text}"
+            "</div>"
+        )
+
+    def article_page_html(self, blocks):
+        return (
+            '<div style="color: #1b130c;">'
+            + "".join(
+                self.article_block_html(block)
+                for block in blocks
+            )
+            + "</div>"
+        )
+
+    def paginate_text(self, text, chars_per_page=1100):
+        del chars_per_page
+        return self.paginate_article_blocks(
+            self.plain_text_to_blocks(text)
+        )
+
+    def paginate_article_blocks(self, blocks):
+        """
+        Newspaper-style structured pagination:
+        - no scrolling
+        - preserves headings, paragraphs, lists, and quotations
+        - fills remaining page space with part of a long paragraph
+        - measures the same rich text that QLabel renders
+        """
+        blocks = self.normalize_article_blocks(blocks)
+        self.article_anchor_pages = {}
+
+        if not blocks:
+            return [self.article_page_html([])]
+
+        page_width = max(
+            320,
+            int(self.left_page.width()) - 46,
+        )
+        page_height = max(
+            320,
+            int(self.left_page.height()) - 62,
+        )
+
+        def rendered_height(candidate_blocks):
+            document = QTextDocument()
+            document.setDocumentMargin(0)
+            document.setHtml(
+                self.article_page_html(candidate_blocks)
+            )
+            document.setTextWidth(page_width)
+
+            return document.size().height()
+
+        def fits(candidate_blocks):
+            return (
+                rendered_height(candidate_blocks)
+                <= page_height
+            )
+
+        def text_fragment(
+            block,
+            words,
+            continuation=False,
+        ):
+            fragment = {
+                "type": block["type"],
+                "text": " ".join(words).strip(),
+            }
+
+            if continuation:
+                fragment["continuation"] = True
+            else:
+                anchors = list(
+                    block.get("anchors", []) or []
+                )
+
+                if anchors:
+                    fragment["anchors"] = anchors
+
+            return fragment
+
+        def largest_prefix_that_fits(
+            block,
+            words,
+            existing_blocks,
+            continuation,
+        ):
+            low = 1
+            high = len(words)
+            best = 0
+
+            while low <= high:
+                middle = (low + high) // 2
+
+                fragment = text_fragment(
+                    block,
+                    words[:middle],
+                    continuation=continuation,
+                )
+
+                if fits(existing_blocks + [fragment]):
+                    best = middle
+                    low = middle + 1
+                else:
+                    high = middle - 1
+
+            return best
+
+        page_blocks = []
+        pages = []
+
+        def flush_page():
+            nonlocal page_blocks
+
+            if page_blocks:
+                page_index = len(pages)
+
+                for page_block in page_blocks:
+                    for anchor in (
+                        page_block.get("anchors", []) or []
+                    ):
+                        normalized_anchor = (
+                            self.normalize_article_anchor(anchor)
+                        )
+
+                        if normalized_anchor:
+                            self.article_anchor_pages.setdefault(
+                                normalized_anchor,
+                                page_index,
+                            )
+
+                pages.append(
+                    self.article_page_html(page_blocks)
+                )
+                page_blocks = []
+
+        def add_splittable_block(block):
+            nonlocal page_blocks
+
+            remaining_words = str(
+                block.get("text", "") or ""
+            ).split()
+
+            continuation = bool(
+                block.get("continuation")
+            )
+            first_fragment = True
+            has_internal_links = (
+                "article-anchor:"
+                in str(block.get("html", "") or "")
+            )
+
+            # Keep a compact jump menu intact so its individual links
+            # remain clickable. Ordinary article paragraphs still split
+            # across pages to fill available space.
+            if has_internal_links:
+                if not fits(page_blocks + [block]) and page_blocks:
+                    flush_page()
+
+                if fits(page_blocks + [block]):
+                    page_blocks.append(block)
+                    return
+
+            while remaining_words:
+                entire_fragment = text_fragment(
+                    block,
+                    remaining_words,
+                    continuation=continuation,
+                )
+
+                # Keep the original inline formatting when the entire,
+                # unsplit block fits on the current page.
+                if (
+                    first_fragment
+                    and not continuation
+                    and fits(page_blocks + [block])
+                ):
+                    page_blocks.append(block)
+                    return
+
+                if fits(page_blocks + [entire_fragment]):
+                    page_blocks.append(entire_fragment)
+                    return
+
+                prefix_count = largest_prefix_that_fits(
+                    block,
+                    remaining_words,
+                    page_blocks,
+                    continuation=continuation,
+                )
+
+                if prefix_count <= 0:
+                    if page_blocks:
+                        flush_page()
+                        continue
+
+                    # Prevent an infinite loop if one unusually long
+                    # word cannot fit by itself.
+                    prefix_count = 1
+
+                fragment = text_fragment(
+                    block,
+                    remaining_words[:prefix_count],
+                    continuation=continuation,
+                )
+
+                page_blocks.append(fragment)
+                remaining_words = remaining_words[
+                    prefix_count:
+                ]
+
+                if remaining_words:
+                    flush_page()
+                    continuation = True
+                    first_fragment = False
+
+        for index, block in enumerate(blocks):
+            # Keep a subsection heading with at least the beginning of
+            # its following paragraph whenever possible.
+            if (
+                block["type"] == "heading"
+                and page_blocks
+                and index + 1 < len(blocks)
+            ):
+                next_block = blocks[index + 1]
+                preview_words = (
+                    next_block["text"].split()[:18]
+                )
+                preview_block = {
+                    "type": next_block["type"],
+                    "text": " ".join(preview_words),
+                }
+
+                if (
+                    fits(page_blocks + [block])
+                    and not fits(
+                        page_blocks
+                        + [block, preview_block]
+                    )
+                ):
+                    flush_page()
+
+            if block["type"] == "heading":
+                if not fits(page_blocks + [block]):
+                    flush_page()
+
+                page_blocks.append(block)
+                continue
+
+            add_splittable_block(block)
+
+        flush_page()
+
+        return pages or [
+            self.article_page_html(blocks)
+        ]
 
     def render_spread(self):
         left_index = self.spread_index * 2
@@ -952,8 +1369,11 @@ class OpenNewspaperDialog(QDialog):
         left_text = self.pages[left_index] if left_index < len(self.pages) else ""
         right_text = self.pages[right_index] if right_index < len(self.pages) else ""
 
-        self.left_page.setText(left_text)
-        self.right_page.setText(right_text)
+        self.left_page.setHtml(left_text)
+        self.right_page.setHtml(right_text)
+
+        self.left_page.verticalScrollBar().setValue(0)
+        self.right_page.verticalScrollBar().setValue(0)
 
         # The article headline belongs only on the first newspaper spread.
         # Later spreads begin with article text at the very top of both pages.
@@ -978,6 +1398,8 @@ class OpenNewspaperDialog(QDialog):
 
         # Keep both fixed slots in place, but hide the entire back button
         # until the user has moved beyond the first spread.
+        self.back_to_top_button.setVisible(has_previous)
+        self.back_to_top_button.setEnabled(has_previous)
         self.prev_button.setVisible(has_previous)
         self.prev_button.setEnabled(has_previous)
 
@@ -1004,6 +1426,11 @@ class OpenNewspaperDialog(QDialog):
     def previous_spread(self):
         if self.spread_index > 0:
             self.spread_index -= 1
+            self.render_spread()
+
+    def return_to_first_spread(self):
+        if self.spread_index > 0:
+            self.spread_index = 0
             self.render_spread()
 
     def closeEvent(self, event):

@@ -483,21 +483,460 @@ def fetch_espn_article_payload(url):
     const root = roots[0] || document.body;
 
     const seen = new Set();
-    const paragraphs = [];
+    let blocks = [];
 
-    for (const node of root.querySelectorAll("p")) {
-        const paragraph = clean(node.innerText || node.textContent);
-        const key = paragraph.toLowerCase();
+    const usableHeading = value => {
+        const text = clean(value);
 
-        if (!usable(paragraph) || seen.has(key)) {
+        if (text.length < 8 || text.length > 240) {
+            return false;
+        }
+
+        const lowered = text.toLowerCase();
+
+        if (blockedBits.some(bit => lowered.includes(bit))) {
+            return false;
+        }
+
+        return lowered !== headline.toLowerCase();
+    };
+
+    const escapeHtml = value => String(value || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+
+    const normalizeFragment = value => {
+        const raw = String(value || "")
+            .replace(/^#/, "")
+            .trim();
+
+        if (!raw) {
+            return "";
+        }
+
+        try {
+            return decodeURIComponent(raw);
+        } catch (_error) {
+            return raw;
+        }
+    };
+
+    const currentUrl = new URL(window.location.href);
+    const currentPath = currentUrl.pathname.replace(/\/+$/, "");
+    const internalFragments = new Set();
+
+    const internalFragmentForHref = value => {
+        const raw = String(value || "").trim();
+
+        if (!raw) {
+            return "";
+        }
+
+        try {
+            const candidateUrl = new URL(raw, currentUrl.href);
+            const candidatePath = candidateUrl.pathname.replace(/\/+$/, "");
+
+            if (
+                candidateUrl.origin !== currentUrl.origin ||
+                candidatePath !== currentPath ||
+                !candidateUrl.hash
+            ) {
+                return "";
+            }
+
+            return normalizeFragment(candidateUrl.hash);
+        } catch (_error) {
+            return raw.startsWith("#")
+                ? normalizeFragment(raw)
+                : "";
+        }
+    };
+
+    const inlineHtml = node => {
+        const renderChild = child => {
+            if (child.nodeType === Node.TEXT_NODE) {
+                return escapeHtml(
+                    String(child.textContent || "")
+                        .replace(/\s+/g, " ")
+                );
+            }
+
+            if (child.nodeType !== Node.ELEMENT_NODE) {
+                return "";
+            }
+
+            const tag = String(child.tagName || "").toLowerCase();
+            const content = Array.from(child.childNodes)
+                .map(renderChild)
+                .join("");
+
+            if (tag === "strong" || tag === "b") {
+                return `<strong>${content}</strong>`;
+            }
+
+            if (tag === "em" || tag === "i") {
+                return `<em>${content}</em>`;
+            }
+
+            if (tag === "a") {
+                const linkText = escapeHtml(
+                    clean(child.innerText || child.textContent || "")
+                );
+                const fragment = internalFragmentForHref(
+                    child.getAttribute("href") || ""
+                );
+
+                if (fragment) {
+                    internalFragments.add(fragment);
+
+                    return (
+                        '<a href="article-anchor:'
+                        + encodeURIComponent(fragment)
+                        + '" style="color:#0057b8; '
+                        + 'text-decoration:none; font-weight:700;">'
+                        + linkText
+                        + "</a>"
+                    );
+                }
+
+                // External ESPN links keep their visible words but lose
+                // hyperlink styling and interaction inside the newspaper.
+                return linkText;
+            }
+
+            if (tag === "br") {
+                return "<br>";
+            }
+
+            return content;
+        };
+
+        return Array.from(node.childNodes)
+            .map(renderChild)
+            .join("")
+            .trim();
+    };
+
+    const excludedContainerBits = [
+        "editors-picks",
+        "editor-picks",
+        "editors_picks",
+        "editor_picks",
+        "editorspicks",
+        "editorpicks",
+        "related-content",
+        "related-stories",
+        "related_stories",
+        "recommendation",
+        "recommended",
+        "recirculation",
+        "recirc",
+        "sidebar",
+        "side-rail",
+        "right-rail",
+        "content-rail",
+        "most-popular",
+        "trending",
+        "story-feed",
+        "content-feed",
+        "author-card",
+        "author-bio",
+        "byline",
+        "newsletter",
+        "promo-module"
+    ];
+
+    const excludedSectionTitles = [
+        "editor's picks",
+        "editors' picks",
+        "editors picks",
+        "related stories",
+        "related content",
+        "recommended",
+        "you may also like",
+        "more from espn",
+        "more on this topic",
+        "latest stories",
+        "top stories"
+    ];
+
+    const elementMetadata = element => [
+        element.id || "",
+        element.className || "",
+        element.getAttribute?.("data-testid") || "",
+        element.getAttribute?.("data-module") || "",
+        element.getAttribute?.("aria-label") || "",
+        element.getAttribute?.("role") || ""
+    ].join(" ").toLowerCase();
+
+    const metadataIsExcluded = element => {
+        const metadata = elementMetadata(element);
+
+        return excludedContainerBits.some(
+            bit => metadata.includes(bit)
+        );
+    };
+
+    const firstSectionHeading = element => {
+        const heading = element.querySelector?.(
+            "h1, h2, h3, h4, [role='heading']"
+        );
+
+        return clean(
+            heading
+                ? (heading.innerText || heading.textContent)
+                : ""
+        ).toLowerCase();
+    };
+
+    const isExcludedNode = node => {
+        if (
+            node.closest(
+                "aside, nav, footer, [role='complementary'], "
+                + "[aria-label*='editor' i], "
+                + "[aria-label*='related' i], "
+                + "[aria-label*='recommended' i]"
+            )
+        ) {
+            return true;
+        }
+
+        let container = node.parentElement;
+
+        while (container && container !== root) {
+            if (metadataIsExcluded(container)) {
+                return true;
+            }
+
+            const sectionHeading = firstSectionHeading(container);
+
+            if (
+                sectionHeading &&
+                excludedSectionTitles.some(
+                    title => sectionHeading.includes(title)
+                )
+            ) {
+                return true;
+            }
+
+            container = container.parentElement;
+        }
+
+        return false;
+    };
+
+    const articleNodes = root.querySelectorAll(
+        "h2, h3, h4, [role='heading'], p, li, blockquote"
+    );
+    const blockByNode = new Map();
+
+    for (const node of articleNodes) {
+        const tag = String(node.tagName || "").toLowerCase();
+
+        if (isExcludedNode(node)) {
+            continue;
+        }
+
+        // A list item or blockquote can contain its own paragraph element.
+        // Keep only the outer semantic block so text is not duplicated.
+        if (
+            tag === "p" &&
+            (node.closest("li") || node.closest("blockquote"))
+        ) {
+            continue;
+        }
+
+        const text = clean(node.innerText || node.textContent);
+        const key = text.toLowerCase();
+
+        let blockType = "paragraph";
+
+        if (
+            ["h2", "h3", "h4"].includes(tag) ||
+            node.getAttribute("role") === "heading"
+        ) {
+            blockType = "heading";
+        } else if (tag === "li") {
+            blockType = "list_item";
+        } else if (tag === "blockquote") {
+            blockType = "quote";
+        }
+
+        const hasInternalArticleLinks = Array.from(
+            node.querySelectorAll("a[href]")
+        ).some(link => Boolean(
+            internalFragmentForHref(
+                link.getAttribute("href") || ""
+            )
+        ));
+
+        const valid = (
+            blockType === "heading"
+                ? usableHeading(text)
+                : (
+                    usable(text)
+                    || (
+                        text.length >= 8
+                        && hasInternalArticleLinks
+                    )
+                )
+        );
+
+        if (!valid || seen.has(key)) {
             continue;
         }
 
         seen.add(key);
-        paragraphs.push(paragraph);
+
+        const block = {
+            type: blockType,
+            text,
+            html: inlineHtml(node)
+        };
+
+        blocks.push(block);
+        blockByNode.set(node, block);
     }
 
-    let articleText = paragraphs.join("\n\n").trim();
+    const normalizedAnchorValue = element => normalizeFragment(
+        element?.id ||
+        element?.getAttribute?.("name") ||
+        ""
+    ).toLowerCase();
+
+    const findAnchorTarget = fragment => {
+        const exactIdTarget = document.getElementById(fragment);
+
+        if (exactIdTarget) {
+            return exactIdTarget;
+        }
+
+        const normalizedFragment = normalizeFragment(fragment).toLowerCase();
+
+        return Array.from(
+            document.querySelectorAll("[id], [name]")
+        ).find(
+            element => (
+                normalizedAnchorValue(element)
+                === normalizedFragment
+            )
+        ) || null;
+    };
+
+    const includedNodes = Array.from(blockByNode.keys());
+
+    const isIncludedHeading = node => (
+        Boolean(node)
+        && blockByNode.get(node)?.type === "heading"
+    );
+
+    const firstFollowingIncludedNode = (
+        target,
+        predicate = () => true
+    ) => includedNodes.find(node => {
+        if (!predicate(node)) {
+            return false;
+        }
+
+        const relation = target.compareDocumentPosition(node);
+
+        return Boolean(
+            relation & Node.DOCUMENT_POSITION_FOLLOWING
+        );
+    }) || null;
+
+    const destinationNodeForTarget = target => {
+        if (!target) {
+            return null;
+        }
+
+        // Prefer the actual subsection heading associated with an ESPN
+        // fragment marker. This prevents a marker near the end of the
+        // previous section from attaching to that previous paragraph.
+        if (isIncludedHeading(target)) {
+            return target;
+        }
+
+        const containingHeading = includedNodes.find(
+            node => (
+                isIncludedHeading(node)
+                && node.contains(target)
+            )
+        );
+
+        if (containingHeading) {
+            return containingHeading;
+        }
+
+        const descendantHeading = includedNodes.find(
+            node => (
+                isIncludedHeading(node)
+                && target.contains(node)
+            )
+        );
+
+        if (descendantHeading) {
+            return descendantHeading;
+        }
+
+        const followingHeading = firstFollowingIncludedNode(
+            target,
+            isIncludedHeading
+        );
+
+        if (followingHeading) {
+            return followingHeading;
+        }
+
+        // Retain the previous generic mapping only when no associated
+        // subsection heading can be found.
+        if (blockByNode.has(target)) {
+            return target;
+        }
+
+        const containingBlockNode = includedNodes.find(
+            node => node.contains(target)
+        );
+
+        if (containingBlockNode) {
+            return containingBlockNode;
+        }
+
+        const descendant = includedNodes.find(
+            node => target.contains(node)
+        );
+
+        if (descendant) {
+            return descendant;
+        }
+
+        return firstFollowingIncludedNode(target);
+    };
+
+    for (const fragment of internalFragments) {
+        const target = findAnchorTarget(fragment);
+        const destinationNode = destinationNodeForTarget(target);
+        const destinationBlock = blockByNode.get(destinationNode);
+
+        if (!destinationBlock) {
+            continue;
+        }
+
+        if (!Array.isArray(destinationBlock.anchors)) {
+            destinationBlock.anchors = [];
+        }
+
+        if (!destinationBlock.anchors.includes(fragment)) {
+            destinationBlock.anchors.push(fragment);
+        }
+    }
+
+    let articleText = blocks
+        .map(block => block.text)
+        .join("\n\n")
+        .trim();
 
     if (articleText.length < 180) {
         const rawText = String(
@@ -526,16 +965,27 @@ def fetch_espn_article_payload(url):
         }
 
         articleText = articleLines.join("\n\n").trim();
+        blocks = articleLines.map(line => ({
+            type: "paragraph",
+            text: line
+        }));
 
         if (articleText.length < 180 && rawText.length >= 180) {
             articleText = clean(rawText);
+            blocks = [{
+                type: "paragraph",
+                text: articleText
+            }];
         }
     }
 
     return {
         headline,
         text: articleText,
-        paragraphCount: paragraphs.length,
+        blocks,
+        paragraphCount: blocks.filter(
+            block => block.type === "paragraph"
+        ).length,
         pageTitle: document.title || ""
     };
 })()
@@ -546,7 +996,60 @@ def fetch_espn_article_payload(url):
         if not isinstance(payload, dict):
             raise RuntimeError("Chrome did not return an ESPN article payload")
 
-        article_text = clean_text(payload.get("text", ""))
+        allowed_block_types = {
+            "heading",
+            "paragraph",
+            "list_item",
+            "quote",
+        }
+        article_blocks = []
+
+        for raw_block in payload.get("blocks", []) or []:
+            if not isinstance(raw_block, dict):
+                continue
+
+            block_type = str(
+                raw_block.get("type", "paragraph") or "paragraph"
+            ).strip().lower()
+            block_text = clean_text(raw_block.get("text", ""))
+
+            if block_type not in allowed_block_types or not block_text:
+                continue
+
+            article_block = {
+                "type": block_type,
+                "text": block_text,
+            }
+            block_html = str(raw_block.get("html", "") or "").strip()
+
+            if block_html:
+                article_block["html"] = block_html
+
+            raw_anchors = raw_block.get("anchors", []) or []
+
+            if isinstance(raw_anchors, str):
+                raw_anchors = [raw_anchors]
+
+            anchors = []
+
+            for raw_anchor in raw_anchors:
+                anchor = str(raw_anchor or "").strip().lstrip("#")
+
+                if anchor and anchor not in anchors:
+                    anchors.append(anchor)
+
+            if anchors:
+                article_block["anchors"] = anchors
+
+            article_blocks.append(article_block)
+
+        article_text = "\n\n".join(
+            block["text"]
+            for block in article_blocks
+        ).strip()
+
+        if not article_text:
+            article_text = clean_text(payload.get("text", ""))
 
         if not is_valid_article_text(article_text):
             raise RuntimeError(
@@ -558,16 +1061,20 @@ def fetch_espn_article_payload(url):
         print(
             "ESPN CHROME ARTICLE TEXT: "
             f"{len(article_text)} chars | "
-            f"{payload.get('paragraphCount', 0)} paragraphs"
+            f"{payload.get('paragraphCount', 0)} paragraphs | "
+            f"{len(article_blocks)} structured blocks"
         )
 
         return {
             "is_live": False,
             "method": "espn_chrome",
+            "format_version": 7,
             "text": article_text,
+            "blocks": article_blocks,
             "updates": [],
             "headline": clean_text(payload.get("headline", "")),
         }
+
 
     finally:
         if target_id:
@@ -842,11 +1349,38 @@ ARTICLE_TEXT_PREFETCH_EVENTS = {}
 ARTICLE_TEXT_PREFETCH_EVENTS_LOCK = threading.Lock()
 
 
+def cached_article_payload_is_usable(url, payload):
+    if not isinstance(payload, dict):
+        return False
+
+    if not is_valid_article_text(payload.get("text", "")):
+        return False
+
+    parsed_url = urlparse(str(url or ""))
+    hostname = parsed_url.netloc.lower()
+    is_espn = hostname == "espn.com" or hostname.endswith(".espn.com")
+
+    if is_espn:
+        try:
+            format_version = int(
+                payload.get("format_version", 0) or 0
+            )
+        except (TypeError, ValueError):
+            format_version = 0
+
+        return (
+            format_version >= 7
+            and bool(payload.get("blocks"))
+        )
+
+    return True
+
+
 def fetch_article_text_payload(url):
     url = str(url or "").strip()
 
     cached = get_cached_article_text_payload(url)
-    if cached and is_valid_article_text(cached.get("text", "")):
+    if cached_article_payload_is_usable(url, cached):
         print(f"ARTICLE TEXT CACHE HIT: {url}")
         return cached
 
@@ -860,7 +1394,7 @@ def fetch_article_text_payload(url):
         event.wait(timeout=25)
 
         cached = get_cached_article_text_payload(url)
-        if cached:
+        if cached_article_payload_is_usable(url, cached):
             print(f"ARTICLE TEXT CACHE HIT AFTER PRELOAD: {url}")
             return cached
 
@@ -875,7 +1409,9 @@ def prefetch_article_text_payload(url):
     if not url:
         return
 
-    if get_cached_article_text_payload(url):
+    cached = get_cached_article_text_payload(url)
+
+    if cached_article_payload_is_usable(url, cached):
         print(f"ARTICLE TEXT ALREADY CACHED: {url}")
         return
 
@@ -894,7 +1430,7 @@ def prefetch_article_text_payload(url):
 
             cached = get_cached_article_text_payload(url)
 
-            if cached:
+            if cached_article_payload_is_usable(url, cached):
                 print(f"ARTICLE TEXT ALREADY CACHED: {url}")
                 return
 
