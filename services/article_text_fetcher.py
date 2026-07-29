@@ -1,3 +1,4 @@
+import base64
 import html
 import json
 import re
@@ -121,45 +122,130 @@ def extract_article_body_from_json_ld(page_html):
     return bodies[0] if bodies else ""
 
 
+def contains_meaningful_non_link_text(value):
+    """
+    Return True when text outside a hyperlink contains at least
+    one letter or number.
+
+    Whitespace and punctuation surrounding a standalone hyperlink
+    do not make it part of an article sentence.
+    """
+    cleaned = clean_text(value)
+    return any(character.isalnum() for character in cleaned)
+
+
 class ParagraphExtractor(HTMLParser):
     def __init__(self):
         super().__init__()
         self.in_script = False
         self.in_style = False
+        self.article_depth = 0
         self.in_p = False
+        self.paragraph_is_in_article = False
+        self.anchor_depth = 0
+        self.has_link = False
         self.current = []
+        self.non_link_text = []
         self.paragraphs = []
+        self.article_paragraphs = []
+
+    def _reset_paragraph(self):
+        self.in_p = False
+        self.paragraph_is_in_article = False
+        self.anchor_depth = 0
+        self.has_link = False
+        self.current = []
+        self.non_link_text = []
 
     def handle_starttag(self, tag, attrs):
         tag = tag.lower()
 
         if tag == "script":
             self.in_script = True
-        elif tag == "style":
+            return
+
+        if tag == "style":
             self.in_style = True
-        elif tag == "p" and not self.in_script and not self.in_style:
+            return
+
+        if self.in_script or self.in_style:
+            return
+
+        if tag == "article":
+            self.article_depth += 1
+            return
+
+        if tag == "p":
             self.in_p = True
+            self.paragraph_is_in_article = (
+                self.article_depth > 0
+            )
+            self.anchor_depth = 0
+            self.has_link = False
             self.current = []
+            self.non_link_text = []
+            return
+
+        if tag == "a" and self.in_p:
+            self.anchor_depth += 1
+            self.has_link = True
 
     def handle_endtag(self, tag):
         tag = tag.lower()
 
         if tag == "script":
             self.in_script = False
-        elif tag == "style":
+            return
+
+        if tag == "style":
             self.in_style = False
-        elif tag == "p" and self.in_p:
+            return
+
+        if self.in_script or self.in_style:
+            return
+
+        if tag == "a" and self.in_p:
+            if self.anchor_depth > 0:
+                self.anchor_depth -= 1
+            return
+
+        if tag == "p" and self.in_p:
             text = clean_text(" ".join(self.current))
-            if text:
+            outside_link = clean_text(
+                " ".join(self.non_link_text)
+            )
+
+            standalone_link_block = (
+                self.has_link
+                and not contains_meaningful_non_link_text(
+                    outside_link
+                )
+            )
+
+            if text and not standalone_link_block:
                 self.paragraphs.append(text)
 
-            self.in_p = False
-            self.current = []
+                if self.paragraph_is_in_article:
+                    self.article_paragraphs.append(text)
+
+            self._reset_paragraph()
+            return
+
+        if tag == "article" and self.article_depth > 0:
+            self.article_depth -= 1
 
     def handle_data(self, data):
-        if self.in_p and not self.in_script and not self.in_style:
-            self.current.append(data)
+        if (
+            not self.in_p
+            or self.in_script
+            or self.in_style
+        ):
+            return
 
+        self.current.append(data)
+
+        if self.anchor_depth == 0:
+            self.non_link_text.append(data)
 
 def looks_like_article_paragraph(text):
     text = clean_text(text)
@@ -195,7 +281,12 @@ def extract_article_text_from_paragraphs(page_html):
     paragraphs = []
     seen = set()
 
-    for paragraph in parser.paragraphs:
+    source_paragraphs = (
+        parser.article_paragraphs
+        or parser.paragraphs
+    )
+
+    for paragraph in source_paragraphs:
         paragraph = clean_text(paragraph)
         key = paragraph.lower()
 
@@ -209,6 +300,469 @@ def extract_article_text_from_paragraphs(page_html):
 
     return clean_text(" ".join(paragraphs))
 
+
+
+def _srcset_candidates(value):
+    candidates = []
+
+    for item in str(value or "").split(","):
+        item = item.strip()
+
+        if not item:
+            continue
+
+        pieces = item.split()
+        candidate_url = pieces[0].strip()
+        score = 1.0
+
+        if len(pieces) > 1:
+            descriptor = pieces[-1].strip().lower()
+
+            try:
+                if descriptor.endswith("w"):
+                    score = float(descriptor[:-1])
+                elif descriptor.endswith("x"):
+                    score = float(descriptor[:-1]) * 1000.0
+            except (TypeError, ValueError):
+                score = 1.0
+
+        candidates.append((score, candidate_url))
+
+    return candidates
+
+
+def _image_candidates_from_attrs(attrs):
+    values = {
+        str(name or "").lower(): str(value or "").strip()
+        for name, value in attrs
+    }
+    candidates = []
+
+    for attribute_name in (
+        "srcset",
+        "data-srcset",
+        "data-lazy-srcset",
+    ):
+        candidates.extend(
+            _srcset_candidates(values.get(attribute_name, ""))
+        )
+
+    for score, attribute_name in (
+        (900.0, "data-large-image"),
+        (850.0, "data-image-url"),
+        (800.0, "data-original"),
+        (750.0, "data-lazy-src"),
+        (700.0, "data-src"),
+        (100.0, "src"),
+    ):
+        candidate_url = values.get(attribute_name, "").strip()
+
+        if candidate_url:
+            candidates.append((score, candidate_url))
+
+    return candidates
+
+
+def _usable_image_url(value, page_url):
+    candidate = html.unescape(str(value or "")).strip()
+
+    if not candidate:
+        return ""
+
+    lowered = candidate.lower()
+
+    if (
+        lowered.startswith("data:")
+        or lowered.startswith("blob:")
+        or "transparent" in lowered
+        or "placeholder" in lowered
+        or "spacer" in lowered
+        or "pixel" in lowered
+    ):
+        return ""
+
+    resolved = urljoin(str(page_url or ""), candidate)
+    parsed = urlparse(resolved)
+
+    if parsed.scheme not in {"http", "https"}:
+        return ""
+
+    return resolved
+
+
+def _html_class_tokens(attrs):
+    for name, value in attrs:
+        if str(name or "").lower() != "class":
+            continue
+
+        return {
+            token.lower()
+            for token in str(value or "").split()
+            if token
+        }
+
+    return set()
+
+
+class FoxStructuredExtractor(ParagraphExtractor):
+    def __init__(self):
+        super().__init__()
+        self.article_blocks = []
+
+        # Preserve support for semantic figure/figcaption markup.
+        self.figure_depth = 0
+        self.figure_is_in_article = False
+        self.figure_image_candidates = []
+        self.figure_text = []
+        self.figcaption_depth = 0
+        self.figcaption_text = []
+
+        # Verified Fox inline-image structure:
+        #
+        # div.image-ct.inline
+        #   div.m
+        #     picture / source / img
+        #   div.info
+        #     div.caption
+        self.inline_image_depth = 0
+        self.inline_image_is_in_article = False
+        self.inline_image_candidates = []
+        self.inline_info_depth = 0
+        self.inline_caption_depth = 0
+        self.inline_caption_text = []
+
+    def _reset_figure(self):
+        self.figure_depth = 0
+        self.figure_is_in_article = False
+        self.figure_image_candidates = []
+        self.figure_text = []
+        self.figcaption_depth = 0
+        self.figcaption_text = []
+
+    def _finish_figure(self):
+        caption = clean_text(
+            " ".join(self.figcaption_text)
+            or " ".join(self.figure_text)
+        )
+
+        if (
+            self.figure_is_in_article
+            and caption
+            and self.figure_image_candidates
+        ):
+            _score, image_url = max(
+                self.figure_image_candidates,
+                key=lambda item: item[0],
+            )
+
+            self.article_blocks.append({
+                "type": "image",
+                "text": caption,
+                "image_url": image_url,
+            })
+
+        self._reset_figure()
+
+    def _reset_inline_image(self):
+        self.inline_image_depth = 0
+        self.inline_image_is_in_article = False
+        self.inline_image_candidates = []
+        self.inline_info_depth = 0
+        self.inline_caption_depth = 0
+        self.inline_caption_text = []
+
+    def _finish_inline_image(self):
+        caption = clean_text(
+            " ".join(self.inline_caption_text)
+        )
+
+        if (
+            self.inline_image_is_in_article
+            and caption
+            and self.inline_image_candidates
+        ):
+            _score, image_url = max(
+                self.inline_image_candidates,
+                key=lambda item: item[0],
+            )
+
+            self.article_blocks.append({
+                "type": "image",
+                "text": caption,
+                "image_url": image_url,
+            })
+
+        self._reset_inline_image()
+
+    def handle_starttag(self, tag, attrs):
+        tag = tag.lower()
+        class_tokens = _html_class_tokens(attrs)
+
+        # Once inside a verified inline-image container, do not
+        # pass its nested caption paragraph to ParagraphExtractor.
+        if self.inline_image_depth > 0:
+            if tag == "div":
+                self.inline_image_depth += 1
+
+                if (
+                    "info" in class_tokens
+                    and self.inline_info_depth == 0
+                ):
+                    self.inline_info_depth = (
+                        self.inline_image_depth
+                    )
+
+                if (
+                    "caption" in class_tokens
+                    and self.inline_info_depth > 0
+                    and self.inline_caption_depth == 0
+                ):
+                    self.inline_caption_depth = (
+                        self.inline_image_depth
+                    )
+
+            if tag in {"img", "source"}:
+                self.inline_image_candidates.extend(
+                    _image_candidates_from_attrs(attrs)
+                )
+
+            return
+
+        if self.figure_depth > 0:
+            if tag in {"img", "source"}:
+                self.figure_image_candidates.extend(
+                    _image_candidates_from_attrs(attrs)
+                )
+
+            if tag == "figcaption":
+                self.figcaption_depth += 1
+
+            if tag == "figure":
+                self.figure_depth += 1
+
+            return
+
+        if (
+            tag == "div"
+            and {"image-ct", "inline"}.issubset(
+                class_tokens
+            )
+            and not self.in_script
+            and not self.in_style
+        ):
+            self.inline_image_depth = 1
+            self.inline_image_is_in_article = (
+                self.article_depth > 0
+            )
+            self.inline_image_candidates = []
+            self.inline_info_depth = 0
+            self.inline_caption_depth = 0
+            self.inline_caption_text = []
+            return
+
+        if (
+            tag == "figure"
+            and not self.in_script
+            and not self.in_style
+        ):
+            self.figure_depth = 1
+            self.figure_is_in_article = (
+                self.article_depth > 0
+            )
+            self.figure_image_candidates = []
+            self.figure_text = []
+            self.figcaption_depth = 0
+            self.figcaption_text = []
+            return
+
+        super().handle_starttag(tag, attrs)
+
+    def handle_endtag(self, tag):
+        tag = tag.lower()
+
+        if self.inline_image_depth > 0:
+            if tag == "div":
+                if (
+                    self.inline_caption_depth
+                    == self.inline_image_depth
+                ):
+                    self.inline_caption_depth = 0
+
+                if (
+                    self.inline_info_depth
+                    == self.inline_image_depth
+                ):
+                    self.inline_info_depth = 0
+
+                self.inline_image_depth -= 1
+
+                if self.inline_image_depth == 0:
+                    self._finish_inline_image()
+
+            return
+
+        if self.figure_depth > 0:
+            if (
+                tag == "figcaption"
+                and self.figcaption_depth > 0
+            ):
+                self.figcaption_depth -= 1
+                return
+
+            if tag == "figure":
+                self.figure_depth -= 1
+
+                if self.figure_depth == 0:
+                    self._finish_figure()
+
+                return
+
+            return
+
+        previous_count = len(self.article_paragraphs)
+        super().handle_endtag(tag)
+
+        if (
+            tag == "p"
+            and len(self.article_paragraphs) > previous_count
+        ):
+            self.article_blocks.append({
+                "type": "paragraph",
+                "text": self.article_paragraphs[-1],
+            })
+
+    def handle_data(self, data):
+        if self.inline_image_depth > 0:
+            if self.inline_caption_depth > 0:
+                self.inline_caption_text.append(data)
+
+            return
+
+        if self.figure_depth > 0:
+            self.figure_text.append(data)
+
+            if self.figcaption_depth > 0:
+                self.figcaption_text.append(data)
+
+            return
+
+        super().handle_data(data)
+
+def _trim_structured_blocks_to_cleaned_text(blocks, cleaned_text):
+    target = clean_text(cleaned_text)
+
+    if not target:
+        return []
+
+    kept = []
+    accumulated = ""
+
+    for raw_block in blocks:
+        block = dict(raw_block)
+        block_type = str(
+            block.get("type", "paragraph") or "paragraph"
+        ).strip().lower()
+
+        if block_type == "image":
+            kept.append(block)
+            continue
+
+        block_text = clean_text(block.get("text", ""))
+
+        if not block_text:
+            continue
+
+        candidate = clean_text(
+            f"{accumulated} {block_text}"
+        )
+
+        if target.startswith(candidate):
+            kept.append(block)
+            accumulated = candidate
+            continue
+
+        if target.startswith(accumulated):
+            remaining = target[len(accumulated):].strip()
+
+            if remaining and block_text.startswith(remaining):
+                block["text"] = remaining
+                block.pop("html", None)
+                kept.append(block)
+
+        break
+
+    return kept
+
+
+def extract_fox_article_payload(page_html, page_url):
+    parser = FoxStructuredExtractor()
+    parser.feed(page_html)
+
+    blocks = []
+    seen_paragraphs = set()
+    seen_images = set()
+
+    for raw_block in parser.article_blocks:
+        block_type = str(
+            raw_block.get("type", "paragraph") or "paragraph"
+        ).strip().lower()
+
+        if block_type == "image":
+            caption = clean_text(raw_block.get("text", ""))
+            image_url = _usable_image_url(
+                raw_block.get("image_url", ""),
+                page_url,
+            )
+            image_key = (
+                image_url.lower(),
+                caption.lower(),
+            )
+
+            if (
+                not image_url
+                or not caption
+                or image_key in seen_images
+            ):
+                continue
+
+            seen_images.add(image_key)
+            blocks.append({
+                "type": "image",
+                "text": caption,
+                "image_url": image_url,
+            })
+            continue
+
+        paragraph = clean_text(raw_block.get("text", ""))
+        paragraph_key = paragraph.lower()
+
+        if (
+            not paragraph
+            or paragraph_key in seen_paragraphs
+            or not looks_like_article_paragraph(paragraph)
+        ):
+            continue
+
+        seen_paragraphs.add(paragraph_key)
+        blocks.append({
+            "type": "paragraph",
+            "text": paragraph,
+        })
+
+    text = clean_text(" ".join(
+        block["text"]
+        for block in blocks
+        if block.get("type") != "image"
+    ))
+    cleaned_text = prepare_article_text_for_display(text)
+
+    return {
+        "text": cleaned_text,
+        "blocks": _trim_structured_blocks_to_cleaned_text(
+            blocks,
+            cleaned_text,
+        ),
+    }
 
 def is_valid_article_text(text):
     cleaned = clean_text(text)
@@ -234,6 +788,206 @@ def is_valid_article_text(text):
 
     sentence_marks = cleaned.count(".") + cleaned.count("?") + cleaned.count("!")
     return sentence_marks >= 2
+
+
+ARTICLE_END_CLEANUP_VERSION = 5
+
+ARTICLE_END_BOILERPLATE_PATTERNS = (
+    # News-tip solicitation sections.
+    re.compile(
+        r"\s*(?:News Tips\s*)?"
+        r"Got (?:a )?(?:confidential )?news tip\?\s*"
+        r"We want to hear from you\.?"
+        r"(?:\s*Get this delivered to your inbox,?\s*"
+        r"and more info about our products and services\.?)?"
+        r"\s*$",
+        flags=re.IGNORECASE,
+    ),
+    re.compile(
+        r"\s*News Tips\s*"
+        r"(?:Have|Got) (?:a )?news tip\?\s*"
+        r"(?:We want to hear from you|Tell us about it)\.?\s*$",
+        flags=re.IGNORECASE,
+    ),
+    re.compile(
+        r"\s*Got (?:a )?confidential news tip\?\s*"
+        r"We want to hear from you\.?\s*$",
+        flags=re.IGNORECASE,
+    ),
+
+    # Social-media and reporter contact prompts.
+    re.compile(
+        r"\s*Follow\b.*$",
+        flags=re.IGNORECASE,
+    ),
+    re.compile(
+        r"\s*(?:"
+        r"Email\s+(?:the\s+)?(?:reporter|author|writer)\s+at\s+"
+        r"|Email\s+(?:news\s+)?tips\s+to\s+"
+        r"|Send\s+(?:news\s+)?tips\s+to\s+"
+        r")"
+        r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}"
+        r"(?:[.,;]?\s+(?:and\s+)?follow\b.*)?"
+        r"\.?\s*$",
+        flags=re.IGNORECASE,
+    ),
+
+    # CNBC-style market-data notices.
+    re.compile(
+        r"\s*(?:Data is a real-time snapshot\.?\s*)?"
+        r"\*?\s*Data is delayed at least \d+\s+minutes\.?\s*"
+        r"Global Business and Financial News, Stock Quotes, "
+        r"and Market Data and Analysis\.?\s*$",
+        flags=re.IGNORECASE,
+    ),
+    re.compile(
+        r"\s*Global Business and Financial News, Stock Quotes, "
+        r"and Market Data and Analysis\.?\s*$",
+        flags=re.IGNORECASE,
+    ),
+    re.compile(
+        r"\s*\*?\s*Data is delayed at least \d+\s+minutes\.?\s*$",
+        flags=re.IGNORECASE,
+    ),
+    re.compile(
+        r"\s*Data is a real-time snapshot\.?\s*$",
+        flags=re.IGNORECASE,
+    ),
+
+    # Reporter/author biography paragraphs at the article's end.
+    # The name portion remains case-sensitive so an ordinary sentence
+    # cannot accidentally be interpreted as a reporter name.
+    re.compile(
+        r"\s*[A-Z][A-Za-zÀ-ÖØ-öø-ÿ’'.-]+"
+        r"(?:\s+[A-Z][A-Za-zÀ-ÖØ-öø-ÿ’'.-]+){1,5}"
+        r"\s+(?i:is\s+(?:an?|the)\s+[^.]{0,320}"
+        r"\b(?:reporter|correspondent|editor|producer|journalist)\b"
+        r"[^.]*\."
+        r"(?:\s+(?:Previous(?:ly)?|Before joining|Prior to joining|"
+        r"She previously|He previously|They previously|Her bylines|"
+        r"His bylines|Their bylines)\b[^.]*\.){0,3})\s*$",
+    ),
+)
+
+TRAILING_CONTRIBUTOR_PHRASES = (
+    "contributed to this report",
+    "contributed to the report",
+    "contributed to this story",
+    "contributed to the story",
+    "contributed reporting to this report",
+    "contributed reporting to the report",
+    "contributed reporting to this story",
+    "contributed reporting to the story",
+    "contributed reporting",
+)
+
+
+def strip_trailing_article_boilerplate(text):
+    """
+    Remove publication boilerplate only from the end of an article.
+
+    Applying these patterns at the end prevents similar wording inside
+    legitimate article content from being removed.
+    """
+    value = clean_text(text)
+    previous = None
+
+    while value and value != previous:
+        previous = value
+
+        for pattern in ARTICLE_END_BOILERPLATE_PATTERNS:
+            value = pattern.sub("", value).strip()
+
+    return value
+
+
+def separate_trailing_contributor_credit(text):
+    """
+    Put a final contributor credit into its own visible paragraph.
+    """
+    value = str(text or "").strip()
+
+    if not value:
+        return ""
+
+    lowered = value.lower()
+    phrase_position = max(
+        lowered.rfind(phrase)
+        for phrase in TRAILING_CONTRIBUTOR_PHRASES
+    )
+
+    if phrase_position < 0:
+        return value
+
+    # The contribution phrase must occur near the end. This avoids
+    # separating an ordinary sentence elsewhere in the article.
+    if len(value) - phrase_position > 220:
+        return value
+
+    # Locate the preceding sentence boundary. A period belonging to a
+    # single-letter initial, such as "Devon M. Sayers", is not treated
+    # as the beginning of a new sentence.
+    boundaries = list(
+        re.finditer(
+            r"(?<!\b[A-Z])[.!?]\s+",
+            value[:phrase_position],
+        )
+    )
+
+    credit_start = (
+        boundaries[-1].end()
+        if boundaries
+        else 0
+    )
+
+    credit = value[credit_start:].strip()
+
+    if (
+        not credit
+        or len(credit) > 650
+        or not any(
+            phrase in credit.lower()
+            for phrase in TRAILING_CONTRIBUTOR_PHRASES
+        )
+    ):
+        return value
+
+    body = value[:credit_start].strip()
+
+    if not body:
+        return credit
+
+    return f"{body}\n\n{credit}"
+
+
+def prepare_article_text_for_display(text):
+    value = strip_trailing_article_boilerplate(text)
+    return separate_trailing_contributor_credit(value)
+
+
+def finalize_article_payload(payload):
+    """
+    Apply shared article-end cleanup to non-ESPN provider payloads.
+    """
+    if not isinstance(payload, dict):
+        return payload
+
+    result = dict(payload)
+    original_text = str(result.get("text", "") or "")
+    revised_text = prepare_article_text_for_display(original_text)
+
+    result["text"] = revised_text
+    result["cleanup_version"] = ARTICLE_END_CLEANUP_VERSION
+
+    # A provider payload containing structured blocks would otherwise
+    # take priority over the cleaned text in the newspaper dialog.
+    if (
+        result.get("blocks")
+        and revised_text != original_text
+    ):
+        result["blocks"] = []
+
+    return result
 
 
 class LiveUpdateHTMLParser(HTMLParser):
@@ -412,6 +1166,130 @@ def format_live_update(update, limit=2000):
     return combined
 
 
+
+
+ARTICLE_IMAGE_DATA_CACHE = {}
+MAX_ARTICLE_IMAGE_BYTES = 15 * 1024 * 1024
+MAX_ARTICLE_IMAGE_MEMORY_ENTRIES = 24
+
+
+def _download_article_image_bytes(image_url, timeout=20):
+    request = urllib.request.Request(
+        image_url,
+        headers={
+            "User-Agent": USER_AGENT,
+            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+            "Referer": "https://www.foxnews.com/",
+            "Cache-Control": "no-cache",
+        },
+    )
+
+    def read_with_context(context=None):
+        with urllib.request.urlopen(
+            request,
+            timeout=timeout,
+            context=context or SSL_CONTEXT,
+        ) as response:
+            data = response.read(
+                MAX_ARTICLE_IMAGE_BYTES + 1
+            )
+
+            if len(data) > MAX_ARTICLE_IMAGE_BYTES:
+                raise RuntimeError(
+                    "Article image exceeded the size limit"
+                )
+
+            return data
+
+    try:
+        return read_with_context()
+    except Exception as error:
+        text = str(error)
+        reason = str(getattr(error, "reason", ""))
+
+        if (
+            "CERTIFICATE_VERIFY_FAILED" in text
+            or "CERTIFICATE_VERIFY_FAILED" in reason
+            or "certificate verify failed" in text.lower()
+            or "certificate verify failed" in reason.lower()
+        ):
+            return read_with_context(
+                ssl._create_unverified_context()
+            )
+
+        raise
+
+
+def _article_image_base64(image_url):
+    image_url = str(image_url or "").strip()
+
+    if not image_url:
+        return ""
+
+    cached = ARTICLE_IMAGE_DATA_CACHE.get(image_url)
+
+    if cached:
+        return cached
+
+    image_bytes = _download_article_image_bytes(image_url)
+
+    if len(image_bytes) < 64:
+        raise RuntimeError("Article image response was empty")
+
+    encoded = base64.b64encode(image_bytes).decode("ascii")
+    ARTICLE_IMAGE_DATA_CACHE[image_url] = encoded
+
+    while (
+        len(ARTICLE_IMAGE_DATA_CACHE)
+        > MAX_ARTICLE_IMAGE_MEMORY_ENTRIES
+    ):
+        oldest_key = next(iter(ARTICLE_IMAGE_DATA_CACHE))
+        ARTICLE_IMAGE_DATA_CACHE.pop(oldest_key, None)
+
+    return encoded
+
+
+def hydrate_article_image_blocks(payload):
+    if not isinstance(payload, dict):
+        return payload
+
+    result = dict(payload)
+    hydrated_blocks = []
+
+    for raw_block in result.get("blocks", []) or []:
+        if not isinstance(raw_block, dict):
+            continue
+
+        block = dict(raw_block)
+        block_type = str(
+            block.get("type", "paragraph") or "paragraph"
+        ).strip().lower()
+
+        if block_type != "image":
+            hydrated_blocks.append(block)
+            continue
+
+        image_url = str(
+            block.get("image_url", "") or ""
+        ).strip()
+
+        try:
+            image_data = _article_image_base64(image_url)
+        except Exception as error:
+            print(
+                "ARTICLE IMAGE LOAD FAILED: "
+                f"{image_url} -> {error}"
+            )
+            continue
+
+        if not image_data:
+            continue
+
+        block["image_data"] = image_data
+        hydrated_blocks.append(block)
+
+    result["blocks"] = hydrated_blocks
+    return result
 
 def fetch_espn_article_payload(url):
     """
@@ -1108,7 +1986,9 @@ def _fetch_article_text_payload_uncached(url):
 
     # Newsmax must use Chrome because direct HTTP requests stall on this Mac.
     if hostname == "newsmax.com" or hostname.endswith(".newsmax.com"):
-        return fetch_newsmax_article_payload(url)
+        return finalize_article_payload(
+            fetch_newsmax_article_payload(url)
+        )
 
     # ESPN serves a script/anti-bot shell to ordinary urllib requests.
     if hostname == "espn.com" or hostname.endswith(".espn.com"):
@@ -1121,25 +2001,79 @@ def _fetch_article_text_payload_uncached(url):
         live_updates = extract_live_update_items_from_article_tags(page_html)
 
         if live_updates:
-            formatted_updates = [format_live_update(update, limit=2000) for update in live_updates]
-            return {
+            formatted_updates = [
+                format_live_update(
+                    update,
+                    limit=2000,
+                )
+                for update in live_updates
+            ]
+
+            return finalize_article_payload({
                 "is_live": True,
                 "method": "live_update_blocks",
                 "text": "\n\n".join(formatted_updates),
                 "updates": formatted_updates,
+            })
+
+    is_fox = (
+        hostname == "foxnews.com"
+        or hostname.endswith(".foxnews.com")
+    )
+
+    text = ""
+    method = "none"
+
+    if is_fox:
+        # Preserve Fox paragraph/figure order before flattening so
+        # standalone related links are removed while captioned images
+        # remain paired with their captions.
+        fox_payload = extract_fox_article_payload(
+            page_html,
+            url,
+        )
+        text = str(fox_payload.get("text", "") or "")
+        blocks = list(fox_payload.get("blocks", []) or [])
+
+        if is_valid_article_text(text):
+            return {
+                "is_live": is_live,
+                "method": "fox_html_structured",
+                "fox_format_version": 2,
+                "cleanup_version": ARTICLE_END_CLEANUP_VERSION,
+                "text": text,
+                "blocks": blocks,
+                "updates": [],
             }
 
-    text = extract_article_body_from_json_ld(page_html)
+        text = extract_article_body_from_json_ld(
+            page_html
+        )
 
-    if not text:
-        text = extract_article_text_from_paragraphs(page_html)
+        if text:
+            method = "json_ld_articleBody"
 
-    return {
+    else:
+        text = extract_article_body_from_json_ld(
+            page_html
+        )
+
+        if text:
+            method = "json_ld_articleBody"
+        else:
+            text = extract_article_text_from_paragraphs(
+                page_html
+            )
+
+            if text:
+                method = "html_paragraphs"
+
+    return finalize_article_payload({
         "is_live": is_live,
-        "method": "json_ld_articleBody" if text else "none",
-        "text": clean_text(text),
+        "method": method,
+        "text": text,
         "updates": [],
-    }
+    })
 
 
 # ============================================================
@@ -1359,6 +2293,7 @@ def cached_article_payload_is_usable(url, payload):
     parsed_url = urlparse(str(url or ""))
     hostname = parsed_url.netloc.lower()
     is_espn = hostname == "espn.com" or hostname.endswith(".espn.com")
+    is_fox = hostname == "foxnews.com" or hostname.endswith(".foxnews.com")
 
     if is_espn:
         try:
@@ -1373,7 +2308,31 @@ def cached_article_payload_is_usable(url, payload):
             and bool(payload.get("blocks"))
         )
 
-    return True
+    if is_fox:
+        try:
+            fox_format_version = int(
+                payload.get("fox_format_version", 0) or 0
+            )
+            cleanup_version = int(
+                payload.get("cleanup_version", 0) or 0
+            )
+        except (TypeError, ValueError):
+            return False
+
+        return (
+            fox_format_version >= 2
+            and bool(payload.get("blocks"))
+            and cleanup_version >= ARTICLE_END_CLEANUP_VERSION
+        )
+
+    try:
+        cleanup_version = int(
+            payload.get("cleanup_version", 0) or 0
+        )
+    except (TypeError, ValueError):
+        cleanup_version = 0
+
+    return cleanup_version >= ARTICLE_END_CLEANUP_VERSION
 
 
 def fetch_article_text_payload(url):
@@ -1382,7 +2341,7 @@ def fetch_article_text_payload(url):
     cached = get_cached_article_text_payload(url)
     if cached_article_payload_is_usable(url, cached):
         print(f"ARTICLE TEXT CACHE HIT: {url}")
-        return cached
+        return hydrate_article_image_blocks(cached)
 
     with ARTICLE_TEXT_PREFETCH_EVENTS_LOCK:
         event = ARTICLE_TEXT_PREFETCH_EVENTS.get(url)
@@ -1396,11 +2355,11 @@ def fetch_article_text_payload(url):
         cached = get_cached_article_text_payload(url)
         if cached_article_payload_is_usable(url, cached):
             print(f"ARTICLE TEXT CACHE HIT AFTER PRELOAD: {url}")
-            return cached
+            return hydrate_article_image_blocks(cached)
 
     payload = _fetch_article_text_payload_uncached(url)
     _store_cached_article_text_payload(url, payload)
-    return payload
+    return hydrate_article_image_blocks(payload)
 
 
 def prefetch_article_text_payload(url):

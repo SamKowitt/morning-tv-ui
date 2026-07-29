@@ -1,9 +1,10 @@
+import base64
 import html as html_module
 import re
 import random
 from urllib.parse import unquote
 from PySide6.QtCore import Qt, QRectF, QUrl, QSize, QEvent, QPointF, Signal, QThread, QTimer
-from PySide6.QtGui import QColor, QDesktopServices, QFont, QFontDatabase, QFontMetrics, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QPolygonF, QTextDocument
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QFontDatabase, QFontMetrics, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QPolygonF, QImage, QTextDocument
 from PySide6.QtWidgets import QSizePolicy, QLabel, QVBoxLayout, QWidget, QHBoxLayout, QFrame, QDialog, QTextEdit, QTextBrowser, QPushButton
 
 from ui.auto_fit_label import AutoFitLabel
@@ -494,6 +495,7 @@ class OpenNewspaperDialog(QDialog):
         self.article_url = article_url or ""
         self.pages = []
         self.article_anchor_pages = {}
+        self.article_image_resources = {}
         self.spread_index = 0
         self.worker = None
 
@@ -534,7 +536,7 @@ class OpenNewspaperDialog(QDialog):
                 color: #1b130c;
                 border: none;
                 border-radius: 0px;
-                padding: 18px;
+                padding: 8px 18px;
                 font-family: "American Typewriter", "Courier New", monospace;
                 font-size: 21px;
                 line-height: 156%;
@@ -651,13 +653,8 @@ class OpenNewspaperDialog(QDialog):
         left_page_layout.setContentsMargins(0, 0, 0, 0)
         left_page_layout.setSpacing(0)
 
-        self.paper_headline = QLabel(self.headline)
-        self.paper_headline.setObjectName("SpreadHeadline")
-        self.paper_headline.setWordWrap(True)
-        self.paper_headline.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-
-        self.paper_headline_rule = PaperRule()
-
+        # The article headline is rendered inside Page 1's rich-text
+        # content so the left browser remains full height on every spread.
         self.left_page = QTextBrowser()
         self.left_page.setObjectName("NewspaperPage")
         self.left_page.setReadOnly(True)
@@ -678,8 +675,6 @@ class OpenNewspaperDialog(QDialog):
             self.handle_article_link
         )
 
-        left_page_layout.addWidget(self.paper_headline, 0)
-        left_page_layout.addWidget(self.paper_headline_rule, 0)
         left_page_layout.addWidget(self.left_page, 1)
 
         # RIGHT NEWSPAPER PAGE:
@@ -861,6 +856,7 @@ class OpenNewspaperDialog(QDialog):
         is_live = bool(payload.get("is_live"))
         updates = list(payload.get("updates") or [])
         text = str(payload.get("text", "") or "")
+        self.article_image_resources = {}
         blocks = self.normalize_article_blocks(
             payload.get("blocks", []) or []
         )
@@ -887,16 +883,30 @@ class OpenNewspaperDialog(QDialog):
                 "text": "No article text was found for this page.",
             }]
 
+        # Put the article headline inside Page 1 rather than above the
+        # browser. Every newspaper page therefore retains full height.
+        headline = " ".join(
+            str(self.headline or "").split()
+        )
+
+        if headline:
+            blocks.insert(0, {
+                "type": "article_headline",
+                "text": headline,
+            })
+
         self.pages = self.paginate_article_blocks(blocks)
         self.spread_index = 0
         self.render_spread()
 
     def normalize_article_blocks(self, blocks):
         allowed_types = {
+            "article_headline",
             "heading",
             "paragraph",
             "list_item",
             "quote",
+            "image",
         }
         normalized = []
 
@@ -911,14 +921,68 @@ class OpenNewspaperDialog(QDialog):
                 str(raw_block.get("text", "") or "").split()
             )
 
-            if block_type not in allowed_types or not block_text:
+            if block_type not in allowed_types:
+                continue
+
+            if block_type == "image":
+                image_resource = str(
+                    raw_block.get("image_resource", "") or ""
+                ).strip()
+                image = None
+
+                if image_resource:
+                    image = self.article_image_resources.get(
+                        image_resource
+                    )
+
+                if image is None:
+                    encoded = str(
+                        raw_block.get("image_data", "") or ""
+                    ).strip()
+
+                    if not encoded:
+                        continue
+
+                    try:
+                        image_bytes = base64.b64decode(
+                            encoded,
+                            validate=True,
+                        )
+                    except Exception:
+                        continue
+
+                    image = QImage.fromData(image_bytes)
+
+                    if image.isNull():
+                        continue
+
+                    image_resource = (
+                        "article-image:"
+                        f"{len(self.article_image_resources)}"
+                    )
+                    self.article_image_resources[
+                        image_resource
+                    ] = image
+
+                normalized.append({
+                    "type": "image",
+                    "text": block_text,
+                    "image_resource": image_resource,
+                    "image_width": int(image.width()),
+                    "image_height": int(image.height()),
+                })
+                continue
+
+            if not block_text:
                 continue
 
             normalized_block = {
                 "type": block_type,
                 "text": block_text,
             }
-            block_html = str(raw_block.get("html", "") or "").strip()
+            block_html = str(
+                raw_block.get("html", "") or ""
+            ).strip()
 
             if block_html:
                 normalized_block["html"] = block_html
@@ -1047,6 +1111,72 @@ class OpenNewspaperDialog(QDialog):
         inline_html = str(block.get("html", "") or "").strip()
         rendered_text = inline_html or safe_text
 
+        if block_type == "article_headline":
+            return (
+                '<div style="'
+                'font-family: Georgia; '
+                'font-size: 22px; '
+                'font-weight: 700; '
+                'line-height: 122%; '
+                'margin-top: 0px; '
+                'margin-bottom: 8px;'
+                '">'
+                f"{safe_text}"
+                "</div>"
+                '<div style="'
+                'font-size: 1px; '
+                'line-height: 1px; '
+                'background-color: #5a4e3f; '
+                'margin-bottom: 10px;'
+                '">&nbsp;</div>'
+            )
+
+        if block_type == "image":
+            image_resource = html_module.escape(
+                str(block.get("image_resource", "") or ""),
+                quote=True,
+            )
+            display_width = max(
+                1,
+                int(block.get("display_width", 1) or 1),
+            )
+            display_height = max(
+                1,
+                int(block.get("display_height", 1) or 1),
+            )
+            caption_html = (
+                '<div style="'
+                'font-family: Georgia; '
+                'font-size: 14px; '
+                'font-style: italic; '
+                'line-height: 132%; '
+                'margin-top: 10px; '
+                'text-align: left;'
+                '">'
+                f"{safe_text}"
+                "</div>"
+                if safe_text
+                else ""
+            )
+
+            return (
+                '<div style="'
+                'text-align: center; '
+                'margin: 0px;'
+                '">'
+                f'<img src="{image_resource}" '
+                f'width="{display_width}" '
+                f'height="{display_height}">'
+                f"{caption_html}"
+                "</div>"
+                '<div style="'
+                'font-size: 1px; '
+                'line-height: 14px; '
+                'margin: 0px; '
+                'padding: 0px;'
+                '">&nbsp;</div>'
+            )
+
         if block_type == "heading":
             return (
                 '<div style="'
@@ -1139,13 +1269,31 @@ class OpenNewspaperDialog(QDialog):
         if not blocks:
             return [self.article_page_html([])]
 
+        page_browser_width = max(
+            self.left_page.width(),
+            self.right_page.width(),
+        )
+        page_browser_height = max(
+            self.left_page.height(),
+            self.right_page.height(),
+        )
+
         page_width = max(
             320,
-            int(self.left_page.width()) - 46,
+            int(page_browser_width) - 46,
         )
+
+        # Every page uses the same full-height browser geometry.
         page_height = max(
             320,
-            int(self.left_page.height()) - 62,
+            int(page_browser_height) - 42,
+        )
+
+        # Preserve the current image-fit margin while basing it on
+        # the same full browser height used by every newspaper page.
+        image_page_height = max(
+            320,
+            int(page_browser_height) - 62,
         )
 
         def rendered_height(candidate_blocks):
@@ -1163,6 +1311,63 @@ class OpenNewspaperDialog(QDialog):
                 rendered_height(candidate_blocks)
                 <= page_height
             )
+
+        def prepare_image_block(block):
+            prepared = dict(block)
+            original_width = max(
+                1,
+                int(block.get("image_width", 1) or 1),
+            )
+            original_height = max(
+                1,
+                int(block.get("image_height", 1) or 1),
+            )
+            caption = str(block.get("text", "") or "").strip()
+
+            caption_document = QTextDocument()
+            caption_document.setDocumentMargin(0)
+            caption_document.setHtml(
+                '<div style="'
+                'font-family: Georgia; '
+                'font-size: 14px; '
+                'font-style: italic; '
+                'line-height: 132%;'
+                '">'
+                + html_module.escape(caption)
+                + "</div>"
+            )
+            caption_document.setTextWidth(page_width)
+            caption_height = (
+                caption_document.size().height()
+                if caption
+                else 0
+            )
+
+            max_image_width = max(1, page_width)
+            max_image_height = max(
+                1,
+                int(image_page_height - caption_height - 14),
+            )
+            fit_scale = min(
+                1.0,
+                max_image_width / original_width,
+                max_image_height / original_height,
+            )
+
+            # Reduce the previous two-thirds display size by 25%.
+            # The image now uses one-half of the proportional size
+            # that would otherwise fit the dedicated page.
+            display_scale = fit_scale * 0.5
+
+            prepared["display_width"] = max(
+                1,
+                int(original_width * display_scale),
+            )
+            prepared["display_height"] = max(
+                1,
+                int(original_height * display_scale),
+            )
+            return prepared
 
         def text_fragment(
             block,
@@ -1322,10 +1527,32 @@ class OpenNewspaperDialog(QDialog):
                     first_fragment = False
 
         for index, block in enumerate(blocks):
-            # Keep a subsection heading with at least the beginning of
-            # its following paragraph whenever possible.
+            if block["type"] == "image":
+                prepared_image = prepare_image_block(block)
+
+                # Keep the complete image-and-caption block on the
+                # current page whenever it fits in the remaining space.
+                # Move it to a new page only when necessary.
+                if not fits(
+                    page_blocks + [prepared_image]
+                ):
+                    flush_page()
+
+                page_blocks.append(prepared_image)
+
+                # Following text may continue below the image and caption.
+                # The image block's 14px bottom margin matches the spacing
+                # used after a normal paragraph.
+                continue
+
+            # Keep the article headline or a subsection heading with
+            # at least the beginning of its following paragraph whenever
+            # possible.
             if (
-                block["type"] == "heading"
+                block["type"] in {
+                    "article_headline",
+                    "heading",
+                }
                 and page_blocks
                 and index + 1 < len(blocks)
             ):
@@ -1347,7 +1574,10 @@ class OpenNewspaperDialog(QDialog):
                 ):
                     flush_page()
 
-            if block["type"] == "heading":
+            if block["type"] in {
+                "article_headline",
+                "heading",
+            }:
                 if not fits(page_blocks + [block]):
                     flush_page()
 
@@ -1369,21 +1599,41 @@ class OpenNewspaperDialog(QDialog):
         left_text = self.pages[left_index] if left_index < len(self.pages) else ""
         right_text = self.pages[right_index] if right_index < len(self.pages) else ""
 
-        self.left_page.setHtml(left_text)
-        self.right_page.setHtml(right_text)
+        for browser, page_html in (
+            (self.left_page, left_text),
+            (self.right_page, right_text),
+        ):
+            document = browser.document()
+
+            for resource_name, image in (
+                self.article_image_resources.items()
+            ):
+                document.addResource(
+                    QTextDocument.ImageResource,
+                    QUrl(resource_name),
+                    image,
+                )
+
+            browser.setHtml(page_html)
+
+            # Re-register after setHtml as well so Qt can resolve the
+            # custom image resource regardless of document reset order.
+            document = browser.document()
+
+            for resource_name, image in (
+                self.article_image_resources.items()
+            ):
+                document.addResource(
+                    QTextDocument.ImageResource,
+                    QUrl(resource_name),
+                    image,
+                )
 
         self.left_page.verticalScrollBar().setValue(0)
         self.right_page.verticalScrollBar().setValue(0)
 
-        # The article headline belongs only on the first newspaper spread.
-        # Later spreads begin with article text at the very top of both pages.
-        show_first_spread_headline = self.spread_index == 0
-
-        if hasattr(self, "paper_headline"):
-            self.paper_headline.setVisible(show_first_spread_headline)
-
-        if hasattr(self, "paper_headline_rule"):
-            self.paper_headline_rule.setVisible(show_first_spread_headline)
+        # Page 1's headline is already part of the paginated HTML,
+        # so neither browser changes height between newspaper spreads.
 
         total_pages = len(self.pages)
         total_spreads = max(1, (total_pages + 1) // 2)
