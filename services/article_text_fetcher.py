@@ -1174,14 +1174,25 @@ MAX_ARTICLE_IMAGE_MEMORY_ENTRIES = 24
 
 
 def _download_article_image_bytes(image_url, timeout=20):
+    parsed_image_url = urlparse(str(image_url or ""))
+    image_referer = (
+        f"{parsed_image_url.scheme}://{parsed_image_url.netloc}/"
+        if parsed_image_url.scheme and parsed_image_url.netloc
+        else ""
+    )
+
+    request_headers = {
+        "User-Agent": USER_AGENT,
+        "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        "Cache-Control": "no-cache",
+    }
+
+    if image_referer:
+        request_headers["Referer"] = image_referer
+
     request = urllib.request.Request(
         image_url,
-        headers={
-            "User-Agent": USER_AGENT,
-            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-            "Referer": "https://www.foxnews.com/",
-            "Cache-Control": "no-cache",
-        },
+        headers=request_headers,
     )
 
     def read_with_context(context=None):
@@ -1290,6 +1301,526 @@ def hydrate_article_image_blocks(payload):
 
     result["blocks"] = hydrated_blocks
     return result
+
+
+def fetch_cnbc_article_payload(url):
+    """
+    CNBC article images and captions are available in the rendered
+    ArticleBody DOM rather than in the direct urllib response.
+    """
+    import time as time_module
+
+    from services.newsmax_chrome import (
+        _close_page,
+        _create_page,
+        _eval,
+        _navigate,
+    )
+
+    target_id = ""
+    ws_url = ""
+
+    try:
+        target_id, ws_url = _create_page()
+        _navigate(ws_url, url)
+
+        # Wait in Python so a slow CNBC render cannot trap _eval() inside
+        # a long-running asynchronous JavaScript loop.
+        root_ready = False
+
+        for _attempt in range(12):
+            try:
+                root_ready = bool(
+                    _eval(
+                        ws_url,
+                        r"""
+(() => {
+    const root =
+        document.querySelector('[data-module="ArticleBody"]') ||
+        document.querySelector('[data-test^="articleBody"]') ||
+        document.querySelector(".ArticleBody-articleBody");
+
+    return Boolean(
+        root &&
+        root.querySelector(
+            ".group p, .group h2, .group h3, "
+            + ".group h4, .InlineImage-imageEmbed"
+        )
+    );
+})()
+""",
+                        timeout=8,
+                    )
+                )
+            except Exception:
+                root_ready = False
+
+            if root_ready:
+                break
+
+            time_module.sleep(0.5)
+
+        payload = _eval(
+            ws_url,
+            r"""
+(() => {
+    const clean = value => String(value || "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    const root =
+        document.querySelector('[data-module="ArticleBody"]') ||
+        document.querySelector('[data-test^="articleBody"]') ||
+        document.querySelector(".ArticleBody-articleBody");
+
+    if (!root) {
+        return {
+            error: "CNBC ArticleBody root was not found",
+            pageTitle: document.title || ""
+        };
+    }
+
+    const headlineNode =
+        document.querySelector("h1.ArticleHeader-headline") ||
+        document.querySelector("main h1") ||
+        document.querySelector("h1");
+
+    const headline = clean(
+        headlineNode
+            ? (
+                headlineNode.innerText ||
+                headlineNode.textContent
+            )
+            : ""
+    );
+
+    const usableText = value => {
+        const text = clean(value);
+
+        if (text.length < 20) {
+            return false;
+        }
+
+        const lowered = text.toLowerCase();
+        const blockedBits = [
+            "create free account",
+            "choose cnbc as your preferred source",
+            "follow your favorite stocks",
+            "advertisement",
+            "privacy policy",
+            "terms of service"
+        ];
+
+        if (
+            blockedBits.some(
+                bit => lowered.includes(bit)
+            )
+        ) {
+            return false;
+        }
+
+        return /[.!?…”"]/.test(text);
+    };
+
+    const bestSrcsetUrl = value => {
+        let bestUrl = "";
+        let bestScore = -1;
+
+        for (const item of String(value || "").split(",")) {
+            const pieces = item.trim().split(/\s+/);
+
+            if (!pieces[0]) {
+                continue;
+            }
+
+            const descriptor = String(
+                pieces[pieces.length - 1] || ""
+            ).toLowerCase();
+            let score = 1;
+
+            if (/^[0-9.]+w$/.test(descriptor)) {
+                score = Number(
+                    descriptor.slice(0, -1)
+                ) || 1;
+            } else if (/^[0-9.]+x$/.test(descriptor)) {
+                score = (
+                    Number(
+                        descriptor.slice(0, -1)
+                    ) || 1
+                ) * 1000;
+            } else {
+                try {
+                    const candidateUrl = new URL(
+                        pieces[0],
+                        document.baseURI
+                    );
+                    score = Number(
+                        candidateUrl.searchParams.get("w")
+                    ) || 1;
+                } catch (_error) {
+                    score = 1;
+                }
+            }
+
+            if (score > bestScore) {
+                bestScore = score;
+                bestUrl = pieces[0];
+            }
+        }
+
+        return bestUrl;
+    };
+
+    const usableImageUrl = value => {
+        const candidate = String(value || "").trim();
+
+        if (!candidate) {
+            return "";
+        }
+
+        const lowered = candidate.toLowerCase();
+
+        if (
+            lowered.startsWith("data:") ||
+            lowered.startsWith("blob:") ||
+            lowered.includes("transparent") ||
+            lowered.includes("placeholder") ||
+            lowered.includes("spacer") ||
+            lowered.includes("pixel")
+        ) {
+            return "";
+        }
+
+        try {
+            return new URL(
+                candidate,
+                document.baseURI
+            ).href;
+        } catch (_error) {
+            return "";
+        }
+    };
+
+    const imageUrlForContainer = container => {
+        const image = container.querySelector("img");
+        const candidates = [];
+
+        if (image) {
+            // CNBC's rendered img.src is a JPEG URL. Prefer it over
+            // currentSrc, which can resolve to WebP on this Mac.
+            candidates.push(
+                image.getAttribute("src"),
+                image.currentSrc,
+                bestSrcsetUrl(
+                    image.getAttribute("srcset")
+                ),
+                bestSrcsetUrl(
+                    image.getAttribute("data-srcset")
+                ),
+                image.getAttribute("data-src"),
+                image.getAttribute("data-lazy-src")
+            );
+        }
+
+        const sourceCandidates = Array.from(
+            container.querySelectorAll(
+                "picture source[srcset], "
+                + "source[data-srcset]"
+            )
+        )
+            .map(source => ({
+                url:
+                    bestSrcsetUrl(
+                        source.getAttribute("srcset")
+                    ) ||
+                    bestSrcsetUrl(
+                        source.getAttribute(
+                            "data-srcset"
+                        )
+                    ),
+                width:
+                    Number(
+                        source.getAttribute("width")
+                    ) || 0
+            }))
+            .sort(
+                (left, right) =>
+                    right.width - left.width
+            );
+
+        for (const source of sourceCandidates) {
+            candidates.push(source.url);
+        }
+
+        for (const candidate of candidates) {
+            const resolved = usableImageUrl(candidate);
+
+            if (resolved) {
+                return resolved;
+            }
+        }
+
+        return "";
+    };
+
+    const captionForContainer = container => {
+        const captionNode = container.querySelector(
+            ".InlineImage-imageEmbedCaption"
+        );
+        const creditNode = container.querySelector(
+            ".InlineImage-imageEmbedCredit"
+        );
+        const caption = clean(
+            captionNode
+                ? (
+                    captionNode.innerText ||
+                    captionNode.textContent
+                )
+                : ""
+        );
+        const credit = clean(
+            creditNode
+                ? (
+                    creditNode.innerText ||
+                    creditNode.textContent
+                )
+                : ""
+        );
+
+        return clean(
+            [caption, credit]
+                .filter(Boolean)
+                .join(" ")
+        );
+    };
+
+    const articleNodes = root.querySelectorAll(
+        ".InlineImage-imageEmbed, "
+        + ".group h2, .group h3, .group h4, "
+        + ".group p, .group li, .group blockquote"
+    );
+    const blocks = [];
+    const seenText = new Set();
+    const seenImages = new Set();
+
+    for (const node of articleNodes) {
+        if (
+            node.matches(
+                ".InlineImage-imageEmbed"
+            )
+        ) {
+            const imageUrl =
+                imageUrlForContainer(node);
+            const caption =
+                captionForContainer(node);
+            const imageKey = (
+                imageUrl + "\n" + caption
+            ).toLowerCase();
+
+            if (
+                !imageUrl ||
+                !caption ||
+                seenImages.has(imageKey)
+            ) {
+                continue;
+            }
+
+            seenImages.add(imageKey);
+            blocks.push({
+                type: "image",
+                text: caption,
+                image_url: imageUrl
+            });
+            continue;
+        }
+
+        const tag = String(
+            node.tagName || ""
+        ).toLowerCase();
+
+        if (
+            tag === "p" &&
+            (
+                node.closest("li") ||
+                node.closest("blockquote")
+            )
+        ) {
+            continue;
+        }
+
+        const text = clean(
+            node.innerText ||
+            node.textContent
+        );
+        const textKey = (
+            tag + "\n" + text
+        ).toLowerCase();
+        let blockType = "paragraph";
+
+        if (
+            ["h2", "h3", "h4"].includes(tag)
+        ) {
+            blockType = "heading";
+        } else if (tag === "li") {
+            blockType = "list_item";
+        } else if (tag === "blockquote") {
+            blockType = "quote";
+        }
+
+        const valid = (
+            blockType === "heading"
+                ? (
+                    text.length >= 8
+                    && text.length <= 240
+                )
+                : usableText(text)
+        );
+
+        if (
+            !valid ||
+            seenText.has(textKey)
+        ) {
+            continue;
+        }
+
+        seenText.add(textKey);
+
+        blocks.push({
+            type: blockType,
+            text
+        });
+    }
+
+    const articleText = blocks
+        .filter(block => block.type !== "image")
+        .map(block => block.text)
+        .join("\n\n")
+        .trim();
+
+    return {
+        headline,
+        text: articleText,
+        blocks,
+        paragraphCount: blocks.filter(
+            block => block.type === "paragraph"
+        ).length,
+        imageCount: blocks.filter(
+            block => block.type === "image"
+        ).length,
+        pageTitle: document.title || ""
+    };
+})()
+""",
+            timeout=30,
+        )
+
+        if not isinstance(payload, dict):
+            raise RuntimeError(
+                "Chrome did not return a CNBC article payload"
+            )
+
+        if payload.get("error"):
+            raise RuntimeError(
+                str(payload.get("error"))
+                + f". Page title: {payload.get('pageTitle', '')!r}"
+            )
+
+        allowed_block_types = {
+            "heading",
+            "paragraph",
+            "list_item",
+            "quote",
+            "image",
+        }
+        article_blocks = []
+
+        for raw_block in payload.get("blocks", []) or []:
+            if not isinstance(raw_block, dict):
+                continue
+
+            block_type = str(
+                raw_block.get("type", "paragraph")
+                or "paragraph"
+            ).strip().lower()
+            block_text = clean_text(
+                raw_block.get("text", "")
+            )
+
+            if (
+                block_type not in allowed_block_types
+                or not block_text
+            ):
+                continue
+
+            if block_type == "image":
+                image_url = _usable_image_url(
+                    raw_block.get("image_url", ""),
+                    url,
+                )
+
+                if not image_url:
+                    continue
+
+                article_blocks.append({
+                    "type": "image",
+                    "text": block_text,
+                    "image_url": image_url,
+                })
+                continue
+
+            article_blocks.append({
+                "type": block_type,
+                "text": block_text,
+            })
+
+        article_text = "\n\n".join(
+            block["text"]
+            for block in article_blocks
+            if block.get("type") != "image"
+        ).strip()
+        cleaned_text = prepare_article_text_for_display(
+            article_text
+        )
+        article_blocks = (
+            _trim_structured_blocks_to_cleaned_text(
+                article_blocks,
+                cleaned_text,
+            )
+        )
+
+        if not is_valid_article_text(cleaned_text):
+            raise RuntimeError(
+                "No readable CNBC article text found. "
+                f"Page title: {payload.get('pageTitle', '')!r}; "
+                f"paragraphs: {payload.get('paragraphCount', 0)!r}; "
+                f"images: {payload.get('imageCount', 0)!r}"
+            )
+
+        print(
+            "CNBC CHROME ARTICLE TEXT: "
+            f"{len(cleaned_text)} chars | "
+            f"{payload.get('paragraphCount', 0)} paragraphs | "
+            f"{payload.get('imageCount', 0)} images | "
+            f"{len(article_blocks)} structured blocks"
+        )
+
+        return {
+            "is_live": False,
+            "method": "cnbc_chrome",
+            "cnbc_format_version": 1,
+            "cleanup_version": ARTICLE_END_CLEANUP_VERSION,
+            "text": cleaned_text,
+            "blocks": article_blocks,
+            "updates": [],
+            "headline": clean_text(
+                payload.get("headline", "")
+            ),
+        }
+
+    finally:
+        if target_id:
+            _close_page(target_id)
+
 
 def fetch_espn_article_payload(url):
     """
@@ -1570,13 +2101,30 @@ def fetch_espn_article_payload(url):
     };
 
     const isExcludedNode = node => {
+        const semanticContainer = node.closest(
+            "aside, nav, footer, [role='complementary'], "
+            + "[aria-label*='editor' i], "
+            + "[aria-label*='related' i], "
+            + "[aria-label*='recommended' i]"
+        );
+
+        // Verified ESPN article-photo structure:
+        //
+        // aside.inline.inline-photo
+        //   figure
+        //     picture / source / img
+        //     figcaption.photoCaption
+        //
+        // ESPN uses an <aside> for inline editorial photos. Preserve only
+        // nodes inside that exact figure while continuing to reject normal
+        // sidebars, recommendations, navigation, and complementary rails.
+        const verifiedInlinePhotoFigure = node.closest(
+            "aside.inline.inline-photo > figure"
+        );
+
         if (
-            node.closest(
-                "aside, nav, footer, [role='complementary'], "
-                + "[aria-label*='editor' i], "
-                + "[aria-label*='related' i], "
-                + "[aria-label*='recommended' i]"
-            )
+            semanticContainer
+            && !verifiedInlinePhotoFigure
         ) {
             return true;
         }
@@ -1605,15 +2153,182 @@ def fetch_espn_article_payload(url):
         return false;
     };
 
+    const bestSrcsetUrl = value => {
+        let bestUrl = "";
+        let bestScore = -1;
+
+        for (const item of String(value || "").split(",")) {
+            const pieces = item.trim().split(/\s+/);
+
+            if (!pieces[0]) {
+                continue;
+            }
+
+            const descriptor = String(
+                pieces[pieces.length - 1] || ""
+            ).toLowerCase();
+            let score = 1;
+
+            if (/^[0-9.]+w$/.test(descriptor)) {
+                score = Number(descriptor.slice(0, -1)) || 1;
+            } else if (/^[0-9.]+x$/.test(descriptor)) {
+                score = (
+                    Number(descriptor.slice(0, -1)) || 1
+                ) * 1000;
+            }
+
+            if (score >= bestScore) {
+                bestScore = score;
+                bestUrl = pieces[0];
+            }
+        }
+
+        return bestUrl;
+    };
+
+    const usableImageUrl = value => {
+        const candidate = String(value || "").trim();
+
+        if (!candidate) {
+            return "";
+        }
+
+        const lowered = candidate.toLowerCase();
+
+        if (
+            lowered.startsWith("data:") ||
+            lowered.startsWith("blob:") ||
+            lowered.includes("transparent") ||
+            lowered.includes("placeholder") ||
+            lowered.includes("spacer") ||
+            lowered.includes("pixel")
+        ) {
+            return "";
+        }
+
+        try {
+            return new URL(
+                candidate,
+                document.baseURI
+            ).href;
+        } catch (_error) {
+            return "";
+        }
+    };
+
+    const imageUrlForFigure = figure => {
+        const image = figure.querySelector("img");
+        const candidates = [];
+
+        if (image) {
+            candidates.push(
+                image.currentSrc,
+                bestSrcsetUrl(
+                    image.getAttribute("srcset")
+                ),
+                bestSrcsetUrl(
+                    image.getAttribute("data-srcset")
+                ),
+                image.getAttribute("data-large-image"),
+                image.getAttribute("data-image-url"),
+                image.getAttribute("data-original"),
+                image.getAttribute("data-lazy-src"),
+                image.getAttribute("data-src"),
+                image.getAttribute("src")
+            );
+        }
+
+        for (const source of figure.querySelectorAll(
+            "picture source[srcset], "
+            + "source[data-srcset]"
+        )) {
+            candidates.push(
+                bestSrcsetUrl(
+                    source.getAttribute("srcset")
+                ),
+                bestSrcsetUrl(
+                    source.getAttribute("data-srcset")
+                )
+            );
+        }
+
+        for (const candidate of candidates) {
+            const resolved = usableImageUrl(candidate);
+
+            if (resolved) {
+                return resolved;
+            }
+        }
+
+        return "";
+    };
+
+    const captionForFigure = figure => {
+        const captionNode =
+            figure.querySelector("figcaption") ||
+            figure.querySelector(
+                '[class*="caption" i]'
+            ) ||
+            figure.querySelector(
+                '[data-testid*="caption" i]'
+            );
+        const image = figure.querySelector("img");
+
+        return clean(
+            captionNode
+                ? (
+                    captionNode.innerText ||
+                    captionNode.textContent
+                )
+                : (
+                    image?.getAttribute("alt") ||
+                    image?.getAttribute("title") ||
+                    ""
+                )
+        );
+    };
+
     const articleNodes = root.querySelectorAll(
-        "h2, h3, h4, [role='heading'], p, li, blockquote"
+        "h2, h3, h4, [role='heading'], "
+        + "p, li, blockquote, figure"
     );
     const blockByNode = new Map();
+    const seenImages = new Set();
 
     for (const node of articleNodes) {
         const tag = String(node.tagName || "").toLowerCase();
 
         if (isExcludedNode(node)) {
+            continue;
+        }
+
+        if (tag === "figure") {
+            const imageUrl = imageUrlForFigure(node);
+            const caption = captionForFigure(node);
+            const imageKey = (
+                imageUrl + "\n" + caption
+            ).toLowerCase();
+
+            if (
+                !imageUrl ||
+                !caption ||
+                seenImages.has(imageKey)
+            ) {
+                continue;
+            }
+
+            seenImages.add(imageKey);
+
+            blocks.push({
+                type: "image",
+                text: caption,
+                image_url: imageUrl
+            });
+            continue;
+        }
+
+        // The figure block already contains its caption.
+        if (node.closest("figure")) {
             continue;
         }
 
@@ -1812,6 +2527,7 @@ def fetch_espn_article_payload(url):
     }
 
     let articleText = blocks
+        .filter(block => block.type !== "image")
         .map(block => block.text)
         .join("\n\n")
         .trim();
@@ -1879,6 +2595,7 @@ def fetch_espn_article_payload(url):
             "paragraph",
             "list_item",
             "quote",
+            "image",
         }
         article_blocks = []
 
@@ -1894,11 +2611,29 @@ def fetch_espn_article_payload(url):
             if block_type not in allowed_block_types or not block_text:
                 continue
 
+            if block_type == "image":
+                image_url = _usable_image_url(
+                    raw_block.get("image_url", ""),
+                    url,
+                )
+
+                if not image_url:
+                    continue
+
+                article_blocks.append({
+                    "type": "image",
+                    "text": block_text,
+                    "image_url": image_url,
+                })
+                continue
+
             article_block = {
                 "type": block_type,
                 "text": block_text,
             }
-            block_html = str(raw_block.get("html", "") or "").strip()
+            block_html = str(
+                raw_block.get("html", "") or ""
+            ).strip()
 
             if block_html:
                 article_block["html"] = block_html
@@ -1924,6 +2659,7 @@ def fetch_espn_article_payload(url):
         article_text = "\n\n".join(
             block["text"]
             for block in article_blocks
+            if block.get("type") != "image"
         ).strip()
 
         if not article_text:
@@ -1946,7 +2682,7 @@ def fetch_espn_article_payload(url):
         return {
             "is_live": False,
             "method": "espn_chrome",
-            "format_version": 7,
+            "format_version": 9,
             "text": article_text,
             "blocks": article_blocks,
             "updates": [],
@@ -1993,6 +2729,10 @@ def _fetch_article_text_payload_uncached(url):
     # ESPN serves a script/anti-bot shell to ordinary urllib requests.
     if hostname == "espn.com" or hostname.endswith(".espn.com"):
         return fetch_espn_article_payload(url)
+
+    # CNBC's direct HTML omits the rendered inline-image structure.
+    if hostname == "cnbc.com" or hostname.endswith(".cnbc.com"):
+        return fetch_cnbc_article_payload(url)
 
     page_html = fetch_url_text(url, timeout=20)
     is_live = "/live-news/" in str(url).lower()
@@ -2054,6 +2794,36 @@ def _fetch_article_text_payload_uncached(url):
             method = "json_ld_articleBody"
 
     else:
+        # Preserve ordinary semantic <figure> elements before
+        # falling back to flattened text-only extraction.
+        structured_payload = extract_fox_article_payload(
+            page_html,
+            url,
+        )
+        structured_text = str(
+            structured_payload.get("text", "") or ""
+        )
+        structured_blocks = list(
+            structured_payload.get("blocks", []) or []
+        )
+        has_structured_images = any(
+            block.get("type") == "image"
+            for block in structured_blocks
+        )
+
+        if (
+            has_structured_images
+            and is_valid_article_text(structured_text)
+        ):
+            return {
+                "is_live": is_live,
+                "method": "html_structured_images",
+                "cleanup_version": ARTICLE_END_CLEANUP_VERSION,
+                "text": structured_text,
+                "blocks": structured_blocks,
+                "updates": [],
+            }
+
         text = extract_article_body_from_json_ld(
             page_html
         )
@@ -2293,6 +3063,7 @@ def cached_article_payload_is_usable(url, payload):
     parsed_url = urlparse(str(url or ""))
     hostname = parsed_url.netloc.lower()
     is_espn = hostname == "espn.com" or hostname.endswith(".espn.com")
+    is_cnbc = hostname == "cnbc.com" or hostname.endswith(".cnbc.com")
     is_fox = hostname == "foxnews.com" or hostname.endswith(".foxnews.com")
 
     if is_espn:
@@ -2304,8 +3075,25 @@ def cached_article_payload_is_usable(url, payload):
             format_version = 0
 
         return (
-            format_version >= 7
+            format_version >= 9
             and bool(payload.get("blocks"))
+        )
+
+    if is_cnbc:
+        try:
+            cnbc_format_version = int(
+                payload.get("cnbc_format_version", 0) or 0
+            )
+            cleanup_version = int(
+                payload.get("cleanup_version", 0) or 0
+            )
+        except (TypeError, ValueError):
+            return False
+
+        return (
+            cnbc_format_version >= 1
+            and bool(payload.get("blocks"))
+            and cleanup_version >= ARTICLE_END_CLEANUP_VERSION
         )
 
     if is_fox:

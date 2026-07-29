@@ -664,6 +664,7 @@ class OpenNewspaperDialog(QDialog):
             Qt.LinksAccessibleByMouse
         )
         self.left_page.setFrameShape(QFrame.NoFrame)
+        self.left_page.document().setDocumentMargin(0)
         self.left_page.setHorizontalScrollBarPolicy(
             Qt.ScrollBarAlwaysOff
         )
@@ -688,6 +689,7 @@ class OpenNewspaperDialog(QDialog):
             Qt.LinksAccessibleByMouse
         )
         self.right_page.setFrameShape(QFrame.NoFrame)
+        self.right_page.document().setDocumentMargin(0)
         self.right_page.setHorizontalScrollBarPolicy(
             Qt.ScrollBarAlwaysOff
         )
@@ -1269,32 +1271,33 @@ class OpenNewspaperDialog(QDialog):
         if not blocks:
             return [self.article_page_html([])]
 
-        page_browser_width = max(
-            self.left_page.width(),
-            self.right_page.width(),
+        # QTextBrowser.viewport() is the actual drawable text area.
+        # Its dimensions already exclude the 8px vertical and 18px
+        # horizontal padding applied by the NewspaperPage stylesheet.
+        page_viewport_width = max(
+            self.left_page.viewport().width(),
+            self.right_page.viewport().width(),
         )
-        page_browser_height = max(
-            self.left_page.height(),
-            self.right_page.height(),
+        page_viewport_height = max(
+            self.left_page.viewport().height(),
+            self.right_page.viewport().height(),
         )
 
+        # Retain only a tiny allowance for fractional QTextDocument
+        # layout rounding. The previous 46px/42px deductions removed
+        # usable space a second time and ended pages one or two lines early.
         page_width = max(
             320,
-            int(page_browser_width) - 46,
+            int(page_viewport_width) - 2,
         )
-
-        # Every page uses the same full-height browser geometry.
         page_height = max(
             320,
-            int(page_browser_height) - 42,
+            int(page_viewport_height) - 2,
         )
 
-        # Preserve the current image-fit margin while basing it on
-        # the same full browser height used by every newspaper page.
-        image_page_height = max(
-            320,
-            int(page_browser_height) - 62,
-        )
+        # Images and ordinary text now use the same real page height.
+        # prepare_image_block() already reserves caption and spacing height.
+        image_page_height = page_height
 
         def rendered_height(candidate_blocks):
             document = QTextDocument()
@@ -1616,10 +1619,13 @@ class OpenNewspaperDialog(QDialog):
 
             browser.setHtml(page_html)
 
+            # Keep the displayed document geometry identical to the
+            # zero-margin document used while calculating page breaks.
+            document = browser.document()
+            document.setDocumentMargin(0)
+
             # Re-register after setHtml as well so Qt can resolve the
             # custom image resource regardless of document reset order.
-            document = browser.document()
-
             for resource_name, image in (
                 self.article_image_resources.items()
             ):
