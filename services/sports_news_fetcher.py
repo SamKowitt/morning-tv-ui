@@ -1,4 +1,5 @@
 import html
+import json
 import re
 import ssl
 import urllib.request
@@ -16,6 +17,24 @@ class SportsArticle:
     link: str = ""
     category: str = "ESPN"
 
+    # Used when ESPN's selected homepage hero points to an active
+    # or completed game module.
+    is_game_lead: bool = False
+    is_live_game: bool = False
+    away_team: str = ""
+    away_record: str = ""
+    away_score: str = ""
+    away_logo_url: str = ""
+    away_logo_bytes: bytes = b""
+    home_team: str = ""
+    home_record: str = ""
+    home_score: str = ""
+    home_logo_url: str = ""
+    home_logo_bytes: bytes = b""
+    game_network: str = ""
+    game_status: str = ""
+    game_state: str = ""
+
 
 SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 
@@ -27,6 +46,27 @@ ESPN_FEEDS = [
 ]
 
 
+ESPN_LIVE_API_PATHS = {
+    "wnba": ("basketball", "wnba"),
+    "nba": ("basketball", "nba"),
+    "nfl": ("football", "nfl"),
+    "college-football": (
+        "football",
+        "college-football",
+    ),
+    "mens-college-basketball": (
+        "basketball",
+        "mens-college-basketball",
+    ),
+    "womens-college-basketball": (
+        "basketball",
+        "womens-college-basketball",
+    ),
+    "mlb": ("baseball", "mlb"),
+    "nhl": ("hockey", "nhl"),
+}
+
+
 def clean_text(value):
     if not value:
         return ""
@@ -35,6 +75,272 @@ def clean_text(value):
     value = re.sub(r"<[^>]+>", " ", value)
     value = re.sub(r"\s+", " ", value).strip()
     return value
+
+
+def fetch_json_payload(url, timeout=12):
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 MorningTVUI/1.0"
+            ),
+            "Accept": "application/json,text/plain,*/*",
+            "Referer": ESPN_HOMEPAGE,
+        },
+    )
+
+    with urllib.request.urlopen(
+        request,
+        timeout=timeout,
+        context=SSL_CONTEXT,
+    ) as response:
+        return json.loads(
+            response.read().decode(
+                "utf-8",
+                errors="replace",
+            )
+        )
+
+
+def download_espn_logo_bytes(image_url, timeout=12):
+    image_url = str(image_url or "").strip()
+
+    if not image_url:
+        return b""
+
+    request = urllib.request.Request(
+        image_url,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 MorningTVUI/1.0"
+            ),
+            "Accept": "image/avif,image/webp,image/png,image/*,*/*;q=0.8",
+            "Referer": ESPN_HOMEPAGE,
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(
+            request,
+            timeout=timeout,
+            context=SSL_CONTEXT,
+        ) as response:
+            data = response.read(2 * 1024 * 1024)
+
+        return data if len(data) >= 32 else b""
+
+    except Exception as error:
+        print(
+            "ESPN LIVE LOGO LOAD FAILED: "
+            f"{image_url} -> {error}"
+        )
+        return b""
+
+
+def first_record_summary(competitor):
+    for record in competitor.get("records", []) or []:
+        summary = clean_text(
+            record.get("summary", "")
+        )
+
+        if summary:
+            return summary
+
+    return ""
+
+
+def team_logo_url(team):
+    logo = str(team.get("logo", "") or "").strip()
+
+    if logo:
+        return logo
+
+    for item in team.get("logos", []) or []:
+        if not isinstance(item, dict):
+            continue
+
+        href = str(item.get("href", "") or "").strip()
+
+        if href:
+            return href
+
+    return ""
+
+
+def fetch_espn_live_game_payload(
+    event_id,
+    league_slug,
+):
+    event_id = str(event_id or "").strip()
+    league_slug = str(
+        league_slug or ""
+    ).strip().lower()
+
+    api_path = ESPN_LIVE_API_PATHS.get(
+        league_slug
+    )
+
+    if not event_id or not api_path:
+        return {}
+
+    sport, league = api_path
+    endpoint = (
+        "https://site.api.espn.com/apis/site/v2/"
+        f"sports/{sport}/{league}/summary"
+        f"?event={event_id}"
+    )
+
+    try:
+        payload = fetch_json_payload(endpoint)
+    except Exception as error:
+        print(
+            "ESPN LIVE SCORE API FAILED: "
+            f"{endpoint} -> {error}"
+        )
+        return {}
+
+    header = payload.get("header") or {}
+    competitions = (
+        header.get("competitions") or []
+    )
+
+    if not competitions:
+        return {}
+
+    competition = competitions[0] or {}
+    status = competition.get("status") or {}
+    status_type = status.get("type") or {}
+    state = str(
+        status_type.get("state", "") or ""
+    ).strip().lower()
+
+    # Preserve the scoreboard for games that are currently active
+    # or have just finished. Scheduled games remain ordinary leads.
+    if state not in {"in", "post"}:
+        return {}
+
+    competitors = (
+        competition.get("competitors") or []
+    )
+
+    away = next(
+        (
+            item
+            for item in competitors
+            if str(
+                item.get("homeAway", "")
+            ).lower() == "away"
+        ),
+        None,
+    )
+    home = next(
+        (
+            item
+            for item in competitors
+            if str(
+                item.get("homeAway", "")
+            ).lower() == "home"
+        ),
+        None,
+    )
+
+    if not away or not home:
+        return {}
+
+    away_team_data = away.get("team") or {}
+    home_team_data = home.get("team") or {}
+
+    away_team = clean_text(
+        away_team_data.get("shortDisplayName")
+        or away_team_data.get("displayName")
+    )
+    home_team = clean_text(
+        home_team_data.get("shortDisplayName")
+        or home_team_data.get("displayName")
+    )
+    away_score = clean_text(
+        away.get("score", "")
+    )
+    home_score = clean_text(
+        home.get("score", "")
+    )
+    game_status = clean_text(
+        status_type.get("shortDetail")
+        or status_type.get("detail")
+        or status.get("displayClock")
+    )
+
+    if not all(
+        (
+            away_team,
+            home_team,
+            away_score,
+            home_score,
+            game_status,
+        )
+    ):
+        return {}
+
+    broadcasts = competition.get(
+        "broadcasts",
+        [],
+    ) or []
+    game_network = ""
+
+    for broadcast in broadcasts:
+        if not isinstance(broadcast, dict):
+            continue
+
+        names = broadcast.get("names") or []
+
+        if names:
+            game_network = clean_text(names[0])
+            break
+
+        media = broadcast.get("media") or {}
+        game_network = clean_text(
+            media.get("shortName", "")
+        )
+
+        if game_network:
+            break
+
+    away_logo_url = team_logo_url(
+        away_team_data
+    )
+    home_logo_url = team_logo_url(
+        home_team_data
+    )
+
+    return {
+        "is_game_lead": True,
+        "is_live_game": state == "in",
+        "away_team": away_team,
+        "away_record": first_record_summary(
+            away
+        ),
+        "away_score": away_score,
+        "away_logo_url": away_logo_url,
+        "away_logo_bytes": (
+            download_espn_logo_bytes(
+                away_logo_url
+            )
+        ),
+        "home_team": home_team,
+        "home_record": first_record_summary(
+            home
+        ),
+        "home_score": home_score,
+        "home_logo_url": home_logo_url,
+        "home_logo_bytes": (
+            download_espn_logo_bytes(
+                home_logo_url
+            )
+        ),
+        "game_network": game_network or "ESPN",
+        "game_status": game_status,
+        "game_state": state,
+    }
 
 
 def get_child_text(item, tag_name):
@@ -56,6 +362,9 @@ def is_valid_article(article):
             or "/report/_/gameid/" in link
             or "/video/" in link
             or "/watch/" in link
+            or "/game/_/gameid/" in link
+            or "/gamecast/_/gameid/" in link
+            or "/boxscore/_/gameid/" in link
         )
     )
 
@@ -110,8 +419,76 @@ def fetch_espn_homepage_lead():
                 || value.includes("/report/_/gameid/")
                 || value.includes("/video/")
                 || value.includes("/watch/")
+                || value.includes("/game/_/gameid/")
+                || value.includes("/gamecast/_/gameid/")
+                || value.includes("/boxscore/_/gameid/")
             )
         );
+    };
+
+    const getLiveEventReference = hero => {
+        const gameLink = Array.from(
+            hero.querySelectorAll("a[href]")
+        )
+            .map(link => String(link.href || "").trim())
+            .find(href => (
+                /\/game\/_\/gameId\/\d+/i.test(href)
+                || /\/gamecast\/_\/gameId\/\d+/i.test(href)
+                || /\/boxscore\/_\/gameId\/\d+/i.test(href)
+            )) || "";
+
+        let eventId = "";
+        let leagueSlug = "";
+
+        if (gameLink) {
+            const match = gameLink.match(
+                /espn\.com\/([^/]+)\/(?:game|gamecast|boxscore)\/_\/gameId\/(\d+)/i
+            );
+
+            if (match) {
+                leagueSlug = clean(match[1]).toLowerCase();
+                eventId = clean(match[2]);
+            }
+        }
+
+        if (!eventId) {
+            const eventNode = hero.querySelector(
+                "[data-event-id], [data-game-id], "
+                + "[data-gameid], [data-eventid]"
+            );
+
+            if (eventNode) {
+                eventId = clean(
+                    eventNode.getAttribute("data-event-id")
+                    || eventNode.getAttribute("data-game-id")
+                    || eventNode.getAttribute("data-gameid")
+                    || eventNode.getAttribute("data-eventid")
+                    || ""
+                );
+            }
+        }
+
+        if (!leagueSlug) {
+            const leagueNode = hero.querySelector(
+                "[data-league], [data-league-slug], "
+                + "[data-sport]"
+            );
+
+            if (leagueNode) {
+                leagueSlug = clean(
+                    leagueNode.getAttribute("data-league")
+                    || leagueNode.getAttribute("data-league-slug")
+                    || leagueNode.getAttribute("data-sport")
+                    || ""
+                ).toLowerCase();
+            }
+        }
+
+        return {
+            gameLink,
+            eventId,
+            leagueSlug
+        };
     };
 
     const getHeroCandidate = hero => {
@@ -143,10 +520,14 @@ def fetch_espn_homepage_lead():
         if (!isEligibleHref(href)) return null;
 
         const rect = hero.getBoundingClientRect();
+        const liveEvent = getLiveEventReference(
+            hero
+        );
 
         return {
             title,
             link: href,
+            liveEvent,
             kind: "hero",
             headingTag: heading.tagName,
             headingClass: clean(heading.className || ""),
@@ -262,6 +643,10 @@ def fetch_espn_homepage_lead():
         selected = payload.get("selected") or {}
         title = clean_text(selected.get("title", ""))
         link = str(selected.get("link", "") or "").strip()
+        live_event = selected.get("liveEvent") or {}
+
+        if not isinstance(live_event, dict):
+            live_event = {}
 
         if not title or not link:
             raise RuntimeError(
@@ -269,10 +654,22 @@ def fetch_espn_homepage_lead():
                 f"Selection mode: {payload.get('mode', 'unknown')}"
             )
 
+        game_lead = fetch_espn_live_game_payload(
+            event_id=live_event.get(
+                "eventId",
+                "",
+            ),
+            league_slug=live_event.get(
+                "leagueSlug",
+                "",
+            ),
+        )
+
         article = SportsArticle(
             title=title,
             link=link,
             category="ESPN",
+            **game_lead,
         )
 
         print(
@@ -281,6 +678,16 @@ def fetch_espn_homepage_lead():
             f'"{article.title}"'
         )
         print(f"ESPN HOMEPAGE LEAD LINK: {article.link}")
+
+        if article.is_game_lead:
+            print(
+                "ESPN GAME HERO SCOREBOARD: "
+                f"{article.away_team} "
+                f"{article.away_score} - "
+                f"{article.home_score} "
+                f"{article.home_team} | "
+                f"{article.game_status}"
+            )
 
         return article
 
