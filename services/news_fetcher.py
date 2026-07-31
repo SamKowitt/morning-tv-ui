@@ -89,6 +89,7 @@ NEWS_SOURCES = {
             "https://feeds.bloomberg.com/markets/news.rss",
             "https://feeds.bloomberg.com/politics/news.rss",
         ],
+        "prefer_homepage_first": True,
     },
     "NEWSMAX": {
         "dropdown": "Newsmax.com",
@@ -819,6 +820,546 @@ def fetch_reuters_url_text(url, timeout=REQUEST_TIMEOUT):
         return response.read().decode("utf-8", errors="ignore")
 
 
+
+
+# ============================================================
+# Bloomberg raw-homepage hierarchy
+# ============================================================
+
+
+def _bloomberg_canonical_article_url(value):
+    parsed = urllib.parse.urlparse(
+        html.unescape(str(value or "")).strip()
+    )
+    hostname = parsed.netloc.lower().split(":", 1)[0]
+
+    if hostname.startswith("www."):
+        hostname = hostname[4:]
+
+    path = (parsed.path or "").rstrip("/")
+
+    if (
+        hostname != "bloomberg.com"
+        or not path.startswith("/news/articles/")
+    ):
+        return ""
+
+    return f"https://www.bloomberg.com{path}"
+
+
+def normalize_bloomberg_homepage_candidates(
+    page_html,
+    candidates,
+):
+    """
+    Extract Bloomberg's structural #lede hierarchy.
+
+    Bloomberg's current homepage uses a two-story lede module. When its
+    containing zone is "righty", the right-hand direct story is the primary
+    lead. Related headlines remain grouped beneath their parent story.
+    """
+    from html.parser import HTMLParser
+
+    class BloombergLedeParser(HTMLParser):
+        VOID_TAGS = {
+            "area",
+            "base",
+            "br",
+            "col",
+            "embed",
+            "hr",
+            "img",
+            "input",
+            "link",
+            "meta",
+            "param",
+            "source",
+            "track",
+            "wbr",
+        }
+
+        def __init__(self):
+            super().__init__(
+                convert_charrefs=True
+            )
+            self.stack = []
+            self.in_lede = False
+            self.lede_depth = None
+            self.zone_kind = ""
+
+            self.current_story = None
+            self.story_depth = None
+
+            self.current_link = None
+            self.link_depth = None
+            self.headline_depth = None
+            self.headline_tag = ""
+
+            self.stories = []
+
+        @staticmethod
+        def attrs_dict(attrs):
+            return {
+                str(name or "").lower(): str(
+                    value or ""
+                )
+                for name, value in attrs
+            }
+
+        def handle_starttag(self, tag, attrs):
+            tag = str(tag or "").lower()
+            attributes = self.attrs_dict(attrs)
+            depth = len(self.stack) + 1
+
+            if (
+                tag == "section"
+                and attributes.get("id") == "lede"
+            ):
+                self.in_lede = True
+                self.lede_depth = depth
+
+                for (
+                    _ancestor_tag,
+                    ancestor_attributes,
+                ) in reversed(self.stack):
+                    zone_kind = ancestor_attributes.get(
+                        "data-zonekind",
+                        "",
+                    )
+
+                    if zone_kind:
+                        self.zone_kind = (
+                            zone_kind.strip().lower()
+                        )
+                        break
+
+            class_name = attributes.get(
+                "class",
+                "",
+            )
+
+            if (
+                self.in_lede
+                and self.current_story is None
+                and tag == "div"
+                and "LineupContent2Up_story__"
+                in class_name
+            ):
+                self.current_story = {
+                    "primary": None,
+                    "related": [],
+                    "image_url": "",
+                }
+                self.story_depth = depth
+
+            if self.current_story is not None:
+                if not self.current_story[
+                    "image_url"
+                ]:
+                    image_url = (
+                        attributes.get(
+                            "data-poster",
+                            "",
+                        )
+                        or attributes.get(
+                            "src",
+                            "",
+                        )
+                        or attributes.get(
+                            "data-src",
+                            "",
+                        )
+                    )
+
+                    if image_url.startswith(
+                        "http"
+                    ):
+                        self.current_story[
+                            "image_url"
+                        ] = image_url
+
+                if tag == "a":
+                    component = attributes.get(
+                        "data-component",
+                        "",
+                    ).lower()
+                    related_type = attributes.get(
+                        "data-link-related-type",
+                        "",
+                    ).lower()
+
+                    if component == "story-link":
+                        link_kind = "primary"
+                    elif related_type == "related":
+                        link_kind = "related"
+                    else:
+                        link_kind = ""
+
+                    if link_kind:
+                        link = absolute_url(
+                            NEWS_SOURCES[
+                                "BLOOMBERG"
+                            ]["homepage"],
+                            attributes.get(
+                                "href",
+                                "",
+                            ),
+                        )
+                        link = (
+                            _bloomberg_canonical_article_url(
+                                link
+                            )
+                        )
+
+                        if link:
+                            self.current_link = {
+                                "kind": link_kind,
+                                "link": link,
+                                "text": [],
+                            }
+                            self.link_depth = depth
+
+                if (
+                    self.current_link is not None
+                    and (
+                        attributes.get(
+                            "data-component",
+                            "",
+                        ).lower()
+                        == "headline"
+                        or attributes.get(
+                            "data-testid",
+                            "",
+                        ).lower()
+                        == "headline"
+                    )
+                ):
+                    self.headline_depth = depth
+                    self.headline_tag = tag
+
+            if tag not in self.VOID_TAGS:
+                self.stack.append(
+                    (
+                        tag,
+                        attributes,
+                    )
+                )
+
+        def handle_startendtag(
+            self,
+            tag,
+            attrs,
+        ):
+            self.handle_starttag(
+                tag,
+                attrs,
+            )
+
+        def handle_data(self, data):
+            if (
+                self.current_link is not None
+                and self.headline_depth
+                is not None
+            ):
+                text = str(data or "").strip()
+
+                if text:
+                    self.current_link[
+                        "text"
+                    ].append(text)
+
+        def finish_current_link(self):
+            if (
+                self.current_link is None
+                or self.current_story is None
+            ):
+                return
+
+            title = clean_text(
+                " ".join(
+                    self.current_link["text"]
+                )
+            )
+            link = self.current_link["link"]
+            link_kind = self.current_link[
+                "kind"
+            ]
+
+            if (
+                title
+                and link
+                and is_reasonable_headline(
+                    title
+                )
+            ):
+                item = {
+                    "title": title,
+                    "link": link,
+                    "image_url": (
+                        self.current_story[
+                            "image_url"
+                        ]
+                        if link_kind
+                        == "primary"
+                        else ""
+                    ),
+                }
+
+                if link_kind == "primary":
+                    if (
+                        self.current_story[
+                            "primary"
+                        ]
+                        is None
+                    ):
+                        self.current_story[
+                            "primary"
+                        ] = item
+                else:
+                    self.current_story[
+                        "related"
+                    ].append(item)
+
+            self.current_link = None
+            self.link_depth = None
+            self.headline_depth = None
+            self.headline_tag = ""
+
+        def handle_endtag(self, tag):
+            tag = str(tag or "").lower()
+            depth = len(self.stack)
+
+            if (
+                self.headline_depth == depth
+                and self.headline_tag == tag
+            ):
+                self.headline_depth = None
+                self.headline_tag = ""
+
+            if (
+                self.current_link is not None
+                and tag == "a"
+                and self.link_depth == depth
+            ):
+                self.finish_current_link()
+
+            if (
+                self.current_story is not None
+                and tag == "div"
+                and self.story_depth == depth
+            ):
+                if self.current_story[
+                    "primary"
+                ]:
+                    self.stories.append(
+                        self.current_story
+                    )
+
+                self.current_story = None
+                self.story_depth = None
+
+            if (
+                self.in_lede
+                and tag == "section"
+                and self.lede_depth == depth
+            ):
+                self.in_lede = False
+                self.lede_depth = None
+
+            if self.stack:
+                if self.stack[-1][0] == tag:
+                    self.stack.pop()
+                else:
+                    for index in range(
+                        len(self.stack) - 1,
+                        -1,
+                        -1,
+                    ):
+                        if (
+                            self.stack[index][0]
+                            == tag
+                        ):
+                            del self.stack[
+                                index:
+                            ]
+                            break
+
+    rss_by_url = {}
+
+    try:
+        for rss_candidate in fetch_rss_candidates(
+            "BLOOMBERG"
+        ):
+            canonical_url = (
+                _bloomberg_canonical_article_url(
+                    rss_candidate.link
+                )
+            )
+
+            if (
+                canonical_url
+                and canonical_url
+                not in rss_by_url
+            ):
+                rss_by_url[
+                    canonical_url
+                ] = rss_candidate
+
+    except Exception as error:
+        print(
+            "Bloomberg RSS headline cleanup "
+            f"failed: {error}"
+        )
+
+    parser = BloombergLedeParser()
+    parser.feed(page_html)
+    parser.close()
+
+    stories = list(parser.stories)
+
+    # Bloomberg labels this layout "righty"; its right-hand
+    # direct story is the primary editorial lead.
+    if (
+        parser.zone_kind == "righty"
+        and len(stories) >= 2
+    ):
+        stories.reverse()
+
+    normalized = []
+    seen_urls = set()
+
+    def add_item(
+        item,
+        origin,
+    ):
+        canonical_url = (
+            _bloomberg_canonical_article_url(
+                item.get("link", "")
+            )
+        )
+
+        if (
+            not canonical_url
+            or canonical_url in seen_urls
+        ):
+            return
+
+        rss_candidate = rss_by_url.get(
+            canonical_url
+        )
+
+        title = clean_text(
+            rss_candidate.title
+            if rss_candidate
+            else item.get("title", "")
+        )
+
+        if not is_reasonable_headline(title):
+            return
+
+        image_url = str(
+            item.get("image_url", "")
+            or (
+                rss_candidate.image_url
+                if rss_candidate
+                else ""
+            )
+            or ""
+        ).strip()
+
+        seen_urls.add(canonical_url)
+
+        normalized.append(
+            Candidate(
+                title=title,
+                source=NEWS_SOURCES[
+                    "BLOOMBERG"
+                ]["source_name"],
+                image_url=image_url,
+                link=canonical_url,
+                origin=origin,
+                position=len(normalized),
+            )
+        )
+
+    # Lead first, then its related stories. The secondary
+    # direct story and its related stories follow.
+    for story in stories:
+        add_item(
+            story["primary"],
+            "homepage_link",
+        )
+
+        for related_item in story[
+            "related"
+        ]:
+            add_item(
+                related_item,
+                "homepage_link",
+            )
+
+    # Retain lower-page homepage stories as fallback extras.
+    ordered_anchors = sorted(
+        (
+            candidate
+            for candidate in candidates
+            if candidate.origin
+            == "homepage_anchor"
+        ),
+        key=lambda candidate:
+            candidate.position,
+    )
+
+    for candidate in ordered_anchors:
+        add_item(
+            {
+                "title": candidate.title,
+                "link": candidate.link,
+                "image_url":
+                    candidate.image_url,
+            },
+            "homepage_link",
+        )
+
+        if len(normalized) >= 12:
+            break
+
+    if not normalized:
+        raise RuntimeError(
+            "No usable Bloomberg homepage "
+            "stories were found."
+        )
+
+    print()
+    print(
+        "===== BLOOMBERG STRUCTURAL "
+        "HOMEPAGE HIERARCHY ====="
+    )
+    print(
+        "LEDE ZONE KIND: "
+        f"{parser.zone_kind or 'unknown'}"
+    )
+
+    for index, candidate in enumerate(
+        normalized[:6],
+        start=1,
+    ):
+        label = (
+            "LEAD"
+            if index == 1
+            else f"TOP STORY {index - 1}"
+        )
+
+        print(
+            f"{label}: {candidate.title}"
+        )
+        print(
+            f"  {candidate.link}"
+        )
+
+    return normalized
+
+
 def fetch_homepage_candidates(source_key):
     config = NEWS_SOURCES[source_key]
     source_name = config["source_name"]
@@ -857,7 +1398,15 @@ def fetch_homepage_candidates(source_key):
         )
     )
 
-    return dedupe_candidates(candidates)
+    candidates = dedupe_candidates(candidates)
+
+    if source_key == "BLOOMBERG":
+        return normalize_bloomberg_homepage_candidates(
+            page_html,
+            candidates,
+        )
+
+    return candidates
 
 
 def fetch_rss_article_candidates(feed_url, source_name, timeout=RSS_TIMEOUT):
@@ -1110,6 +1659,516 @@ def fetch_generic_ranked_candidates(source_key):
     return source_key, source_name, ranked_candidates
 
 
+
+
+
+# ============================================================
+# AP News rendered homepage hierarchy
+# ============================================================
+
+_APNEWS_RENDERED_CANDIDATES_CACHE = []
+_APNEWS_RENDERED_CANDIDATES_CACHE_SAVED_AT = 0.0
+_APNEWS_RENDERED_CANDIDATES_CACHE_TTL_SECONDS = 120
+_APNEWS_RENDERED_CANDIDATES_CACHE_LOCK = threading.Condition()
+_APNEWS_RENDERED_CANDIDATES_FETCHING = False
+
+
+def _fetch_apnews_rendered_homepage_candidates_uncached(
+    source_key="APNEWS",
+):
+    """
+    Return AP's rendered homepage story hierarchy in visual order.
+
+    Each PageListStandardE feature module contributes its lead promo first,
+    followed by that same module's companion/More Coverage stories. Right-rail,
+    navigation, and unrelated lower-page lists are excluded.
+    """
+    from services.newsmax_chrome import (
+        _close_page,
+        _create_page,
+        _eval,
+        _navigate,
+    )
+
+    target_id = ""
+    ws_url = ""
+
+    try:
+        target_id, ws_url = _create_page()
+        _navigate(
+            ws_url,
+            NEWS_SOURCES[source_key]["homepage"],
+        )
+
+        raw_candidates = _eval(
+            ws_url,
+            r"""
+(() => {
+    const clean = value => String(value || "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    const isVisible = element => {
+        if (!element) {
+            return false;
+        }
+
+        const style = window.getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+
+        return (
+            style.display !== "none"
+            && style.visibility !== "hidden"
+            && Number(style.opacity || 1) > 0
+            && rect.width >= 80
+            && rect.height >= 14
+            && rect.bottom > 0
+        );
+    };
+
+    const isEditorialApUrl = href => {
+        try {
+            const url = new URL(
+                String(href || ""),
+                window.location.href
+            );
+            const hostname = url.hostname.toLowerCase();
+            const pathname = url.pathname.toLowerCase();
+
+            return (
+                (
+                    hostname === "apnews.com"
+                    || hostname.endsWith(".apnews.com")
+                )
+                && (
+                    pathname.startsWith("/article/")
+                    || pathname.startsWith("/live/")
+                )
+            );
+        } catch (_error) {
+            return false;
+        }
+    };
+
+    const main = document.querySelector("main");
+
+    if (!main) {
+        return [];
+    }
+
+    /*
+     * AP's homepage is composed of major PageListStandardE feature
+     * modules. Each module has one lead promo and may contain companion
+     * stories presented as More Coverage.
+     */
+    const featureModules = Array.from(
+        main.querySelectorAll(".PageListStandardE")
+    )
+        .filter(module => {
+            if (
+                !isVisible(module)
+                || module.closest(".PageListRightRailA")
+                || module.closest("header, nav, aside")
+            ) {
+                return false;
+            }
+
+            // Ignore nested module copies.
+            if (
+                module.parentElement
+                && module.parentElement.closest(
+                    ".PageListStandardE"
+                )
+            ) {
+                return false;
+            }
+
+            const leadHeading = module.querySelector(
+                ".PageListStandardE-leadPromo-info "
+                + ".PagePromo-title a[href]"
+            );
+
+            return Boolean(
+                leadHeading
+                && isVisible(
+                    leadHeading.closest(
+                        ".PagePromo-title"
+                    )
+                )
+                && isEditorialApUrl(
+                    leadHeading.href
+                )
+            );
+        })
+        .map(module => {
+            const rect =
+                module.getBoundingClientRect();
+
+            return {
+                module,
+                top: Math.round(rect.top),
+                left: Math.round(rect.left)
+            };
+        })
+        .sort((left, right) => (
+            left.top - right.top
+            || left.left - right.left
+        ));
+
+    const candidates = [];
+    const seen = new Set();
+
+    for (
+        let moduleIndex = 0;
+        moduleIndex < featureModules.length;
+        moduleIndex += 1
+    ) {
+        const moduleInfo =
+            featureModules[moduleIndex];
+        const module = moduleInfo.module;
+        const moduleCandidates = [];
+
+        for (const link of module.querySelectorAll(
+            ".PagePromo-title a[href]"
+        )) {
+            const heading = link.closest(
+                ".PagePromo-title"
+            );
+
+            if (
+                !heading
+                || !isVisible(heading)
+                || (
+                    heading.closest(
+                        ".PageListStandardE"
+                    ) !== module
+                )
+                || heading.closest(
+                    ".PageListRightRailA"
+                )
+                || heading.closest(
+                    "header, nav, aside"
+                )
+            ) {
+                continue;
+            }
+
+            const title = clean(
+                heading.innerText
+                || heading.textContent
+                || link.innerText
+                || link.textContent
+            );
+            const href = String(
+                link.href || ""
+            ).trim();
+
+            if (
+                title.length < 20
+                || title.split(/\s+/).length < 4
+                || !isEditorialApUrl(href)
+            ) {
+                continue;
+            }
+
+            const key = `${title}|${href}`;
+
+            if (seen.has(key)) {
+                continue;
+            }
+
+            const rect =
+                heading.getBoundingClientRect();
+            const isLead = Boolean(
+                heading.closest(
+                    ".PageListStandardE-leadPromo-info"
+                )
+            );
+            const card = heading.closest(
+                ".PagePromo, "
+                + ".PageListStandardE-leadPromo-info"
+            );
+            const image = card
+                ? card.querySelector(
+                    "img[src], "
+                    + "img[data-src], "
+                    + "img[data-lazy-src]"
+                )
+                : null;
+
+            moduleCandidates.push({
+                title,
+                link: href,
+
+                image_url: image
+                    ? String(
+                        image.currentSrc
+                        || image.src
+                        || image.getAttribute(
+                            "data-src"
+                        )
+                        || image.getAttribute(
+                            "data-lazy-src"
+                        )
+                        || ""
+                    )
+                    : "",
+
+                is_lead: isLead,
+                module_index: moduleIndex,
+                module_top: moduleInfo.top,
+                top: Math.round(rect.top),
+                left: Math.round(rect.left)
+            });
+        }
+
+        /*
+         * The module's lead must be first. Its companion stories then
+         * retain their rendered top-to-bottom, left-to-right order.
+         */
+        moduleCandidates.sort(
+            (left, right) => (
+                Number(right.is_lead)
+                    - Number(left.is_lead)
+                || left.top - right.top
+                || left.left - right.left
+            )
+        );
+
+        for (const candidate of moduleCandidates) {
+            const key =
+                `${candidate.title}|${candidate.link}`;
+
+            if (seen.has(key)) {
+                continue;
+            }
+
+            seen.add(key);
+            candidates.push(candidate);
+
+            /*
+             * The main card plus the mini-news panel need six
+             * stories. Keep several extras for duplicate filtering.
+             */
+            if (candidates.length >= 12) {
+                return candidates;
+            }
+        }
+    }
+
+    return candidates;
+})()
+""",
+            timeout=25,
+        )
+
+        candidates = []
+
+        for position, item in enumerate(
+            raw_candidates or [],
+            start=1,
+        ):
+            if not isinstance(item, dict):
+                continue
+
+            title = clean_text(
+                item.get("title", "")
+            )
+            link = str(
+                item.get("link", "") or ""
+            ).strip()
+            image_url = str(
+                item.get("image_url", "") or ""
+            ).strip()
+
+            if not title or not link:
+                continue
+
+            candidates.append(
+                Candidate(
+                    title=title,
+                    source=NEWS_SOURCES[
+                        source_key
+                    ]["source_name"],
+                    image_url=image_url,
+                    link=link,
+                    origin=(
+                        "ap_rendered_feature_hierarchy"
+                    ),
+                    position=position,
+                    score=float(
+                        100000 - position
+                    ),
+                )
+            )
+
+        candidates = dedupe_candidates(
+            candidates
+        )
+        candidates.sort(
+            key=lambda candidate:
+                candidate.position
+        )
+
+        if not candidates:
+            raise RuntimeError(
+                "No usable rendered AP News feature "
+                "stories were found."
+            )
+
+        print()
+        print(
+            "===== AP NEWS RENDERED "
+            "HOMEPAGE HIERARCHY ====="
+        )
+
+        for index, candidate in enumerate(
+            candidates[:6],
+            start=1,
+        ):
+            label = (
+                "LEAD"
+                if index == 1
+                else f"TOP STORY {index - 1}"
+            )
+
+            print(
+                f"{label}: {candidate.title}"
+            )
+            print(f"  {candidate.link}")
+
+        return candidates
+
+    finally:
+        if target_id:
+            _close_page(target_id)
+
+
+def fetch_apnews_rendered_homepage_candidates(
+    source_key="APNEWS",
+):
+    global _APNEWS_RENDERED_CANDIDATES_CACHE
+    global _APNEWS_RENDERED_CANDIDATES_CACHE_SAVED_AT
+    global _APNEWS_RENDERED_CANDIDATES_FETCHING
+
+    with _APNEWS_RENDERED_CANDIDATES_CACHE_LOCK:
+        cache_age = (
+            time.monotonic()
+            - _APNEWS_RENDERED_CANDIDATES_CACHE_SAVED_AT
+        )
+
+        if (
+            _APNEWS_RENDERED_CANDIDATES_CACHE
+            and cache_age
+            < _APNEWS_RENDERED_CANDIDATES_CACHE_TTL_SECONDS
+        ):
+            print(
+                "Using cached rendered AP News homepage "
+                f"candidates ({cache_age:.0f}s old)."
+            )
+            return list(
+                _APNEWS_RENDERED_CANDIDATES_CACHE
+            )
+
+        if _APNEWS_RENDERED_CANDIDATES_FETCHING:
+            print(
+                "Waiting for the active AP News homepage "
+                "render to finish..."
+            )
+
+            _APNEWS_RENDERED_CANDIDATES_CACHE_LOCK.wait(
+                timeout=35
+            )
+
+            cache_age = (
+                time.monotonic()
+                - _APNEWS_RENDERED_CANDIDATES_CACHE_SAVED_AT
+            )
+
+            if (
+                _APNEWS_RENDERED_CANDIDATES_CACHE
+                and cache_age
+                < _APNEWS_RENDERED_CANDIDATES_CACHE_TTL_SECONDS
+            ):
+                return list(
+                    _APNEWS_RENDERED_CANDIDATES_CACHE
+                )
+
+        _APNEWS_RENDERED_CANDIDATES_FETCHING = True
+
+    try:
+        candidates = (
+            _fetch_apnews_rendered_homepage_candidates_uncached(
+                source_key
+            )
+        )
+
+        with _APNEWS_RENDERED_CANDIDATES_CACHE_LOCK:
+            _APNEWS_RENDERED_CANDIDATES_CACHE = (
+                list(candidates)
+            )
+            _APNEWS_RENDERED_CANDIDATES_CACHE_SAVED_AT = (
+                time.monotonic()
+            )
+            _APNEWS_RENDERED_CANDIDATES_FETCHING = False
+            _APNEWS_RENDERED_CANDIDATES_CACHE_LOCK.notify_all()
+
+        return list(candidates)
+
+    except Exception:
+        with _APNEWS_RENDERED_CANDIDATES_CACHE_LOCK:
+            _APNEWS_RENDERED_CANDIDATES_FETCHING = False
+            _APNEWS_RENDERED_CANDIDATES_CACHE_LOCK.notify_all()
+
+        raise
+
+
+def fetch_apnews_homepage_lead_article(
+    source_key="APNEWS",
+):
+    candidates = (
+        fetch_apnews_rendered_homepage_candidates(
+            source_key
+        )
+    )
+    selected = candidates[0]
+
+    # Resolve the main card's image from the selected article page so it
+    # cannot be borrowed from a neighboring AP homepage promo.
+    final_image = (
+        find_page_image_url(selected.link)
+        or selected.image_url
+    )
+
+    article = NewsArticle(
+        title=selected.title,
+        source=NEWS_SOURCES[
+            source_key
+        ]["source_name"],
+        image_url=final_image,
+        link=selected.link,
+    )
+
+    print(
+        f'SELECTED AP NEWS LEAD: '
+        f'"{article.title}"'
+    )
+    print(
+        f"AP NEWS LEAD LINK: "
+        f"{article.link}"
+    )
+    print(
+        f"AP NEWS LEAD IMAGE: "
+        f"{article.image_url}"
+    )
+
+    cache_article(
+        source_key,
+        article,
+    )
+    return article
+
+
 def fetch_configured_article(source_key):
     source_key = normalize_source_key(source_key)
 
@@ -1182,13 +2241,43 @@ def fetch_configured_article(source_key):
             try:
                 article = enrich_article(article)
             except Exception as enrich_error:
-                print(f"CNN source-specific article enrich failed: {enrich_error}")
+                print(
+                    f"{source_key} source-specific article "
+                    f"enrich failed: {enrich_error}"
+                )
 
             cache_article(source_key, article)
             return article
 
         except Exception as error:
-            print(f"CNN direct homepage resolver failed: {error}; falling back to generic logic")
+            if source_key == "FOX":
+                print(
+                    "FOX direct and structured homepage "
+                    f"resolvers failed: {error}; refusing "
+                    "generic ranking so a secondary story "
+                    "cannot be presented as the lead."
+                )
+                return fallback_article(
+                    "FOX",
+                    "Fox-specific lead resolution failed: "
+                    + str(error),
+                )
+
+            print(
+                "CNN direct homepage resolver failed: "
+                f"{error}; falling back to generic logic"
+            )
+
+    if source_key == "APNEWS":
+        try:
+            return fetch_apnews_homepage_lead_article(
+                source_key
+            )
+        except Exception as error:
+            print(
+                "AP News rendered lead resolver failed: "
+                f"{error}; falling back to generic logic"
+            )
 
     if source_key == "CNBC":
         try:
@@ -2613,6 +3702,64 @@ except NameError:
     _FOX_EXISTING_HOMEPAGE_LEAD_RESOLVER = None
 
 
+def fetch_fox_structured_homepage_lead_article(source_key="FOX"):
+    """
+    Last-resort Fox-only fallback.
+
+    Read Fox's own ordered NewsArticle list from homepage JSON-LD and use
+    the first item. Never mix Fox with generic homepage/RSS ranking.
+    """
+    homepage_url = (
+        NEWS_SOURCES[source_key].get("homepage_url")
+        or NEWS_SOURCES[source_key].get("homepage")
+        or FOX_HOMEPAGE
+    )
+    page_html = fetch_url_text(
+        homepage_url,
+        timeout=12,
+    )
+    candidates = (
+        extract_homepage_candidates_from_json_ld(
+            page_html=page_html,
+            base_url=homepage_url,
+            source_name=NEWS_SOURCES[
+                source_key
+            ]["source_name"],
+        )
+    )
+
+    if not candidates:
+        raise RuntimeError(
+            "Fox homepage JSON-LD did not contain "
+            "an ordered NewsArticle lead."
+        )
+
+    selected = candidates[0]
+
+    print(
+        "SELECTED FOX STRUCTURED HOMEPAGE LEAD: "
+        f"{selected.title}"
+    )
+    print(
+        "FOX STRUCTURED LEAD LINK: "
+        f"{selected.link}"
+    )
+    print(
+        "FOX STRUCTURED LEAD IMAGE: "
+        f"{selected.image_url}"
+    )
+
+    return {
+        "source": source_key,
+        "title": selected.title,
+        "link": selected.link,
+        "url": selected.link,
+        "summary": "",
+        "image": selected.image_url,
+        "published": "",
+    }
+
+
 def fetch_fox_homepage_lead_article(source_key="FOX"):
     """
     Select Fox's visible homepage lead by rendered headline prominence.
@@ -2686,6 +3833,121 @@ def fetch_fox_homepage_lead_article(source_key="FOX"):
         "live tv", "weather", "advertisement", "sponsored",
         "privacy policy", "terms of use"
     ];
+
+    const imageFrom = container => {
+        if (!container) return "";
+
+        const image = Array.from(
+            container.querySelectorAll(
+                "img[src], img[data-src], img[data-lazy-src]"
+            )
+        ).find(node => {
+            const rect = node.getBoundingClientRect();
+            return rect.width > 100 && rect.height > 80;
+        });
+
+        return image
+            ? String(
+                image.currentSrc ||
+                image.src ||
+                image.getAttribute("data-src") ||
+                image.getAttribute("data-lazy-src") ||
+                ""
+            ).trim()
+            : "";
+    };
+
+    /*
+     * Fox's editorial lead is structurally identified as the first
+     * big-top story. It may legitimately be a /video/ live event, so
+     * select it before applying the normal video exclusion used for
+     * lower-page cards.
+     */
+    const structuralLead = document.querySelector(
+        ".big-top article.story-1"
+    );
+
+    if (structuralLead && visible(structuralLead)) {
+        const leadLink = structuralLead.querySelector(
+            ".info-header .title a[href], "
+            + "h1 a[href], h2 a[href], h3 a[href]"
+        );
+        const titleNode = leadLink
+            ? (
+                leadLink.closest(
+                    "h1, h2, h3, h4, h5, h6"
+                )
+                || leadLink
+            )
+            : null;
+        const title = clean(
+            titleNode
+                ? (
+                    titleNode.innerText
+                    || titleNode.textContent
+                )
+                : ""
+        );
+        const href = String(
+            leadLink?.href || ""
+        ).trim();
+        const lower = title.toLowerCase();
+
+        let validLeadHost = false;
+
+        try {
+            validLeadHost = new URL(
+                href,
+                window.location.href
+            ).hostname.toLowerCase().endsWith(
+                "foxnews.com"
+            );
+        } catch (_error) {
+            validLeadHost = false;
+        }
+
+        if (
+            title.length >= 20
+            && validLeadHost
+            && !blockedTitles.some(
+                bit => lower.includes(bit)
+            )
+        ) {
+            const style = getComputedStyle(
+                titleNode
+            );
+            const rect =
+                titleNode.getBoundingClientRect();
+
+            return {
+                selected: {
+                    title,
+                    link: href,
+                    image: imageFrom(
+                        structuralLead
+                    ),
+                    fontSize: (
+                        parseFloat(
+                            style.fontSize || "0"
+                        )
+                        || 0
+                    ),
+                    fontWeight: (
+                        parseInt(
+                            style.fontWeight || "400",
+                            10
+                        )
+                        || 400
+                    ),
+                    top: Math.round(rect.top),
+                    left: Math.round(rect.left),
+                    origin: (
+                        "fox_big_top_story_1"
+                    )
+                }
+            };
+        }
+    }
 
     const candidates = [];
     const seen = new Set();
@@ -2839,7 +4101,14 @@ def fetch_fox_homepage_lead_article(source_key="FOX"):
 
                 time.sleep(2)
 
-        raise RuntimeError(f"Fox rendered homepage lead failed: {last_error}")
+        print(
+            "Fox rendered homepage lead failed after "
+            f"3 attempts: {last_error}; using Fox-only "
+            "structured homepage fallback."
+        )
+        return fetch_fox_structured_homepage_lead_article(
+            source_key
+        )
 
     finally:
         if target_id:
@@ -3906,8 +5175,448 @@ def fetch_cnn_homepage_lead_article(source_key="CNN"):
     }
 
 
+
+# ============================================================
+# BBC rendered homepage hierarchy for mini-news
+# ============================================================
+
+_BBC_RENDERED_CANDIDATES_CACHE = []
+_BBC_RENDERED_CANDIDATES_CACHE_SAVED_AT = 0.0
+_BBC_RENDERED_CANDIDATES_CACHE_TTL_SECONDS = 120
+_BBC_RENDERED_CANDIDATES_CACHE_LOCK = threading.Condition()
+_BBC_RENDERED_CANDIDATES_FETCHING = False
+
+
+def _fetch_bbc_rendered_homepage_candidates_uncached(
+    source_key="BBC",
+):
+    """
+    Return BBC News' visible homepage cards in top-to-bottom,
+    left-to-right order for the mini-news panel.
+
+    The main BBC card keeps its existing RSS resolver.
+    """
+    from services.newsmax_chrome import (
+        _close_page,
+        _create_page,
+        _eval,
+        _navigate,
+    )
+
+    target_id = ""
+    ws_url = ""
+
+    try:
+        target_id, ws_url = _create_page()
+        _navigate(
+            ws_url,
+            NEWS_SOURCES[source_key]["homepage"],
+        )
+
+        raw_candidates = _eval(
+            ws_url,
+            r"""
+(() => {
+    const clean = value => String(value || "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    const isVisible = element => {
+        if (!element) {
+            return false;
+        }
+
+        const style =
+            window.getComputedStyle(element);
+        const rect =
+            element.getBoundingClientRect();
+
+        return (
+            style.display !== "none"
+            && style.visibility !== "hidden"
+            && Number(style.opacity || 1) > 0
+            && rect.width >= 80
+            && rect.height >= 14
+            && rect.bottom > 0
+        );
+    };
+
+    const isEditorialBbcNewsUrl = href => {
+        try {
+            const url = new URL(
+                String(href || ""),
+                window.location.href
+            );
+            const hostname =
+                url.hostname.toLowerCase();
+            const pathname =
+                url.pathname.toLowerCase();
+
+            const isOfficialBbcHost = (
+                hostname === "bbc.com"
+                || hostname.endsWith(".bbc.com")
+                || hostname === "bbc.co.uk"
+                || hostname.endsWith(".bbc.co.uk")
+            );
+
+            return (
+                isOfficialBbcHost
+                && (
+                    pathname.startsWith(
+                        "/news/articles/"
+                    )
+                    || pathname.startsWith(
+                        "/news/live/"
+                    )
+                )
+            );
+        } catch (_error) {
+            return false;
+        }
+    };
+
+    const findStoryLink = heading => {
+        const direct =
+            heading.closest("a[href]");
+
+        if (direct) {
+            return direct;
+        }
+
+        let container =
+            heading.parentElement;
+
+        for (
+            let depth = 0;
+            container && depth < 8;
+            depth += 1
+        ) {
+            const link =
+                container.querySelector(
+                    "a[data-testid='internal-link'][href], "
+                    + "a[href]"
+                );
+
+            if (link) {
+                return link;
+            }
+
+            container =
+                container.parentElement;
+        }
+
+        return null;
+    };
+
+    const main =
+        document.querySelector("main");
+
+    if (!main) {
+        return [];
+    }
+
+    const candidates = [];
+    const seen = new Set();
+
+    for (
+        const heading of
+        main.querySelectorAll(
+            "[data-testid='card-headline']"
+        )
+    ) {
+        if (!isVisible(heading)) {
+            continue;
+        }
+
+        const title = clean(
+            heading.innerText
+            || heading.textContent
+            || ""
+        );
+
+        if (
+            title.length < 18
+            || title.split(/\s+/).length < 4
+        ) {
+            continue;
+        }
+
+        const link =
+            findStoryLink(heading);
+        const href = String(
+            link?.href || ""
+        ).trim();
+
+        if (!isEditorialBbcNewsUrl(href)) {
+            continue;
+        }
+
+        const key = `${title}|${href}`;
+
+        if (seen.has(key)) {
+            continue;
+        }
+
+        seen.add(key);
+
+        const rect =
+            heading.getBoundingClientRect();
+        const card = (
+            heading.closest(
+                "[data-testid$='-card']"
+            )
+            || heading.closest(
+                "article, li"
+            )
+        );
+        const image = card?.querySelector(
+            "img[src], img[data-src]"
+        );
+
+        candidates.push({
+            title,
+            link: href,
+
+            image_url: image
+                ? String(
+                    image.currentSrc
+                    || image.src
+                    || image.getAttribute(
+                        "data-src"
+                    )
+                    || ""
+                )
+                : "",
+
+            top: Math.round(rect.top),
+            left: Math.round(rect.left),
+            width: Math.round(rect.width),
+            height: Math.round(rect.height),
+            card_test_id: String(
+                card?.getAttribute(
+                    "data-testid"
+                ) || ""
+            )
+        });
+    }
+
+    /*
+     * This matches BBC's rendered visual hierarchy verified in the
+     * homepage trace: the lead first, then the remaining top cards
+     * by vertical position and horizontal position.
+     */
+    candidates.sort((left, right) => (
+        left.top - right.top
+        || left.left - right.left
+    ));
+
+    return candidates.slice(0, 12);
+})()
+""",
+            timeout=25,
+        )
+
+        candidates = []
+
+        for position, item in enumerate(
+            raw_candidates or [],
+            start=1,
+        ):
+            if not isinstance(item, dict):
+                continue
+
+            title = clean_text(
+                item.get("title", "")
+            )
+            link = str(
+                item.get("link", "") or ""
+            ).strip()
+            image_url = str(
+                item.get("image_url", "") or ""
+            ).strip()
+
+            if (
+                not title
+                or not link
+                or not is_reasonable_headline(title)
+            ):
+                continue
+
+            candidates.append(
+                Candidate(
+                    title=title,
+                    source=NEWS_SOURCES[
+                        source_key
+                    ]["source_name"],
+                    image_url=image_url,
+                    link=link,
+                    origin=(
+                        "bbc_rendered_homepage_hierarchy"
+                    ),
+                    position=position,
+                    score=float(
+                        100000 - position
+                    ),
+                )
+            )
+
+        candidates = dedupe_candidates(
+            candidates
+        )
+        candidates.sort(
+            key=lambda candidate:
+                candidate.position
+        )
+
+        if len(candidates) < 2:
+            raise RuntimeError(
+                "BBC rendered homepage returned fewer "
+                "than two usable news cards."
+            )
+
+        print()
+        print(
+            "===== BBC RENDERED "
+            "HOMEPAGE HIERARCHY ====="
+        )
+
+        for index, candidate in enumerate(
+            candidates[:6],
+            start=1,
+        ):
+            label = (
+                "LEAD"
+                if index == 1
+                else f"TOP STORY {index - 1}"
+            )
+
+            print(
+                f"{label}: {candidate.title}"
+            )
+            print(f"  {candidate.link}")
+
+        return candidates
+
+    finally:
+        if target_id:
+            _close_page(target_id)
+
+
+def fetch_bbc_rendered_homepage_candidates(
+    source_key="BBC",
+):
+    global _BBC_RENDERED_CANDIDATES_CACHE
+    global _BBC_RENDERED_CANDIDATES_CACHE_SAVED_AT
+    global _BBC_RENDERED_CANDIDATES_FETCHING
+
+    with _BBC_RENDERED_CANDIDATES_CACHE_LOCK:
+        cache_age = (
+            time.monotonic()
+            - _BBC_RENDERED_CANDIDATES_CACHE_SAVED_AT
+        )
+
+        if (
+            _BBC_RENDERED_CANDIDATES_CACHE
+            and cache_age
+            < _BBC_RENDERED_CANDIDATES_CACHE_TTL_SECONDS
+        ):
+            print(
+                "Using cached rendered BBC homepage "
+                f"candidates ({cache_age:.0f}s old)."
+            )
+            return list(
+                _BBC_RENDERED_CANDIDATES_CACHE
+            )
+
+        if _BBC_RENDERED_CANDIDATES_FETCHING:
+            print(
+                "Waiting for the active BBC homepage "
+                "render to finish..."
+            )
+
+            _BBC_RENDERED_CANDIDATES_CACHE_LOCK.wait(
+                timeout=35
+            )
+
+            cache_age = (
+                time.monotonic()
+                - _BBC_RENDERED_CANDIDATES_CACHE_SAVED_AT
+            )
+
+            if (
+                _BBC_RENDERED_CANDIDATES_CACHE
+                and cache_age
+                < _BBC_RENDERED_CANDIDATES_CACHE_TTL_SECONDS
+            ):
+                return list(
+                    _BBC_RENDERED_CANDIDATES_CACHE
+                )
+
+        _BBC_RENDERED_CANDIDATES_FETCHING = True
+
+    try:
+        candidates = (
+            _fetch_bbc_rendered_homepage_candidates_uncached(
+                source_key
+            )
+        )
+
+        with _BBC_RENDERED_CANDIDATES_CACHE_LOCK:
+            _BBC_RENDERED_CANDIDATES_CACHE = (
+                list(candidates)
+            )
+            _BBC_RENDERED_CANDIDATES_CACHE_SAVED_AT = (
+                time.monotonic()
+            )
+            _BBC_RENDERED_CANDIDATES_FETCHING = False
+            _BBC_RENDERED_CANDIDATES_CACHE_LOCK.notify_all()
+
+        return list(candidates)
+
+    except Exception:
+        with _BBC_RENDERED_CANDIDATES_CACHE_LOCK:
+            _BBC_RENDERED_CANDIDATES_FETCHING = False
+            _BBC_RENDERED_CANDIDATES_CACHE_LOCK.notify_all()
+
+        raise
+
+
 def fetch_ranked_candidates(source_key):
     source_key = normalize_source_key(source_key)
+
+    if source_key == "APNEWS":
+        try:
+            return (
+                "APNEWS",
+                NEWS_SOURCES[
+                    "APNEWS"
+                ]["source_name"],
+                fetch_apnews_rendered_homepage_candidates(
+                    "APNEWS"
+                ),
+            )
+        except Exception as error:
+            print(
+                "AP News rendered candidate resolver failed: "
+                f"{error}; falling back to generic ranking"
+            )
+
+    if source_key == "BBC":
+        try:
+            return (
+                "BBC",
+                NEWS_SOURCES[
+                    "BBC"
+                ]["source_name"],
+                fetch_bbc_rendered_homepage_candidates(
+                    "BBC"
+                ),
+            )
+        except Exception as error:
+            print(
+                "BBC rendered candidate resolver failed: "
+                f"{error}; falling back to generic ranking"
+            )
 
     if source_key == "CNN":
         return (

@@ -4185,7 +4185,25 @@ class DashboardWindow(QMainWindow):
             )
             return False
 
-        if not article_link or expected_domain not in article_link:
+        allowed_article_domains = [
+            expected_domain
+        ]
+
+        # BBC's official RSS feeds use bbc.co.uk article links,
+        # while its rendered international homepage uses bbc.com.
+        # Accept both only when BBC is the selected source.
+        if source_key == "BBC":
+            allowed_article_domains.extend([
+                "bbc.co.uk",
+            ])
+
+        if (
+            not article_link
+            or not any(
+                domain in article_link
+                for domain in allowed_article_domains
+            )
+        ):
             print(
                 f"Rejecting article for {expected_source}: "
                 f"missing or wrong-domain link: {article_link}"
@@ -4193,6 +4211,15 @@ class DashboardWindow(QMainWindow):
             return False
 
         allowed_image_domains = [expected_domain]
+
+        # BBC article imagery is served from official BBC image
+        # infrastructure under bbci.co.uk. Keep this exception
+        # isolated to BBC validation.
+        if source_key == "BBC":
+            allowed_image_domains.extend([
+                "bbc.co.uk",
+                "bbci.co.uk",
+            ])
 
         if source_key == "CNBC":
             allowed_image_domains.extend([

@@ -4,6 +4,7 @@ import json
 import re
 import ssl
 import urllib.request
+import xml.etree.ElementTree as ET
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlparse
 
@@ -2695,6 +2696,212 @@ def fetch_espn_article_payload(url):
             _close_page(target_id)
 
 
+
+
+BLOOMBERG_ARTICLE_FEEDS = (
+    "https://feeds.bloomberg.com/markets/news.rss",
+    "https://feeds.bloomberg.com/politics/news.rss",
+)
+
+
+def fetch_bloomberg_article_payload(url):
+    """
+    Return Bloomberg's official RSS synopsis for the exact article URL.
+
+    Bloomberg blocks both direct HTTP article requests and the project's
+    rendered Chrome session. The official feeds provide a publisher-written
+    synopsis, but not the complete article body.
+    """
+
+    def local_tag(element):
+        return str(
+            getattr(element, "tag", "") or ""
+        ).split("}")[-1].lower()
+
+    def child_raw_text(item, names):
+        wanted = {
+            str(name or "").lower()
+            for name in names
+        }
+
+        for child in item:
+            if local_tag(child) in wanted:
+                return str(
+                    child.text or ""
+                ).strip()
+
+        return ""
+
+    def canonical_article_key(value):
+        parsed = urlparse(
+            html.unescape(
+                str(value or "")
+            ).strip()
+        )
+
+        hostname = (
+            parsed.netloc.lower()
+            .split(":", 1)[0]
+        )
+
+        if hostname.startswith("www."):
+            hostname = hostname[4:]
+
+        return (
+            hostname,
+            parsed.path.rstrip("/"),
+        )
+
+    requested_key = canonical_article_key(url)
+    errors = []
+
+    for feed_url in BLOOMBERG_ARTICLE_FEEDS:
+        try:
+            request = urllib.request.Request(
+                feed_url,
+                headers={
+                    "User-Agent": USER_AGENT,
+                    "Accept": (
+                        "application/rss+xml,"
+                        "application/xml,text/xml,*/*"
+                    ),
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Cache-Control": "no-cache",
+                },
+            )
+
+            with urllib.request.urlopen(
+                request,
+                timeout=20,
+                context=SSL_CONTEXT,
+            ) as response:
+                xml_data = response.read()
+
+            root = ET.fromstring(xml_data)
+
+            for item in root.findall(".//item"):
+                item_link = html.unescape(
+                    child_raw_text(
+                        item,
+                        {"link"},
+                    )
+                ).strip()
+
+                if (
+                    not item_link
+                    or canonical_article_key(
+                        item_link
+                    ) != requested_key
+                ):
+                    continue
+
+                title = clean_text(
+                    child_raw_text(
+                        item,
+                        {"title"},
+                    )
+                )
+                description = clean_text(
+                    child_raw_text(
+                        item,
+                        {
+                            "description",
+                            "summary",
+                        },
+                    )
+                )
+
+                if not description:
+                    continue
+
+                notice = (
+                    "Bloomberg blocks automated access to the full "
+                    "article, so this in-app reader can display only "
+                    "Bloomberg's official RSS summary. Open the "
+                    "original Bloomberg article to continue reading "
+                    "the full story."
+                )
+
+                text = (
+                    f"{description}\n\n{notice}"
+                )
+
+                print(
+                    "BLOOMBERG RSS ARTICLE SUMMARY: "
+                    f"{len(description)} chars | "
+                    f"{item_link}"
+                )
+
+                return {
+                    "is_live": False,
+                    "method": "bloomberg_rss_summary",
+                    "bloomberg_format_version": 1,
+                    "cleanup_version": (
+                        ARTICLE_END_CLEANUP_VERSION
+                    ),
+                    "summary_only": True,
+                    "headline": title,
+                    "text": text,
+                    "blocks": [
+                        {
+                            "type": "paragraph",
+                            "text": description,
+                        },
+                        {
+                            "type": "paragraph",
+                            "text": notice,
+                        },
+                    ],
+                    "updates": [],
+                    "source_url": item_link,
+                }
+
+        except Exception as error:
+            errors.append(
+                f"{feed_url} -> "
+                f"{type(error).__name__}: {error}"
+            )
+
+    notice = (
+        "Bloomberg blocks automated access to this article, "
+        "and its official RSS feeds do not currently provide "
+        "a summary for this story. The full article can still "
+        "be opened on Bloomberg.com using the original article "
+        "link."
+    )
+
+    print(
+        "BLOOMBERG RSS ARTICLE SUMMARY NOT FOUND: "
+        f"{url}"
+    )
+
+    if errors:
+        print(
+            "Bloomberg RSS lookup errors: "
+            + " | ".join(errors)
+        )
+
+    return {
+        "is_live": False,
+        "method": "bloomberg_external_only",
+        "bloomberg_format_version": 1,
+        "cleanup_version": (
+            ARTICLE_END_CLEANUP_VERSION
+        ),
+        "summary_only": True,
+        "headline": "",
+        "text": notice,
+        "blocks": [
+            {
+                "type": "paragraph",
+                "text": notice,
+            },
+        ],
+        "updates": [],
+        "source_url": str(url or ""),
+    }
+
+
 def _fetch_article_text_payload_uncached(url):
     parsed_url = urlparse(str(url or ""))
     hostname = parsed_url.netloc.lower()
@@ -2719,6 +2926,14 @@ def _fetch_article_text_payload_uncached(url):
                 "CNN URL is not an English editorial article: "
                 + parsed_url.path
             )
+
+    # Bloomberg blocks both direct HTTP and this project's Chrome
+    # session. Use only the exact article's official RSS synopsis.
+    if (
+        hostname == "bloomberg.com"
+        or hostname.endswith(".bloomberg.com")
+    ):
+        return fetch_bloomberg_article_payload(url)
 
     # Newsmax must use Chrome because direct HTTP requests stall on this Mac.
     if hostname == "newsmax.com" or hostname.endswith(".newsmax.com"):
