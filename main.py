@@ -1,4 +1,10 @@
+import os
 import sys
+
+# Match macOS point-font sizing on Raspberry Pi/Linux.
+# This must be set before PySide6 is imported.
+if sys.platform.startswith("linux"):
+    os.environ.setdefault("QT_FONT_DPI", "72")
 
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QApplication
