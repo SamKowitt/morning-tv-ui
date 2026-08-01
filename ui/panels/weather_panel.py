@@ -1,10 +1,27 @@
 import math
 import random
+import sys
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 
 SYNODIC_MONTH_DAYS = 29.53058867
 KNOWN_NEW_MOON_UTC = datetime(2000, 1, 6, 18, 14, tzinfo=timezone.utc)
+
+if sys.platform == "darwin":
+    EMOJI_FONT_FAMILY = "Apple Color Emoji"
+    EMOJI_FONT_FAMILIES = [
+        "Apple Color Emoji",
+        "Noto Color Emoji",
+    ]
+else:
+    EMOJI_FONT_FAMILY = "Noto Color Emoji"
+    EMOJI_FONT_FAMILIES = [
+        "Noto Color Emoji",
+        "Apple Color Emoji",
+    ]
+
+USE_NATIVE_EMOJI_LABELS = sys.platform.startswith("linux")
 
 
 def moon_phase_fraction(moment=None):
@@ -37,10 +54,61 @@ def moon_illumination_fraction(moment=None):
     return (1.0 - math.cos(2.0 * math.pi * phase_fraction)) / 2.0
 
 from PySide6.QtCore import Qt, QTimer, QPointF, Signal, QRect
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QLinearGradient, QRadialGradient, QPainter, QPen, QPainterPath, QBrush
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QLinearGradient, QRadialGradient, QPainter, QPen, QPainterPath, QBrush, QPixmap
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from ui.auto_fit_label import AutoFitLabel
+
+
+WEATHER_EMOJI_ASSET_DIR = (
+    Path(__file__).resolve().parents[1]
+    / "assets"
+    / "apple_weather_emoji"
+)
+
+WEATHER_EMOJI_ASSET_FILES = {
+    "☀": "clear_day.png",
+    "🌤": "partly_cloudy.png",
+    "☁": "cloudy.png",
+    "🌧": "rain.png",
+    "⛈": "thunderstorm.png",
+    "⚡": "lightning.png",
+    "🌙": "clear_night.png",
+    "🌫": "fog.png",
+    "🌨": "snow.png",
+    "💧": "water_drop.png",
+    "❄": "snowflake.png",
+}
+
+
+def weather_emoji_asset_path(icon):
+    normalized_icon = str(icon or "").replace("\ufe0f", "").strip()
+    filename = WEATHER_EMOJI_ASSET_FILES.get(normalized_icon)
+
+    if not filename:
+        return None
+
+    asset_path = WEATHER_EMOJI_ASSET_DIR / filename
+    return asset_path if asset_path.is_file() else None
+
+
+def weather_emoji_pixmap(icon, width, height):
+    asset_path = weather_emoji_asset_path(icon)
+
+    if asset_path is None:
+        return QPixmap()
+
+    pixmap = QPixmap(str(asset_path))
+
+    if pixmap.isNull():
+        return QPixmap()
+
+    return pixmap.scaled(
+        max(1, int(width)),
+        max(1, int(height)),
+        Qt.KeepAspectRatio,
+        Qt.SmoothTransformation,
+    )
 
 
 class WeatherRow(QWidget):
@@ -97,15 +165,14 @@ class WeatherRow(QWidget):
             word_wrap=False,
         )
 
-        self.icon_label = AutoFitLabel(
-            "",
-            min_size=12,
-            max_size=26,
-            bold=False,
-            alignment=Qt.AlignCenter,
-            word_wrap=False,
-            font_family="Apple Color Emoji",
+        self.icon_label = QLabel()
+        self.icon_label.setAlignment(Qt.AlignCenter)
+        self.icon_label.setAttribute(
+            Qt.WA_TransparentForMouseEvents,
+            True,
         )
+        self.icon_label.setStyleSheet("background: transparent;")
+        self.icon_label.setScaledContents(False)
 
         self.hour_label = AutoFitLabel(
             hour,
@@ -135,6 +202,19 @@ class WeatherRow(QWidget):
             word_wrap=False,
         )
         self.precipitation_detail_label.set_auto_fit_enabled(False)
+
+        self.precipitation_icon = ""
+        self.precipitation_icon_label = QLabel(self)
+        self.precipitation_icon_label.setAlignment(Qt.AlignCenter)
+        self.precipitation_icon_label.setAttribute(
+            Qt.WA_TransparentForMouseEvents,
+            True,
+        )
+        self.precipitation_icon_label.setStyleSheet(
+            "background: transparent;"
+        )
+        self.precipitation_icon_label.setScaledContents(False)
+        self.precipitation_icon_label.hide()
 
         self.solar_detail_label = AutoFitLabel(
             "",
@@ -197,6 +277,7 @@ class WeatherRow(QWidget):
 
         self.apply_text_colors()
         self.position_precipitation_detail()
+        QTimer.singleShot(0, self.refresh_weather_icon)
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.tick)
@@ -204,7 +285,45 @@ class WeatherRow(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        self.refresh_weather_icon()
         self.position_precipitation_detail()
+
+    def refresh_weather_icon(self):
+        if not hasattr(self, "icon_label"):
+            return
+
+        pixmap = weather_emoji_pixmap(
+            getattr(self, "icon", ""),
+            self.icon_label.width(),
+            self.icon_label.height(),
+        )
+
+        self.icon_label.setText("")
+
+        if pixmap.isNull():
+            self.icon_label.setPixmap(QPixmap())
+            return
+
+        self.icon_label.setPixmap(pixmap)
+
+    def refresh_precipitation_icon(self, icon_size=14):
+        if not hasattr(self, "precipitation_icon_label"):
+            return
+
+        pixmap = weather_emoji_pixmap(
+            getattr(self, "precipitation_icon", ""),
+            icon_size,
+            icon_size,
+        )
+
+        if pixmap.isNull():
+            self.precipitation_icon_label.setPixmap(QPixmap())
+            self.precipitation_icon_label.hide()
+            return
+
+        self.precipitation_icon_label.setPixmap(pixmap)
+        self.precipitation_icon_label.show()
+        self.precipitation_icon_label.raise_()
 
     def detail_text_layout(self):
         precip_text = str(
@@ -240,7 +359,16 @@ class WeatherRow(QWidget):
             if not precip_text:
                 return precip_rect, solar_rect
 
-            precip_width = max(44, min(82, temp_rect.width() + 30))
+            precipitation_icon_width = (
+                16 if getattr(self, "precipitation_icon", "") else 0
+            )
+            precip_width = max(
+                50,
+                min(
+                    82,
+                    temp_rect.width() + 30 + precipitation_icon_width,
+                ),
+            )
             precip_x = max(
                 0,
                 temp_rect.left() - 14 - precipitation_left_shift,
@@ -297,9 +425,15 @@ class WeatherRow(QWidget):
                 precip_metrics.horizontalAdvance(line)
                 for line in precip_lines
             )
+            precipitation_icon_width = (
+                16 if getattr(self, "precipitation_icon", "") else 0
+            )
             precip_width = min(
                 available_width,
-                max(44, precip_text_width + 6),
+                max(
+                    44,
+                    precip_text_width + 6 + precipitation_icon_width,
+                ),
             )
 
             # Use the same default precipitation anchor on every row,
@@ -346,15 +480,46 @@ class WeatherRow(QWidget):
 
         if not detail_text:
             self.precipitation_detail_label.hide()
+            self.precipitation_icon_label.hide()
             return
 
         precip_rect, _solar_rect = self.detail_text_layout()
 
         if not precip_rect.isValid():
             self.precipitation_detail_label.hide()
+            self.precipitation_icon_label.hide()
             return
 
-        self.precipitation_detail_label.setGeometry(precip_rect)
+        text_rect = QRect(precip_rect)
+        precipitation_icon = str(
+            getattr(self, "precipitation_icon", "") or ""
+        ).strip()
+
+        if precipitation_icon:
+            icon_size = max(10, min(14, precip_rect.height() - 2))
+            icon_y = precip_rect.top() + max(
+                0,
+                (precip_rect.height() - icon_size) // 2,
+            )
+
+            self.precipitation_icon_label.setGeometry(
+                precip_rect.left(),
+                icon_y,
+                icon_size,
+                icon_size,
+            )
+            self.refresh_precipitation_icon(icon_size)
+
+            text_rect = QRect(
+                precip_rect.left() + icon_size + 2,
+                precip_rect.top(),
+                max(0, precip_rect.width() - icon_size - 2),
+                precip_rect.height(),
+            )
+        else:
+            self.precipitation_icon_label.hide()
+
+        self.precipitation_detail_label.setGeometry(text_rect)
         self.precipitation_detail_label.show()
         self.precipitation_detail_label.raise_()
 
@@ -464,19 +629,7 @@ class WeatherRow(QWidget):
         else:
             self.draw_clear(painter, rect)
 
-        # Draw weather emoji via QPainter (bypasses Qt6 QLabel colour-emoji bug on macOS)
-        if hasattr(self, "icon") and self.icon and hasattr(self, "icon_label"):
-            icon_geom = self.icon_label.geometry().adjusted(-6, -2, 2, 2)
-            if icon_geom.width() > 4 and icon_geom.height() > 4:
-                emoji_font = QFont()
-                emoji_font.setFamilies(["Apple Color Emoji"])
-                emoji_font.setPointSize(max(14, min(24, icon_geom.height() - 12)))
-                painter.save()
-                painter.setFont(emoji_font)
-                dark_bg = self.is_night or self.condition in {"rain", "storm"}
-                painter.setPen(QColor(255, 255, 255, 230) if dark_bg else QColor(30, 30, 30, 230))
-                painter.drawText(icon_geom, Qt.AlignCenter, self.icon)
-                painter.restore()
+        # Weather icons are rendered from shared PNG assets by icon_label.
 
         solar_text = str(getattr(self, "solar_detail_text", "") or "").strip()
         if solar_text:
@@ -516,6 +669,7 @@ class WeatherRow(QWidget):
         is_night=False,
         detail_text="",
         precipitation_detail_text=None,
+        precipitation_icon="",
         solar_detail_text="",
         moon_datetime=None,
     ):
@@ -575,7 +729,8 @@ class WeatherRow(QWidget):
         if temp_label is not None:
             temp_label.setText(temp_text)
 
-        # icon stored in self.icon and drawn via paintEvent; do not setText on icon_label
+        if icon_label is not None:
+            self.refresh_weather_icon()
 
         if time_label_widget is not None:
             time_label_widget.setText(time_label)
@@ -583,6 +738,7 @@ class WeatherRow(QWidget):
         if precipitation_detail_text is None:
             precipitation_detail_text = detail_text
 
+        self.precipitation_icon = str(precipitation_icon or "")
         self.precipitation_detail_label.setText(
             str(precipitation_detail_text or "")
         )
@@ -604,9 +760,7 @@ class WeatherRow(QWidget):
 
         for label in labels:
             if label is icon_label:
-                label.setStyleSheet(
-                    'background: transparent; font-family: "Apple Color Emoji";'
-                )
+                label.setStyleSheet("background: transparent;")
             elif label is temp_label:
                 label.setStyleSheet(f"color: {text_color}; font-weight: 900;")
             elif label is time_label_widget:
@@ -1707,6 +1861,7 @@ class WeatherPanel(QWidget):
             weather_row_widget.is_now = False
             weather_row_widget.weather_data = row
             precipitation_display_text = ""
+            precipitation_icon = ""
             solar_display_text = ""
 
             precipitation_amount = getattr(
@@ -1755,11 +1910,11 @@ class WeatherPanel(QWidget):
             precipitation_detail = "  ".join(precipitation_detail_parts)
 
             if precipitation_detail:
-                precipitation_emoji = {
-                    "rain": "🌧️",
-                    "snow": "🌨️",
+                precipitation_icon = {
+                    "rain": "💧",
+                    "snow": "❄️",
                     "storm": "⚡️",
-                }.get(precipitation_condition, "🌧️")
+                }.get(precipitation_condition, "💧")
 
                 if (
                     not bool(getattr(row, "is_night", False))
@@ -1773,12 +1928,10 @@ class WeatherPanel(QWidget):
                         f'{precipitation_text}"'
                     )
                     precipitation_display_text = (
-                        f"{precipitation_emoji} {chance_text}\n{amount_text}"
+                        f"{chance_text}\n{amount_text}"
                     )
                 else:
-                    precipitation_display_text = (
-                        f"{precipitation_emoji} {precipitation_detail}"
-                    )
+                    precipitation_display_text = precipitation_detail
 
             solar_event_time = str(
                 getattr(row, "solar_event_time", "") or ""
@@ -1805,6 +1958,7 @@ class WeatherPanel(QWidget):
                 condition=row.condition,
                 is_night=row.is_night,
                 precipitation_detail_text=precipitation_display_text,
+                precipitation_icon=precipitation_icon,
                 solar_detail_text=solar_display_text,
                 moon_datetime=getattr(row, "forecast_start", ""),
             )

@@ -1,11 +1,50 @@
 from datetime import datetime
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QColor, QFont, QPalette
+from PySide6.QtGui import QColor, QFont, QPalette, QPixmap
 from PySide6.QtWidgets import QLabel, QHBoxLayout, QStackedLayout, QVBoxLayout, QWidget, QSizePolicy
 
 from ui.auto_fit_label import AutoFitLabel
-from ui.panels.weather_panel import WeatherRow
+from ui.panels.weather_panel import (
+    WeatherRow,
+    weather_emoji_pixmap,
+)
+
+
+
+class DateCardWeatherIcon(QLabel):
+    """Large DateCard weather icon rendered from shared PNG artwork."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        self.icon = ""
+        self.setAlignment(Qt.AlignCenter)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.setStyleSheet("background: transparent;")
+        self.setScaledContents(False)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.refresh_icon_art()
+
+    def refresh_icon_art(self):
+        pixmap = weather_emoji_pixmap(
+            self.icon,
+            self.width(),
+            self.height(),
+        )
+
+        if pixmap.isNull():
+            self.setPixmap(QPixmap())
+            return
+
+        self.setPixmap(pixmap)
+
+    def set_icon(self, icon):
+        self.icon = str(icon or "")
+        self.setVisible(bool(self.icon))
+        self.refresh_icon_art()
 
 
 class DateCard(QWidget):
@@ -23,6 +62,11 @@ class DateCard(QWidget):
         self.overlay.setObjectName("DateCardWeatherOverlay")
         self.overlay.setAttribute(Qt.WA_StyledBackground, True)
         self.overlay.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+
+        self.weather_icon_overlay = DateCardWeatherIcon(
+            self.overlay
+        )
+        self.weather_icon_overlay.hide()
 
         overlay_layout = QVBoxLayout()
         overlay_layout.setContentsMargins(14, 8, 12, 12)
@@ -137,18 +181,16 @@ class DateCard(QWidget):
         precipitation_layout.setSpacing(1)
         self.precipitation_widget.setLayout(precipitation_layout)
 
-        self.precipitation_emoji_label = AutoFitLabel(
-            "",
-            min_size=13,
-            max_size=26,
-            bold=False,
-            alignment=Qt.AlignRight | Qt.AlignVCenter,
-            word_wrap=False,
-            font_family="Apple Color Emoji",
-        )
+        self.precipitation_emoji_label = QLabel()
         self.precipitation_emoji_label.setObjectName(
             "DatePrecipitationEmojiWeather"
         )
+        self.precipitation_emoji_label.setAlignment(Qt.AlignCenter)
+        self.precipitation_emoji_label.setFixedSize(18, 18)
+        self.precipitation_emoji_label.setStyleSheet(
+            "background: transparent;"
+        )
+        self.precipitation_emoji_label.setScaledContents(False)
 
         self.precipitation_detail_label = AutoFitLabel(
             "",
@@ -222,7 +264,46 @@ class DateCard(QWidget):
         self.sync_day_and_time_font_sizes()
         self.apply_text_color()
         self.position_footer_overlay()
+        self.position_weather_icon_overlay()
         self.overlay.raise_()
+        self.weather_icon_overlay.raise_()
+        self.footer_overlay.raise_()
+
+    def position_weather_icon_overlay(self):
+        if not hasattr(self, "weather_icon_overlay"):
+            return
+
+        icon_width = max(
+            100,
+            int(self.width() * 0.34),
+        )
+        icon_height = max(
+            72,
+            int(self.height() * 0.26),
+        )
+
+        # Draft target:
+        # center at approximately 52% of the card width and
+        # 66% of the card height.
+        icon_x = int(self.width() * 0.35) - 14
+        icon_y = int(self.height() * 0.53)
+
+        icon_x = min(
+            max(0, icon_x),
+            max(0, self.width() - icon_width),
+        )
+        icon_y = min(
+            max(0, icon_y),
+            max(0, self.height() - icon_height),
+        )
+
+        self.weather_icon_overlay.setGeometry(
+            icon_x,
+            icon_y,
+            icon_width,
+            icon_height,
+        )
+        self.weather_icon_overlay.raise_()
 
     def position_footer_overlay(self):
         if not hasattr(self, "footer_overlay"):
@@ -242,6 +323,41 @@ class DateCard(QWidget):
         self.footer_overlay.show()
         self.footer_overlay.raise_()
 
+    def preserve_weather_background_label_geometry(self, row):
+        """Keep the painted weather-icon anchor active without showing text."""
+        icon_label = getattr(row, "icon_label", None)
+
+        geometry_labels = (
+            getattr(row, "hour_label", None),
+            icon_label,
+            getattr(row, "temp_label", None),
+        )
+
+        for label in row.findChildren(QLabel):
+            if label is icon_label:
+                # WeatherRow paints the emoji itself using this label's
+                # geometry, so the empty anchor must remain in the layout.
+                label.setText("")
+                label.setStyleSheet("background: transparent;")
+                label.show()
+
+            elif label in geometry_labels:
+                # Preserve the original WeatherRow proportions while keeping
+                # its built-in hour and temperature text invisible.
+                label.setStyleSheet(
+                    "color: transparent; background: transparent;"
+                )
+                label.show()
+
+            else:
+                label.hide()
+
+        if row.layout() is not None:
+            row.layout().activate()
+
+        row.updateGeometry()
+        row.update()
+
     def create_weather_background(self):
         try:
             row = WeatherRow("--", "🌤️", "now", "clear", False)
@@ -254,8 +370,12 @@ class DateCard(QWidget):
         row.moon_x_ratio = 0.84
         row.moon_y_ratio = 0.17
 
-        for label in row.findChildren(QLabel):
-            label.hide()
+        # The DateCard displays its weather emoji through a separate,
+        # larger painted overlay. Prevent WeatherRow from also painting
+        # its normal small hourly icon.
+        row.icon = ""
+
+        self.preserve_weather_background_label_geometry(row)
 
         return row
 
@@ -302,17 +422,29 @@ class DateCard(QWidget):
         self.timer.start(max(250, milliseconds))
 
     def update_current_weather(self, row):
+        display_icon = (
+            "⚡️"
+            if str(row.condition or "").strip().lower() == "storm"
+            else row.icon
+        )
+
         self.background_weather_row.update_weather(
             temperature=row.temperature,
-            icon=row.icon,
+            icon="",
             time_label=row.time_label or "now",
             condition=row.condition,
             is_night=row.is_night,
             moon_datetime=datetime.now().astimezone(),
         )
 
-        for label in self.background_weather_row.findChildren(QLabel):
-            label.hide()
+        self.background_weather_row.icon = ""
+
+        self.preserve_weather_background_label_geometry(
+            self.background_weather_row
+        )
+
+        self.weather_icon_overlay.set_icon(display_icon)
+        self.position_weather_icon_overlay()
 
         self.current_weather_label.setText(f"{row.temperature}°")
         self.update_precipitation_indicator(row)
@@ -352,8 +484,8 @@ class DateCard(QWidget):
         ).strip().lower()
 
         precipitation_emoji = {
-            "rain": "🌧️",
-            "snow": "🌨️",
+            "rain": "💧",
+            "snow": "❄️",
             "storm": "⚡️",
         }.get(precipitation_condition, "")
 
@@ -390,11 +522,18 @@ class DateCard(QWidget):
         precipitation_detail = "  ".join(precipitation_detail_parts)
 
         if precipitation_emoji and precipitation_detail:
-            self.precipitation_emoji_label.setText(precipitation_emoji)
+            precipitation_pixmap = weather_emoji_pixmap(
+                precipitation_emoji,
+                16,
+                16,
+            )
+            self.precipitation_emoji_label.setPixmap(
+                precipitation_pixmap
+            )
             self.precipitation_detail_label.setText(precipitation_detail)
             self.precipitation_widget.show()
         else:
-            self.precipitation_emoji_label.setText("")
+            self.precipitation_emoji_label.setPixmap(QPixmap())
             self.precipitation_detail_label.setText("")
             self.precipitation_widget.hide()
 

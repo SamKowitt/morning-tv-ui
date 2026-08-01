@@ -1,0 +1,143 @@
+{
+  "☀️": {
+    "file": "clear_day.png",
+    "name": "clear_day",
+    "codepoints": [
+      "U+2600",
+      "U+FE0F"
+    ],
+    "source_font": "Apple Color Emoji",
+    "size": [
+      256,
+      256
+    ]
+  },
+  "🌤️": {
+    "file": "partly_cloudy.png",
+    "name": "partly_cloudy",
+    "codepoints": [
+      "U+1F324",
+      "U+FE0F"
+    ],
+    "source_font": "Apple Color Emoji",
+    "size": [
+      256,
+      256
+    ]
+  },
+  "☁️": {
+    "file": "cloudy.png",
+    "name": "cloudy",
+    "codepoints": [
+      "U+2601",
+      "U+FE0F"
+    ],
+    "source_font": "Apple Color Emoji",
+    "size": [
+      256,
+      256
+    ]
+  },
+  "🌧️": {
+    "file": "rain.png",
+    "name": "rain",
+    "codepoints": [
+      "U+1F327",
+      "U+FE0F"
+    ],
+    "source_font": "Apple Color Emoji",
+    "size": [
+      256,
+      256
+    ]
+  },
+  "⛈️": {
+    "file": "thunderstorm.png",
+    "name": "thunderstorm",
+    "codepoints": [
+      "U+26C8",
+      "U+FE0F"
+    ],
+    "source_font": "Apple Color Emoji",
+    "size": [
+      256,
+      256
+    ]
+  },
+  "⚡️": {
+    "file": "lightning.png",
+    "name": "lightning",
+    "codepoints": [
+      "U+26A1",
+      "U+FE0F"
+    ],
+    "source_font": "Apple Color Emoji",
+    "size": [
+      256,
+      256
+    ]
+  },
+  "🌙": {
+    "file": "clear_night.png",
+    "name": "clear_night",
+    "codepoints": [
+      "U+1F319"
+    ],
+    "source_font": "Apple Color Emoji",
+    "size": [
+      256,
+      256
+    ]
+  },
+  "🌫️": {
+    "file": "fog.png",
+    "name": "fog",
+    "codepoints": [
+      "U+1F32B",
+      "U+FE0F"
+    ],
+    "source_font": "Apple Color Emoji",
+    "size": [
+      256,
+      256
+    ]
+  },
+  "🌨️": {
+    "file": "snow.png",
+    "name": "snow",
+    "codepoints": [
+      "U+1F328",
+      "U+FE0F"
+    ],
+    "source_font": "Apple Color Emoji",
+    "size": [
+      256,
+      256
+    ]
+  },
+  "💧": {
+    "file": "water_drop.png",
+    "name": "water_drop",
+    "codepoints": [
+      "U+1F4A7"
+    ],
+    "source_font": "Apple Color Emoji",
+    "size": [
+      256,
+      256
+    ]
+  },
+  "❄️": {
+    "file": "snowflake.png",
+    "name": "snowflake",
+    "codepoints": [
+      "U+2744",
+      "U+FE0F"
+    ],
+    "source_font": "Apple Color Emoji",
+    "size": [
+      256,
+      256
+    ]
+  }
+}
