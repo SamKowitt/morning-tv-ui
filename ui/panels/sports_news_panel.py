@@ -1,3 +1,5 @@
+import sys
+
 from PySide6.QtCore import QRectF, Qt, QUrl
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QFontMetrics, QLinearGradient, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QWidget
@@ -986,20 +988,42 @@ class SportsNewsPanel(QWidget):
             painter.setFont(headline_font)
             painter.setPen(QColor("#21180f"))
 
-            headline_rect = padded.adjusted(0, 13, 0, -11)
+            page_label_height = (
+                12
+                if sys.platform.startswith("linux")
+                else 10
+            )
+
+            headline_rect = padded.adjusted(
+                0,
+                13,
+                0,
+                -(page_label_height + 1),
+            )
             painter.drawText(
                 headline_rect,
                 Qt.AlignLeft | Qt.AlignTop | Qt.TextWordWrap,
                 self.clean_title(getattr(article, "title", "")),
             )
 
-            page_font = QFont("Times New Roman", 7)
+            page_font = QFont("Times New Roman")
+
+            if sys.platform.startswith("linux"):
+                page_font.setPixelSize(10)
+            else:
+                page_font.setPointSize(7)
+
             page_font.setBold(True)
 
             painter.setFont(page_font)
             painter.setPen(QColor("#5a442b"))
             painter.drawText(
-                QRectF(padded.left(), padded.bottom() - 10, padded.width(), 10),
+                QRectF(
+                    padded.left(),
+                    padded.bottom() - page_label_height,
+                    padded.width(),
+                    page_label_height,
+                ),
                 Qt.AlignLeft | Qt.AlignVCenter,
                 f"P. {index + 1}",
             )

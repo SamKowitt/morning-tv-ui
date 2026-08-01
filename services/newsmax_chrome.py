@@ -1173,6 +1173,7 @@ def fetch_newsmax_image_jpeg_bytes(image_url):
 
 import atexit
 import os
+import shutil
 import signal
 import subprocess
 import threading
@@ -1184,10 +1185,58 @@ _NEWSMAX_IDLE_TIMER = None
 _NEWSMAX_ACTIVE_TARGETS = 0
 
 _NEWSMAX_CHROME_PROFILE = os.path.expanduser("~/.newsmax-chrome-debug")
-_NEWSMAX_CHROME_BINARY = (
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-)
+_NEWSMAX_CHROME_BINARY = ""
 _NEWSMAX_IDLE_SECONDS = 8
+
+
+def _resolve_newsmax_chrome_binary():
+    """
+    Resolve the available Chrome-family browser on macOS or Linux.
+
+    MORNING_UI_CHROME_BINARY can override automatic detection.
+    """
+    global _NEWSMAX_CHROME_BINARY
+
+    if (
+        _NEWSMAX_CHROME_BINARY
+        and os.path.isfile(_NEWSMAX_CHROME_BINARY)
+        and os.access(_NEWSMAX_CHROME_BINARY, os.X_OK)
+    ):
+        return _NEWSMAX_CHROME_BINARY
+
+    configured_binary = os.environ.get(
+        "MORNING_UI_CHROME_BINARY",
+        "",
+    ).strip()
+
+    candidates = [
+        configured_binary,
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+        shutil.which("chromium"),
+        shutil.which("chromium-browser"),
+        shutil.which("google-chrome"),
+        shutil.which("google-chrome-stable"),
+    ]
+
+    for candidate in candidates:
+        candidate = str(candidate or "").strip()
+
+        if (
+            candidate
+            and os.path.isfile(candidate)
+            and os.access(candidate, os.X_OK)
+        ):
+            _NEWSMAX_CHROME_BINARY = candidate
+            return candidate
+
+    raise RuntimeError(
+        "Chrome or Chromium was not found. "
+        "Set MORNING_UI_CHROME_BINARY to the browser executable path."
+    )
 
 
 _ORIGINAL_BROWSER_WS_URL = _browser_ws_url
@@ -1223,16 +1272,12 @@ def _start_newsmax_background_chrome_locked():
     if _newsmax_debug_server_ready():
         return
 
-    if not os.path.exists(_NEWSMAX_CHROME_BINARY):
-        raise RuntimeError(
-            "Google Chrome was not found at "
-            f"{_NEWSMAX_CHROME_BINARY}"
-        )
+    chrome_binary = _resolve_newsmax_chrome_binary()
 
     os.makedirs(_NEWSMAX_CHROME_PROFILE, exist_ok=True)
 
     command = [
-        _NEWSMAX_CHROME_BINARY,
+        chrome_binary,
         "--headless=new",
         "--remote-debugging-port=9222",
         "--remote-allow-origins=*",
@@ -1242,7 +1287,10 @@ def _start_newsmax_background_chrome_locked():
         "--no-default-browser-check",
     ]
 
-    print("NEWSMAX: starting temporary hidden Chrome...")
+    print(
+        "NEWSMAX: starting temporary hidden Chrome "
+        f"with {chrome_binary}..."
+    )
 
     _NEWSMAX_CHROME_PROCESS = subprocess.Popen(
         command,
