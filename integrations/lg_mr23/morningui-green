@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+exec >> "$HOME/morning-tv-ui/morningui-green.log" 2>&1
+
+exec 9>"$HOME/.cache/morningui-green.lock"
+flock -x 9
+
+export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+
+export WAYLAND_DISPLAY="$(
+    find "$XDG_RUNTIME_DIR" -maxdepth 1 -type s \
+        -name 'wayland-*' -printf '%f\n' | head -1
+)"
+
+if [ -z "$WAYLAND_DISPLAY" ]; then
+    echo "ERROR: No Wayland desktop available"
+    exit 1
+fi
+
+systemctl --user set-environment \
+    WAYLAND_DISPLAY="$WAYLAND_DISPLAY" \
+    QT_QPA_PLATFORM=wayland
+
+systemctl --user stop morningui-remote.service
+
+# Close any old manually launched MorningUI instance.
+python3 - <<'PY'
+import os, signal, time
+from pathlib import Path
+
+root = (Path.home() / "morning-tv-ui").resolve()
+targets = []
+
+for proc in Path("/proc").iterdir():
+    if not proc.name.isdigit():
+        continue
+    try:
+        if proc.stat().st_uid != os.getuid():
+            continue
+        args = (proc / "cmdline").read_bytes().decode(
+            errors="replace").split("\0")
+        cwd = Path(os.readlink(proc / "cwd")).resolve()
+        if cwd == root and (
+            "main.py" in args or str(root / "main.py") in args
+        ):
+            pid = int(proc.name)
+            targets.append(pid)
+            os.kill(pid, signal.SIGTERM)
+    except (OSError, ProcessLookupError):
+        pass
+
+for pid in targets:
+    for _ in range(50):
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(.1)
+    else:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+PY
+
+systemctl --user start morningui-remote.service
+echo "MorningUI launch requested at $(date)"

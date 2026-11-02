@@ -35,3 +35,23 @@ build/
 # Local patch backups and disposable debugging scripts
 *.before_*
 tools/debug_*.py
+
+# Raspberry Pi runtime and local credentials
+.venv*/
+venv/
+__pycache__/
+*.pyc
+*.log
+.env
+.env.*
+*.sqlite*
+*.db
+*.pem
+*.key
+*.p12
+*.pfx
+*.token
+*.backup_*
+*.backup-*
+*.pkl
+.lg_red_down.sock

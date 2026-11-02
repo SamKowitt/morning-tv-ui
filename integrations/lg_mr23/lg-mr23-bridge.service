@@ -1,0 +1,28 @@
+[Unit]
+Description=LG MR23 Bluetooth Remote - MorningUI and TV Lift
+Wants=bluetooth.service
+After=bluetooth.service display-manager.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/mrkowitt/.config/lg-webos-test
+Environment=BRIDGE_OWNER=mrkowitt
+Environment=LIFT_SOCK=/home/mrkowitt/tv_lift_controller/.lg_red_down.sock
+
+ExecStartPre=/home/mrkowitt/tv_lift_controller/lg_mr23/wait_for_display.sh
+ExecStartPre=/usr/bin/test -S /home/mrkowitt/tv_lift_controller/.lg_red_down.sock
+ExecStartPre=-/usr/bin/timeout 8 /usr/bin/bluetoothctl connect 30:3F:5D:40:66:CC
+
+ExecStart=/usr/bin/python3 -u /home/mrkowitt/tv_lift_controller/lg_mr23/lg_mr23_routed_bridge_lowlag.py
+
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=lg-mr23-bridge
+
+[Install]
+WantedBy=multi-user.target

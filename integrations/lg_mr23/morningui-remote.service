@@ -1,0 +1,13 @@
+[Unit]
+Description=MorningUI on-demand remote launch
+
+[Service]
+Type=simple
+WorkingDirectory=%h/morning-tv-ui
+Environment=QT_QPA_PLATFORM=wayland
+Environment=QT_SCALE_FACTOR=0.85
+Environment=QT_FONT_DPI=72
+ExecStart=%h/morning-tv-ui/.venv3/bin/python -u main.py
+KillMode=control-group
+TimeoutStopSec=7
+Restart=no
