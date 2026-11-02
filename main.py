@@ -25,6 +25,14 @@ def main():
     window = DashboardWindow()
     window.showFullScreen()
 
+    # MORNINGUI_CEC_DPAD_NAVIGATION_V1
+    # Keyboard focus map for LG CEC arrows and OK; unrelated UI remains unchanged.
+    try:
+        from ui.remote_navigation import install_remote_navigation
+        window._lg_dpad_navigation = install_remote_navigation(window)
+    except Exception as error:
+        print(f"LG D-pad navigation disabled: {error}", flush=True)
+
     sys.exit(app.exec())
 
 

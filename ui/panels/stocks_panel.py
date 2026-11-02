@@ -153,7 +153,7 @@ class StockTile(QWidget):
 
         self.setObjectName("MarketTapeStockTile")
         self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setFixedHeight(60)
+        self.setFixedHeight(54)
 
         layout = QHBoxLayout()
         layout.setContentsMargins(5, 2, 5, 2)
@@ -264,7 +264,7 @@ class StocksPanel(QWidget):
 
         main = QVBoxLayout()
         main.setContentsMargins(10, 4, 10, 6)
-        main.setSpacing(3)
+        main.setSpacing(2)
         self.setLayout(main)
 
         header = QHBoxLayout()
@@ -333,10 +333,10 @@ class StocksPanel(QWidget):
 
         stock_grid = QGridLayout()
         stock_grid.setHorizontalSpacing(5)
-        stock_grid.setVerticalSpacing(2)
+        stock_grid.setVerticalSpacing(1)
         stock_grid.setContentsMargins(0, 0, 0, 0)
-        stock_grid.setRowMinimumHeight(0, 60)
-        stock_grid.setRowMinimumHeight(1, 60)
+        stock_grid.setRowMinimumHeight(0, 54)
+        stock_grid.setRowMinimumHeight(1, 54)
 
         for index, stock in enumerate([
             ("VRT", "Loading", "—", [1, 1, 1]),

@@ -1,3 +1,5 @@
+from PySide6.QtGui import QTextLayout, QTextOption
+from PySide6.QtCore import QPointF
 import sys
 
 from PySide6.QtCore import QRectF, Qt, QUrl
@@ -236,7 +238,11 @@ class SportsNewsPanel(QWidget):
         headline_font.setBold(True)
 
         painter.setFont(headline_font)
-        painter.setPen(QColor("#15100b"))
+        # MORNINGUI_CEC_SPORTS_TEXT_V6: tint only selected headline glyphs.
+        painter.setPen(QColor(
+            "#705C00" if getattr(self, "_morningui_remote_sports_index", -1) == 0
+            else "#15100b"
+        ))
 
         headline_rect = QRectF(
             rect.left(),
@@ -305,29 +311,50 @@ class SportsNewsPanel(QWidget):
             article,
         )
 
-        headline_top = scoreboard_rect.bottom() + 5
-        headline_rect = QRectF(
-            rect.left(),
-            headline_top,
-            rect.width(),
-            max(
-                1.0,
-                rect.bottom() - headline_top,
-            ),
-        )
-
         headline = self.clean_title(
             getattr(article, "title", "")
         )
 
-        # Live/final game leads have less vertical headline space because
-        # the scoreboard occupies the top of the lead area. Use a dedicated
-        # height-safe renderer only for these game-module headlines.
-        self.draw_game_lead_headline(
-            painter,
-            headline_rect,
-            headline,
+        # Display the live-game headline alongside TOP STORIES.
+        # The scoreboard and all section dimensions are unchanged.
+        caption_left = rect.left() + 76
+        caption_rect = QRectF(
+            caption_left,
+            rect.top(),
+            max(1.0, rect.right() - caption_left),
+            18,
         )
+
+        caption_font = QFont("Georgia", 11)
+        caption_font.setBold(True)
+
+        metrics = QFontMetrics(caption_font)
+
+        while (
+            caption_font.pointSize() > 7
+            and metrics.height() > caption_rect.height() - 1
+        ):
+            caption_font.setPointSize(
+                caption_font.pointSize() - 1
+            )
+            metrics = QFontMetrics(caption_font)
+
+        visible_headline = metrics.elidedText(
+            headline,
+            Qt.ElideRight,
+            max(1, int(caption_rect.width())),
+        )
+
+        painter.save()
+        painter.setClipRect(caption_rect)
+        painter.setFont(caption_font)
+        painter.setPen(QColor("#15100b"))
+        painter.drawText(
+            caption_rect,
+            Qt.AlignLeft | Qt.AlignVCenter,
+            visible_headline,
+        )
+        painter.restore()
 
         self.add_click_zone(
             QRectF(
@@ -359,7 +386,10 @@ class SportsNewsPanel(QWidget):
             # This is the hard boundary that prevents the headline from
             # entering the divider or the four smaller article columns.
             painter.setClipRect(rect)
-            painter.setPen(QColor("#15100b"))
+            painter.setPen(QColor(
+                "#705C00" if getattr(self, "_morningui_remote_sports_index", -1) == 0
+                else "#15100b"
+            ))
 
             text = " ".join(
                 str(title or "").split()
@@ -648,7 +678,8 @@ class SportsNewsPanel(QWidget):
 
         # Show only the game status in the center. Active games use
         # red; completed games use the normal newspaper text color.
-        status_font = QFont("Arial", 9)
+        status_font = QFont("Arial")
+        status_font.setPointSizeF(13.5)
         status_font.setBold(True)
         painter.setFont(status_font)
 
@@ -668,22 +699,59 @@ class SportsNewsPanel(QWidget):
                 else "#4a4339"
             )
         )
+        # ESPN_LIVE_STATUS_150_PERCENT_V8
+        # Display the game clock and period
+        # on ONE LINE separated by a space.
+        # Never insert newline characters.
+
+        status_text = str(
+            getattr(article, "game_status", "")
+            or ""
+        ).strip()
+
+        # Fix literal backslash-n sequences
+        # left by the previous update.
+        status_text = status_text.replace(
+            chr(92) + "n",
+            " "
+        )
+
+        # Also handle actual line breaks.
+        status_text = status_text.replace(
+            chr(10),
+            " "
+        ).replace(
+            chr(13),
+            " "
+        )
+
+        # Replace time/period separators
+        # with ordinary spaces.
+        status_text = (
+            status_text
+            .replace(" - ", " ")
+            .replace(" – ", " ")
+            .replace(" — ", " ")
+        )
+
+        # Remove duplicate whitespace.
+        status_text = " ".join(
+            status_text.split()
+        )
+
+        # Preserve the existing game-status
+        # positioning and available space.
+        status_rect = QRectF(
+            center.left() - 15,
+            center.top() - 8,
+            center.width() + 30,
+            center.height() + 16,
+        )
+
         painter.drawText(
-            QRectF(
-                center.left() + 2,
-                center.top(),
-                center.width() - 4,
-                center.height(),
-            ),
+            status_rect,
             Qt.AlignCenter,
-            str(
-                getattr(
-                    article,
-                    "game_status",
-                    "",
-                )
-                or ""
-            ),
+            status_text,
         )
 
         painter.restore()
@@ -698,28 +766,32 @@ class SportsNewsPanel(QWidget):
         logo,
         team_on_outer_side,
     ):
-        padding = 7.0
-        logo_size = max(
-            24.0,
-            min(
-                34.0,
-                rect.height() - 10.0,
-            ),
+        # ESPN_TEAM_NAMES_V4
+        # Use the available width and explicitly draw
+        # multiword team names on two lines.
+
+        painter.save()
+
+        padding = 3.0
+        gap = 3.0
+
+        logo_size = min(
+            30.0,
+            max(22.0, rect.height() - 7.0),
         )
-        score_width = max(
-            42.0,
-            min(
-                56.0,
-                rect.width() * 0.26,
-            ),
+
+        score_width = min(
+            44.0,
+            max(35.0, rect.width() * 0.22),
         )
-        logo_width = logo_size + 6.0
+
         name_width = max(
-            55.0,
+            1.0,
             rect.width()
-            - score_width
-            - logo_width
-            - padding * 2,
+            - 2 * padding
+            - 2 * gap
+            - logo_size
+            - score_width,
         )
 
         if team_on_outer_side:
@@ -729,141 +801,276 @@ class SportsNewsPanel(QWidget):
                 name_width,
                 rect.height(),
             )
+
             logo_rect = QRectF(
-                name_rect.right(),
-                rect.center().y()
-                - logo_size / 2,
+                name_rect.right() + gap,
+                rect.center().y() - logo_size / 2,
                 logo_size,
                 logo_size,
             )
+
             score_rect = QRectF(
-                logo_rect.right() + 2,
+                logo_rect.right() + gap,
                 rect.top(),
                 score_width,
                 rect.height(),
             )
-            name_alignment = (
-                Qt.AlignRight
-                | Qt.AlignVCenter
-            )
+
+            alignment = Qt.AlignRight
+
         else:
             score_rect = QRectF(
-                rect.left(),
+                rect.left() + padding,
                 rect.top(),
                 score_width,
                 rect.height(),
             )
+
             logo_rect = QRectF(
-                score_rect.right() + 2,
-                rect.center().y()
-                - logo_size / 2,
+                score_rect.right() + gap,
+                rect.center().y() - logo_size / 2,
                 logo_size,
                 logo_size,
             )
+
             name_rect = QRectF(
-                logo_rect.right(),
+                logo_rect.right() + gap,
                 rect.top(),
                 name_width,
                 rect.height(),
             )
-            name_alignment = (
-                Qt.AlignLeft
-                | Qt.AlignVCenter
-            )
 
+            alignment = Qt.AlignLeft
+
+        # Draw score.
         score_font = QFont("Arial", 24)
         score_font.setBold(True)
+
         painter.setFont(score_font)
         painter.setPen(QColor("#171717"))
+
         painter.drawText(
             score_rect,
             Qt.AlignCenter,
-            score,
+            str(score),
         )
 
-        if (
-            logo is not None
-            and not logo.isNull()
-        ):
+        # Draw team logo.
+        if logo is not None and not logo.isNull():
             scaled_logo = logo.scaled(
                 int(logo_rect.width()),
                 int(logo_rect.height()),
                 Qt.KeepAspectRatio,
                 Qt.SmoothTransformation,
             )
-            draw_x = (
-                logo_rect.center().x()
-                - scaled_logo.width() / 2
-            )
-            draw_y = (
-                logo_rect.center().y()
-                - scaled_logo.height() / 2
-            )
+
             painter.drawPixmap(
-                int(draw_x),
-                int(draw_y),
+                int(
+                    logo_rect.center().x()
+                    - scaled_logo.width() / 2
+                ),
+                int(
+                    logo_rect.center().y()
+                    - scaled_logo.height() / 2
+                ),
                 scaled_logo,
             )
+
         else:
             fallback_font = QFont("Arial", 8)
             fallback_font.setBold(True)
+
             painter.setFont(fallback_font)
             painter.setPen(QColor("#4a4339"))
+
             painter.drawText(
                 logo_rect,
                 Qt.AlignCenter,
-                self.team_abbreviation(
-                    team_name
-                ),
+                self.team_abbreviation(team_name),
             )
 
-        name_font = QFont("Arial", 11)
-        name_font.setBold(True)
-        painter.setFont(name_font)
-        metrics = QFontMetrics(name_font)
-        visible_name = metrics.elidedText(
-            " ".join(team_name.split()),
-            Qt.ElideRight,
-            max(
-                20,
-                int(name_rect.width()),
-            ),
+        # Explicitly split multiword names into
+        # two lines, choosing the largest font that
+        # fits horizontally AND vertically.
+
+        full_name = " ".join(
+            str(team_name or "").split()
         )
 
-        name_line = QRectF(
-            name_rect.left(),
-            name_rect.top() + 5,
-            name_rect.width(),
-            max(
-                16.0,
-                name_rect.height() * 0.46,
-            ),
+        words = full_name.split()
+        available_width = max(
+            1,
+            int(name_rect.width()) - 2,
         )
+
+        available_height = max(
+            1,
+            int(name_rect.height()) - 2,
+        )
+
+        chosen_font = None
+        chosen_lines = None
+
+        for size in range(14, 5, -1):
+            font = QFont("Arial", size)
+            font.setBold(True)
+
+            metrics = QFontMetrics(font)
+
+            if len(words) >= 2:
+                if (
+                    metrics.lineSpacing() * 2
+                    > available_height
+                ):
+                    continue
+
+                candidates = []
+
+                for split in range(1, len(words)):
+                    first = " ".join(words[:split])
+                    second = " ".join(words[split:])
+
+                    w1 = metrics.horizontalAdvance(first)
+                    w2 = metrics.horizontalAdvance(second)
+
+                    if (
+                        w1 <= available_width
+                        and w2 <= available_width
+                    ):
+                        candidates.append(
+                            (
+                                max(w1, w2),
+                                abs(w1 - w2),
+                                [first, second],
+                            )
+                        )
+
+                if candidates:
+                    chosen_font = font
+                    chosen_lines = min(candidates)[2]
+                    break
+
+            else:
+                if (
+                    metrics.horizontalAdvance(full_name)
+                    <= available_width
+                    and metrics.lineSpacing()
+                    <= available_height
+                ):
+                    chosen_font = font
+                    chosen_lines = [full_name]
+                    break
+
+        if chosen_font is None:
+            chosen_font = QFont("Arial", 6)
+            chosen_font.setBold(True)
+
+            metrics = QFontMetrics(chosen_font)
+
+            if len(words) >= 2:
+                splits = []
+
+                for split in range(1, len(words)):
+                    first = " ".join(words[:split])
+                    second = " ".join(words[split:])
+
+                    splits.append(
+                        (
+                            max(
+                                metrics.horizontalAdvance(first),
+                                metrics.horizontalAdvance(second),
+                            ),
+                            [first, second],
+                        )
+                    )
+
+                chosen_lines = min(splits)[1]
+            else:
+                chosen_lines = [full_name]
+
+        # ESPN_LIVE_TEAM_125_PERCENT_V8
+        # Start with 150% of the original selected
+        # font size. Reduce only if a complete line
+        # would otherwise be cut off.
+        #
+        # Allow the team-name text a little more
+        # vertical room without moving or resizing
+        # the scoreboard, scores, or logos.
+
+        base_size = chosen_font.pointSizeF()
+        target_size = base_size * 1.25
+
+        expanded_name_rect = name_rect.adjusted(
+            0, -8, 0, 8
+        )
+
+        for step in range(20, -1, -1):
+            candidate_size = (
+                base_size
+                + (target_size - base_size)
+                * step / 20.0
+            )
+
+            test_font = QFont(chosen_font)
+            test_font.setPointSizeF(candidate_size)
+
+            test_metrics = QFontMetrics(test_font)
+
+            fits_height = (
+                test_metrics.lineSpacing()
+                * len(chosen_lines)
+                <= expanded_name_rect.height()
+            )
+
+            fits_width = all(
+                test_metrics.horizontalAdvance(line)
+                <= available_width
+                for line in chosen_lines
+            )
+
+            if fits_height and fits_width:
+                chosen_font = test_font
+                break
+
+        name_rect = expanded_name_rect
+
+        metrics = QFontMetrics(chosen_font)
+        line_height = metrics.lineSpacing()
+
+        total_height = (
+            line_height * len(chosen_lines)
+        )
+
+        start_y = (
+            name_rect.center().y()
+            - total_height / 2
+        )
+
+        painter.setClipRect(name_rect)
+        painter.setFont(chosen_font)
         painter.setPen(QColor("#202020"))
-        painter.drawText(
-            name_line,
-            name_alignment,
-            visible_name,
-        )
 
-        record_font = QFont("Arial", 7)
-        record_font.setBold(False)
-        painter.setFont(record_font)
-        painter.setPen(QColor("#77736d"))
-        painter.drawText(
-            QRectF(
+        for i, line in enumerate(chosen_lines):
+            display_line = metrics.elidedText(
+                line,
+                Qt.ElideRight,
+                available_width,
+            )
+
+            line_rect = QRectF(
                 name_rect.left(),
-                name_rect.top()
-                + name_rect.height() * 0.50,
+                start_y + i * line_height,
                 name_rect.width(),
-                max(
-                    12.0,
-                    name_rect.height() * 0.32,
-                ),
-            ),
-            name_alignment,
-            record,
-        )
+                line_height,
+            )
+
+            painter.drawText(
+                line_rect,
+                alignment | Qt.AlignVCenter,
+                display_line,
+            )
+
+        painter.restore()
 
     def team_abbreviation(self, team_name):
         words = [
@@ -952,86 +1159,152 @@ class SportsNewsPanel(QWidget):
         painter.restore()
 
     def draw_small_stories(self, painter, rect, articles):
+        # ESPN_SECONDARY_EXPANDED_V3
+        # No repeated ESPN category headings.
+        # Use 60 original headline characters plus ...
+        # Maximize font size using available card height.
+        # Preserve all article and panel dimensions.
+
+        from PySide6.QtCore import QPointF
+        from PySide6.QtGui import QTextLayout, QTextOption
+
         count = 4
         column_width = rect.width() / count
 
         for index in range(count):
             left = rect.left() + index * column_width
-            col = QRectF(left, rect.top(), column_width, rect.height())
 
+            col = QRectF(
+                left,
+                rect.top(),
+                column_width,
+                rect.height(),
+            )
+
+            # Preserve existing column separators.
             if index > 0:
-                painter.setPen(QPen(QColor(55, 42, 25, 115), 1))
-                painter.drawLine(int(col.left()), int(col.top() + 2), int(col.left()), int(col.bottom() - 2))
+                painter.setPen(
+                    QPen(QColor(55, 42, 25, 115), 1)
+                )
+                painter.drawLine(
+                    int(col.left()),
+                    int(col.top() + 2),
+                    int(col.left()),
+                    int(col.bottom() - 2),
+                )
 
-            padded = col.adjusted(7 if index > 0 else 0, 0, -7, 0)
+            padded = col.adjusted(
+                7 if index > 0 else 0,
+                0,
+                -7,
+                0,
+            )
 
             if index >= len(articles):
                 continue
 
             article = articles[index]
-            category = getattr(article, "category", "") or "ESPN"
 
-            kicker_font = QFont("Times New Roman", 7)
-            kicker_font.setBold(True)
-
-            painter.setFont(kicker_font)
-            painter.setPen(QColor("#9c6424"))
-            painter.drawText(
-                QRectF(padded.left(), padded.top(), padded.width(), 12),
-                Qt.AlignLeft | Qt.AlignVCenter,
-                category.upper()[:18],
+            full_title = " ".join(
+                self.clean_title(
+                    getattr(article, "title", "")
+                ).split()
             )
 
-            headline_font = QFont("Georgia", 10)
-            headline_font.setBold(True)
+            # MORNINGUI_ESPN_SECONDARY_FIXED_10_5_V2
+            # Fixed font size; shorten text instead of shrinking.
+            headline_rect = padded.adjusted(0, 0, 0, -9)
+            width = max(1.0, headline_rect.width() - 2)
+            height = max(1.0, headline_rect.height() - 1)
 
-            painter.setFont(headline_font)
-            painter.setPen(QColor("#21180f"))
+            option = QTextOption()
+            option.setWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
 
-            page_label_height = (
-                12
-                if sys.platform.startswith("linux")
-                else 10
+            font = QFont("Georgia")
+            font.setPointSizeF(10.5)
+            font.setBold(True)
+            font.setStretch(100)
+
+            def layout_for(text):
+                candidate_layout = QTextLayout(
+                    text, font, painter.device()
+                )
+                candidate_layout.setTextOption(option)
+                candidate_layout.beginLayout()
+
+                y = 0.0
+                while True:
+                    line = candidate_layout.createLine()
+                    if not line.isValid():
+                        break
+                    line.setLineWidth(width)
+                    line.setPosition(QPointF(0, y))
+                    y += line.height()
+
+                candidate_layout.endLayout()
+                return candidate_layout, y <= height
+
+            chosen_layout, fits = layout_for(full_title)
+
+            if not fits:
+                low, high = 0, len(full_title)
+
+                while low < high:
+                    mid = (low + high + 1) // 2
+                    candidate = full_title[:mid].rstrip() + "..."
+                    _, fits = layout_for(candidate)
+
+                    if fits:
+                        low = mid
+                    else:
+                        high = mid - 1
+
+                shortened = full_title[:low].rstrip() + "..."
+                chosen_layout, fits = layout_for(shortened)
+
+                if not fits:
+                    chosen_layout, _ = layout_for("...")
+
+            painter.save()
+            painter.setClipRect(headline_rect)
+            painter.setPen(QColor(
+                "#705C00" if getattr(self, "_morningui_remote_sports_index", -1) == index + 1
+                else "#21180f"
+            ))
+
+            chosen_layout.draw(
+                painter,
+                QPointF(
+                    headline_rect.left(),
+                    headline_rect.top(),
+                ),
             )
 
-            headline_rect = padded.adjusted(
-                0,
-                13,
-                0,
-                -(page_label_height + 1),
-            )
-            painter.drawText(
-                headline_rect,
-                Qt.AlignLeft | Qt.AlignTop | Qt.TextWordWrap,
-                self.clean_title(getattr(article, "title", "")),
-            )
+            painter.restore()
 
-            page_font = QFont("Times New Roman")
-
-            if sys.platform.startswith("linux"):
-                page_font.setPixelSize(10)
-            else:
-                page_font.setPointSize(7)
-
+            # Preserve the article page number.
+            page_font = QFont("Times New Roman", 7)
             page_font.setBold(True)
 
             painter.setFont(page_font)
             painter.setPen(QColor("#5a442b"))
+
             painter.drawText(
                 QRectF(
                     padded.left(),
-                    padded.bottom() - page_label_height,
+                    padded.bottom() - 9,
                     padded.width(),
-                    page_label_height,
+                    9,
                 ),
                 Qt.AlignLeft | Qt.AlignVCenter,
                 f"P. {index + 1}",
             )
 
+            # Preserve the full clickable article.
             self.add_click_zone(
                 padded,
                 getattr(article, "link", ""),
-                self.clean_title(getattr(article, "title", "")),
+                full_title,
             )
 
     def add_click_zone(

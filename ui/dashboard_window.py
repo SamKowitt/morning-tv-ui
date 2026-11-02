@@ -536,6 +536,7 @@ DEFAULT_SPORTS_TEAM_ORDERS = {
 }
 
 
+
 class DashboardWindow(QMainWindow):
     def __init__(self):
         super().__init__()

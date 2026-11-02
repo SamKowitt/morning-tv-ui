@@ -451,6 +451,57 @@ class RadarFetchWorker(QThread):
 
 
 class WeatherRadarDialog(QDialog):
+    # MORNINGUI_RADAR_REPAINT_FIX_V3
+    # The embedded radar covers the dashboard's animated WeatherRows. An
+    # explicit opaque popup surface and paused background animation prevent
+    # underlying 50 ms row repaint damage from mixing into popup backing store.
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor('#2d2419'))
+        painter.end()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if getattr(self, '_morningui_paused_weather_v3', None) is not None:
+            return
+        parent_window = self.parentWidget()
+        panel = getattr(parent_window, 'weather_panel', None)
+        paused = []
+        for row in getattr(panel, 'row_widgets', ()):
+            timer = getattr(row, 'timer', None)
+            if timer is not None and timer.isActive():
+                paused.append((timer, timer.interval()))
+                timer.stop()
+        self._morningui_paused_weather_v3 = paused
+
+    def hideEvent(self, event):
+        paused = getattr(self, '_morningui_paused_weather_v3', None)
+        self._morningui_paused_weather_v3 = None
+        parent_window = self.parentWidget()
+        # Let Qt actually remove the dialog before repainting the dashboard.
+        super().hideEvent(event)
+        if paused is None:
+            return
+
+        def restore_dashboard():
+            # Full backing-store invalidation is important after the large
+            # radar QWidget disappears; redrawing just the row's animated
+            # area can leave its old square border tiles on Wayland.
+            if parent_window is not None:
+                root = getattr(parent_window, 'root', parent_window)
+                if root.isVisible():
+                    root.repaint()
+                panel = getattr(parent_window, 'weather_panel', None)
+                if panel is not None and panel.isVisible():
+                    panel.repaint()
+            for timer, interval in paused:
+                try:
+                    timer.start(interval)
+                except RuntimeError:
+                    pass
+
+        QTimer.singleShot(0, restore_dashboard)
+
     def __init__(
         self,
         weather_row,
@@ -553,6 +604,8 @@ class WeatherRadarDialog(QDialog):
         self.setModal(False)
         self.setWindowFlags(Qt.Widget | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_StyledBackground, True)
+        # MORNINGUI_RADAR_REPAINT_FIX_V3: dialog paints all backing pixels.
+        self.setAttribute(Qt.WA_OpaquePaintEvent, True)
         self.resize(1120, 650)
 
         self.setStyleSheet("""

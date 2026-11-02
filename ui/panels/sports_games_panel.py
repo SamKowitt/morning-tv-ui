@@ -1,6 +1,6 @@
 from html import escape
 
-from PySide6.QtCore import QObject, QRectF, Qt, QThread, Signal
+from PySide6.QtCore import QObject, QRectF, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import (
     QDialog,
@@ -99,8 +99,82 @@ class MLBTeamPage(QWidget):
         self.body.setHtml(body_html)
 
 
+# MORNINGUI_BOXSCORE_REPAINT_V6
+# Same freeze/restore sequence as the working News V5 popup.
+def _boxscore_begin_v6(d):
+    if getattr(d, '_boxscore_state_v6', None) is not None:
+        return
+    w = d.parentWidget() or d.window()
+    panel = getattr(w, 'weather_panel', None)
+    paused = []
+    for row in getattr(panel, 'row_widgets', ()):
+        t = getattr(row, 'timer', None)
+        if t is not None and t.isActive():
+            paused.append((t, t.interval()))
+            t.stop()
+    dash = getattr(w, 'dashboard_page', None)
+    state = None
+    if dash is not None and not dash.isAncestorOf(d):
+        try:
+            enabled = dash.updatesEnabled()
+            state = (dash, enabled)
+            if enabled:
+                dash.setUpdatesEnabled(False)
+        except RuntimeError:
+            pass
+    d._boxscore_state_v6 = (w, panel, paused, state)
+
+
+def _boxscore_end_v6(state):
+    if state is None:
+        return
+    w, panel, paused, dash_state = state
+    def restore():
+        try:
+            if dash_state is not None:
+                dash, enabled = dash_state
+                dash.setUpdatesEnabled(enabled)
+                if enabled and dash.isVisible():
+                    dash.repaint()
+            if w is not None and w.isVisible():
+                root = getattr(w, 'root', w)
+                if root is not None and root.isVisible():
+                    root.repaint()
+                if panel is not None and panel.isVisible():
+                    panel.repaint()
+                    for row in getattr(panel, 'row_widgets', ()):
+                        if row.isVisible():
+                            row.repaint()
+        except RuntimeError:
+            pass
+        finally:
+            for timer, interval in paused:
+                try:
+                    if not timer.isActive():
+                        timer.start(interval)
+                except RuntimeError:
+                    pass
+    QTimer.singleShot(0, restore)
+
+
 class MLBBoxScoreDialog(QDialog):
     """Two-page newspaper overlay: away club left, home club right."""
+
+    # MORNINGUI_BOXSCORE_REPAINT_V6
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor('#2d2419'))
+        painter.end()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        _boxscore_begin_v6(self)
+
+    def hideEvent(self, event):
+        state = getattr(self, '_boxscore_state_v6', None)
+        self._boxscore_state_v6 = None
+        super().hideEvent(event)
+        _boxscore_end_v6(state)
 
     def __init__(
         self,
@@ -120,6 +194,8 @@ class MLBBoxScoreDialog(QDialog):
         self.setModal(False)
         self.setWindowFlags(Qt.Widget | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setAttribute(Qt.WA_OpaquePaintEvent, True)
+        self.setAutoFillBackground(False)
         self.setAttribute(Qt.WA_DeleteOnClose, True)
         self.resize(1120, 650)
 
@@ -696,6 +772,22 @@ class ESPNBoxScoreDialog(QDialog):
     Away team is always the left page. Home team is always the right page.
     """
 
+    # MORNINGUI_BOXSCORE_REPAINT_V6
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor('#2d2419'))
+        painter.end()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        _boxscore_begin_v6(self)
+
+    def hideEvent(self, event):
+        state = getattr(self, '_boxscore_state_v6', None)
+        self._boxscore_state_v6 = None
+        super().hideEvent(event)
+        _boxscore_end_v6(state)
+
     def __init__(
         self,
         league,
@@ -716,6 +808,8 @@ class ESPNBoxScoreDialog(QDialog):
         self.setModal(False)
         self.setWindowFlags(Qt.Widget | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setAttribute(Qt.WA_OpaquePaintEvent, True)
+        self.setAutoFillBackground(False)
         self.setAttribute(Qt.WA_DeleteOnClose, True)
 
         self.setStyleSheet("""
@@ -1376,6 +1470,10 @@ class SportsGamesPanel(QWidget):
                     row,
                     game,
                     compact=len(games) >= 3,
+                    selected=(bool(game.get('is_clickable'))
+                              and game.get('league') in {'MLB', 'NFL', 'NBA'}
+                              and getattr(self, '_morningui_remote_games_index', -1)
+                              == len(self.clickable_rows)),
                 )
                 if (
                     game.get("is_clickable")
@@ -1386,7 +1484,7 @@ class SportsGamesPanel(QWidget):
             if i < row_count - 1:
                 self.draw_rule(painter, row.left(), row.bottom(), row.right())
 
-    def draw_game_row(self, painter, row, game, compact=False):
+    def draw_game_row(self, painter, row, game, compact=False, selected=False):
         matchup = game.get("matchup", "")
         time = game.get("time", "")
         detail = game.get("detail", "")
@@ -1395,7 +1493,7 @@ class SportsGamesPanel(QWidget):
         time_font = QFont("Times New Roman", 10 if compact else 14)
         time_font.setBold(True)
         painter.setFont(time_font)
-        painter.setPen(QColor("#25190d"))
+        painter.setPen(QColor("#A27C00" if selected else "#25190d"))
         painter.drawText(
             QRectF(row.left(), row.top() + 2, time_width, row.height() - 4),
             Qt.AlignLeft | Qt.AlignTop,
@@ -1437,14 +1535,14 @@ class SportsGamesPanel(QWidget):
 
                 if " - " not in line:
                     painter.setFont(score_font)
-                    painter.setPen(QColor("#17100a"))
+                    painter.setPen(QColor("#A27C00" if selected else "#17100a"))
                     painter.drawText(line_rect, Qt.AlignLeft | Qt.AlignVCenter, line)
                     continue
 
                 bold_part, pitcher_part = line.split(" - ", 1)
                 bold_text = f"{bold_part} - "
                 painter.setFont(score_font)
-                painter.setPen(QColor("#17100a"))
+                painter.setPen(QColor("#A27C00" if selected else "#17100a"))
                 painter.drawText(line_rect, Qt.AlignLeft | Qt.AlignVCenter, bold_text)
 
                 bold_width = painter.fontMetrics().horizontalAdvance(bold_text)
@@ -1455,7 +1553,7 @@ class SportsGamesPanel(QWidget):
                     winner_suffix = " (W)"
 
                 painter.setFont(pitcher_font)
-                painter.setPen(QColor("#4f3c25"))
+                painter.setPen(QColor("#A27C00" if selected else "#4f3c25"))
                 painter.drawText(
                     QRectF(
                         left + bold_width,
@@ -1470,7 +1568,7 @@ class SportsGamesPanel(QWidget):
                 if winner_suffix:
                     pitcher_width = painter.fontMetrics().horizontalAdvance(pitcher_name)
                     painter.setFont(winner_font)
-                    painter.setPen(QColor("#17100a"))
+                    painter.setPen(QColor("#A27C00" if selected else "#17100a"))
                     painter.drawText(
                         QRectF(
                             left + bold_width + pitcher_width,
@@ -1485,7 +1583,7 @@ class SportsGamesPanel(QWidget):
             if detail_text:
                 detail_font = QFont("Times New Roman", 13 if compact else 15)
                 painter.setFont(detail_font)
-                painter.setPen(QColor("#4f3c25"))
+                painter.setPen(QColor("#A27C00" if selected else "#4f3c25"))
                 detail_height = 18 if compact else 21
                 painter.drawText(
                     QRectF(
@@ -1502,7 +1600,7 @@ class SportsGamesPanel(QWidget):
         matchup_font = QFont("Georgia", 12 if compact else 14)
         matchup_font.setBold(True)
         painter.setFont(matchup_font)
-        painter.setPen(QColor("#17100a"))
+        painter.setPen(QColor("#A27C00" if selected else "#17100a"))
         painter.drawText(
             QRectF(left, row.top() + 1, width, row.height() * 0.42),
             Qt.AlignLeft | Qt.AlignVCenter,
@@ -1512,7 +1610,7 @@ class SportsGamesPanel(QWidget):
         if detail_text:
             detail_font = QFont("Times New Roman", 13 if compact else 15)
             painter.setFont(detail_font)
-            painter.setPen(QColor("#4f3c25"))
+            painter.setPen(QColor("#A27C00" if selected else "#4f3c25"))
             detail_height = 18 if compact else 21
 
             # Keep probable pitchers visually centered in the open space

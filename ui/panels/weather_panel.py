@@ -53,7 +53,7 @@ def moon_illumination_fraction(moment=None):
     phase_fraction = moon_phase_fraction(moment)
     return (1.0 - math.cos(2.0 * math.pi * phase_fraction)) / 2.0
 
-from PySide6.QtCore import Qt, QTimer, QPointF, Signal, QRect
+from PySide6.QtCore import Qt, QTimer, QPoint, QPointF, Signal, QRectF, QRect
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QLinearGradient, QRadialGradient, QPainter, QPen, QPainterPath, QBrush, QPixmap
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
@@ -150,6 +150,18 @@ class WeatherRow(QWidget):
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
         self.setMinimumHeight(48)
         self.setCursor(Qt.PointingHandCursor)
+
+        # MORNINGUI_4K_RENDER_CLEANUP_V1
+        # Draw only the rounded weather art; the QWidget must not provide
+        # an additional rectangular stylesheet / native background border.
+        self.setAttribute(Qt.WA_StyledBackground, False)
+        # MORNINGUI_RENDER_OPAQUE_REPAIR_V2
+        # The custom painter fills every pixel of the WeatherRow, including
+        # the square-corner region outside its rounded artwork. Qt can now
+        # composite its 50 ms animations without uninitialized/stale corners.
+        self.setAttribute(Qt.WA_OpaquePaintEvent, True)
+        self.setAutoFillBackground(False)
+        self._morningui_remote_selected = False
 
         layout = QHBoxLayout()
         layout.setContentsMargins(14, 6, 14, 6)
@@ -559,6 +571,35 @@ class WeatherRow(QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
+        # MORNINGUI_RENDER_OPAQUE_REPAIR_V2
+        # The parent dashboard's RootWidget QSS paints a diagonal gradient.
+        # Reproduce it in ROOT coordinates across this ENTIRE child surface
+        # before drawing the rounded weather art. This is crucial because
+        # WA_OpaquePaintEvent=True requires every corner pixel to be painted.
+        root = self.parentWidget()
+        while root is not None and root.objectName() != 'RootWidget':
+            root = root.parentWidget()
+        if root is not None and root.width() > 0 and root.height() > 0:
+            offset = self.mapTo(root, QPoint(0, 0))
+            # Qt stylesheet percentages are normalized independently in X
+            # and Y. Use a gradient vector whose projection equals
+            # t = (root_x / root_width + root_y / root_height) / 2.
+            # A direct (width,height) vector would mismatch the background
+            # and draw noticeable rectangular color patches around cards.
+            rw, rh = float(root.width()), float(root.height())
+            denominator = rw * rw + rh * rh
+            vx = 2.0 * rw * rh * rh / denominator
+            vy = 2.0 * rw * rw * rh / denominator
+            bg = QLinearGradient(
+                -offset.x(), -offset.y(),
+                vx - offset.x(), vy - offset.y()
+            )
+            bg.setColorAt(0.0, QColor('#1f2d35'))
+            bg.setColorAt(0.45, QColor('#2f4548'))
+            bg.setColorAt(1.0, QColor('#5d6f63'))
+            painter.fillRect(self.rect(), bg)
+        else:
+            painter.fillRect(self.rect(), QColor('#1f2d35'))
         painter.setRenderHint(QPainter.Antialiasing)
 
         rect = self.rect().adjusted(1, 1, -1, -1)
@@ -607,6 +648,12 @@ class WeatherRow(QWidget):
         painter.setPen(QPen(border, 2))
         painter.setBrush(gradient)
         painter.drawRoundedRect(rect, 16, 16)
+
+        # Clip every animated weather layer to the SAME visible rounded
+        # card, preventing stale/repainted square-corner pixels at 4K.
+        weather_clip = QPainterPath()
+        weather_clip.addRoundedRect(QRectF(rect), 16.0, 16.0)
+        painter.setClipPath(weather_clip, Qt.IntersectClip)
 
         # Important:
         # Rain and storm always keep the existing rain animation.
@@ -657,6 +704,16 @@ class WeatherRow(QWidget):
                 )
 
                 painter.restore()
+
+        # Paint selected weather focus in the same backing-store frame as
+        # the animations. No floating rectangular overlay can flash over it.
+        if self._morningui_remote_selected:
+            painter.setClipping(False)
+            painter.setPen(QPen(QColor(255, 225, 46, 255), 3.2))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawRoundedRect(
+                self.rect().adjusted(3, 3, -3, -3), 16, 16
+            )
 
         painter.end()
 

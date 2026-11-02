@@ -413,8 +413,17 @@ class ConnectedNewspaperSpread(QWidget):
     shared paper texture, outside border, and center fold.
     """
 
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        # MORNINGUI_RENDER_OPAQUE_REPAIR_V2
+        self.setAttribute(Qt.WA_OpaquePaintEvent, True)
+        self.setAutoFillBackground(False)
+
     def paintEvent(self, event):
         painter = QPainter(self)
+        # MORNINGUI_RENDER_OPAQUE_REPAIR_V2: cover the entire surface,
+        # including its one-pixel border and every child-damage region.
+        painter.fillRect(self.rect(), QColor('#fff1d3'))
         painter.setRenderHint(QPainter.Antialiasing, True)
 
         rect = self.rect().adjusted(1, 1, -1, -1)
@@ -487,6 +496,97 @@ class BackPageButton(QPushButton):
 
 
 class OpenNewspaperDialog(QDialog):
+    # MORNINGUI_RENDER_OPAQUE_REPAIR_V2
+    # A child QDialog is not guaranteed to receive an opaque native-window
+    # backing. Explicit paint prevents visible dashboard pixels or stale
+    # WeatherRow rectangle boundaries inside the newspaper.
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor('#2d2419'))
+        painter.end()
+
+    # MORNINGUI_NEWS_REPAINT_FIX_V4
+    # News and radar must have the same weather timer / backing-store lifecycle.
+    # Restarting the animation *before* the news widget is removed causes
+    # rectangular Qt damage/repaint tiles to flash around rounded weather cards.
+    def showEvent(self, event):
+        super().showEvent(event)
+        if getattr(self, '_paused_weather_timers_v2', None) is not None:
+            return
+        # The article is embedded directly in DashboardWindow; prefer its
+        # actual parent, as in the working radar V3 popup.
+        parent_window = self.parentWidget()
+        if parent_window is None:
+            parent_window = self.window()
+        panel = getattr(parent_window, 'weather_panel', None)
+        paused = []
+        for row in getattr(panel, 'row_widgets', ()):
+            timer = getattr(row, 'timer', None)
+            if timer is not None and timer.isActive():
+                paused.append((timer, timer.interval()))
+                timer.stop()
+        self._paused_weather_timers_v2 = paused
+        # MORNINGUI_NEWS_DASHBOARD_INVALIDATION_V5
+        dashboard = getattr(parent_window, 'dashboard_page', None)
+        self._news_dashboard_v5 = None
+        if dashboard is not None and not dashboard.isAncestorOf(self):
+            try:
+                enabled = dashboard.updatesEnabled()
+                self._news_dashboard_v5 = (dashboard, enabled)
+                if enabled:
+                    dashboard.setUpdatesEnabled(False)
+            except RuntimeError:
+                self._news_dashboard_v5 = None
+
+    def hideEvent(self, event):
+        paused = getattr(self, '_paused_weather_timers_v2', None)
+        self._paused_weather_timers_v2 = None
+        dashboard_state = getattr(self, '_news_dashboard_v5', None)
+        self._news_dashboard_v5 = None
+        parent_window = self.parentWidget()
+        if parent_window is None:
+            parent_window = self.window()
+        # Complete the widget's removal BEFORE restoring animation/repainting.
+        super().hideEvent(event)
+        if paused is None and dashboard_state is None:
+            return
+
+        def restore_dashboard():
+            # Invalidate dashboard + weather cards while their animation timers
+            # are still paused, exactly as radar V3 does on close.
+            try:
+                if dashboard_state is not None:
+                    dashboard, enabled = dashboard_state
+                    dashboard.setUpdatesEnabled(enabled)
+                    if enabled and dashboard.isVisible():
+                        dashboard.repaint()
+                if parent_window is not None and parent_window.isVisible():
+                    root = getattr(parent_window, 'root', parent_window)
+                    if root is not None and root.isVisible():
+                        root.repaint()
+                    panel = getattr(parent_window, 'weather_panel', None)
+                    if panel is not None and panel.isVisible():
+                        panel.repaint()
+                        # These are independent animated widgets; explicitly
+                        # flush their card surfaces before timers resume.
+                        for row in getattr(panel, 'row_widgets', ()):
+                            if row.isVisible():
+                                row.repaint()
+            except RuntimeError:
+                # Parent may have been destroyed while the popup closed.
+                pass
+            finally:
+                # Restart only timers we ourselves stopped. Preserve each
+                # timer's original interval and any previously stopped rows.
+                for timer, interval in (paused or ()):
+                    try:
+                        if not timer.isActive():
+                            timer.start(interval)
+                    except RuntimeError:
+                        pass
+
+        QTimer.singleShot(0, restore_dashboard)
+
     def __init__(self, source, headline, article_url, parent=None):
         super().__init__(parent)
 
@@ -504,7 +604,8 @@ class OpenNewspaperDialog(QDialog):
 
         # Keep this as an in-dashboard temporary overlay, not a second native Mac window.
         self.setWindowFlags(Qt.Widget | Qt.FramelessWindowHint)
-        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setAttribute(Qt.WA_OpaquePaintEvent, True)
+        self.setAutoFillBackground(False)
         self.resize(1120, 650)
 
         self.setStyleSheet("""
@@ -1796,7 +1897,6 @@ class NewsCard(QWidget):
 
             QLabel#OldNewsHeadline {
                 font-family: "Georgia";
-                font-size: 30px;
                 font-weight: 1000;
                 color: #15100b;
                 letter-spacing: -0.4px;

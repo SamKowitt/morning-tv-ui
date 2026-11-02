@@ -12,14 +12,9 @@ def draw_stacked_newspaper_panel(painter: QPainter, rect, seed: int = 1):
 
     outer = QRectF(rect).adjusted(4, 4, -3, -5)
 
-    # Soft shadow behind the section.
-    painter.setPen(Qt.PenStyle.NoPen)
-    painter.setBrush(QColor(0, 0, 0, 32))
-    painter.drawRoundedRect(outer.adjusted(5, 6, 8, 8), 6, 6)
-
     # Back pages only at the top/right. They stop before the bottom.
     for dx, dy, alpha in [(5.0, -3.0, 40), (2.5, -1.2, 54)]:
-        back = QRectF(outer).adjusted(dx, dy, dx - 4, dy - 22)
+        back = QRectF(outer).adjusted(dx, dy, dx - 10, dy - 22)
 
         back_grad = QLinearGradient(back.topLeft(), back.bottomLeft())
         back_grad.setColorAt(0.0, QColor("#ead6b0"))
@@ -38,7 +33,147 @@ def draw_stacked_newspaper_panel(painter: QPainter, rect, seed: int = 1):
         )
 
     # Main page. Right side is barely inset so the fold can reach the far side.
-    sheet = QRectF(outer).adjusted(0, 0, -1, -8)
+    sheet = QRectF(outer).adjusted(0, 0, -7, -8)
+
+    # NEWSPAPER_ROUNDED_DIRECTIONAL_SHADOW_V6
+    #
+    # Direction: upper left -> lower right.
+    #
+    # Multiple rounded silhouettes create a
+    # smooth shadow that follows the actual
+    # newspaper corners, unlike fillRect.
+    #
+    # Rendered after back pages and before
+    # the main paper, so it remains visible
+    # to the bottom and right.
+
+    painter.save()
+    painter.setRenderHint(
+        QPainter.RenderHint.Antialiasing,
+        True,
+    )
+    painter.setPen(Qt.PenStyle.NoPen)
+
+    # Soft outer layers first, darker contact
+    # layers last. These values preserve roughly
+    # the current bottom-shadow strength.
+    # Directional shadow with sufficient
+    # right-side clearance to remain visible.
+    # No rectangular fills or square corners.
+    # NEWSPAPER_SHADOW_REFINEMENT_V9
+    # Shift all shadow layers a bit farther right.
+    # Darken slightly.
+    # Preserve vertical offsets and rounded corners.
+    # NEWSPAPER_SHADOW_REFINEMENT_V12
+    # Shift +1px right, darken approximately 15%.
+    # Preserve all vertical offsets.
+    # NEWSPAPER_SHADOW_OFFSET_V13
+    # Shift right +1px and down +1px.
+    # Preserve opacity and corner curvature.
+    # NEWSPAPER_SHADOW_OFFSET_V14
+    # Down 1px, left 0.5px.
+    # Preserve opacity, shape, and corner radius.
+    shadow_layers = [
+        (12.5, 12.0, 14),
+        (11.5, 10.0, 20),
+        (10.5, 8.0, 25),
+        (9.5, 6.5, 31),
+        (8.5, 5.0, 38),
+        (7.5, 3.5, 46),
+    ]
+
+    for dx, dy, opacity in shadow_layers:
+        shadow_shape = QPainterPath()
+
+        # NEWSPAPER_SHADOW_CURVE_V12
+        # 12px shadow curvature, reduced from 20px.
+        # Does not alter the newspaper itself.
+        shadow_shape.addRoundedRect(
+            QRectF(sheet).translated(dx, dy),
+            12.0,
+            12.0,
+        )
+
+        # NEWSPAPER_GEOMETRIC_TAPER_V17
+        #
+        # Keep each layer's existing darkness.
+        # Shift the upper shadow only 5px left.
+        # Gradually return to its original position
+        # at the bottom of the newspaper.
+        #
+        # No change to radius, vertical offsets,
+        # or bottom shadow position.
+
+        painter.save()
+
+        painter.translate(0.0, sheet.bottom())
+        painter.shear(
+            5.0 / max(1.0, sheet.height()),
+            0.0,
+        )
+        painter.translate(0.0, -sheet.bottom())
+
+        painter.fillPath(
+            shadow_shape,
+            QColor(3, 7, 10, opacity),
+        )
+
+        # NEWSPAPER_CORNER_DARKEN_V19
+        # Add a subtle darkening confined to the
+        # bottom-right of the existing shadow.
+        # No changes to shape, offset, or taper.
+
+        from importlib import import_module
+        qtgui = import_module(QColor.__module__)
+
+        corner_rect = QRectF(sheet).translated(dx, dy)
+
+        # NEWSPAPER_CORNER_DARKEN_V20
+        # Slightly stronger, more concentrated
+        # darkness at the bottom-right corner.
+        # NEWSPAPER_CORNER_POSITION_V21
+        # Move only the corner darkening 3px lower.
+        corner_center = corner_rect.bottomRight()
+        corner_center.setY(corner_center.y() + 3.0)
+
+        corner_gradient = qtgui.QRadialGradient(
+            corner_center,
+            36.0,
+        )
+
+        # NEWSPAPER_CORNER_DARKNESS_V22
+        # Slightly darker at the bottom-right only.
+        corner_strength = max(
+            2,
+            round(opacity * 0.21),
+        )
+
+        corner_gradient.setColorAt(
+            0.0,
+            QColor(3, 7, 10, corner_strength),
+        )
+
+        corner_gradient.setColorAt(
+            0.45,
+            QColor(
+                3, 7, 10,
+                round(corner_strength * 0.45),
+            ),
+        )
+
+        corner_gradient.setColorAt(
+            1.0,
+            QColor(3, 7, 10, 0),
+        )
+
+        painter.fillPath(
+            shadow_shape,
+            qtgui.QBrush(corner_gradient),
+        )
+
+        painter.restore()
+
+    painter.restore()
 
     paper_grad = QLinearGradient(sheet.topLeft(), sheet.bottomRight())
     paper_grad.setColorAt(0.00, QColor("#f6e9c8"))
@@ -79,6 +214,41 @@ def draw_stacked_newspaper_panel(painter: QPainter, rect, seed: int = 1):
     )
 
     _draw_bottom_fold_full_width(painter, sheet)
+
+    # NEWSPAPER_RIGHT_CONTACT_EDGE_V6
+    #
+    # A narrow, soft contact shadow beside the
+    # existing paper edge. Rounded ends avoid
+    # the squared-off appearance of the old
+    # rectangular gradient.
+
+    painter.save()
+    painter.translate(-0.5, 1.0)
+    painter.setRenderHint(
+        QPainter.RenderHint.Antialiasing,
+        True,
+    )
+
+    # NEWSPAPER_TAPERED_CONTACT_V17
+    # Preserve original contact shadow darkness.
+
+    edge_pen = QPen(
+        QColor(3, 7, 10, 106),
+        1.6,
+    )
+    edge_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+
+    painter.setPen(edge_pen)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+
+    painter.drawLine(
+        int(sheet.right() + 2.8),
+        int(sheet.top() + 10),
+        int(sheet.right() + 5.4),
+        int(sheet.bottom() - 8),
+    )
+
+    painter.restore()
 
     # Tiny paper grain.
     painter.setPen(QPen(QColor(72, 49, 24, 6), 1))

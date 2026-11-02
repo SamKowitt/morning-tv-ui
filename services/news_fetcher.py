@@ -2241,32 +2241,13 @@ def fetch_configured_article(source_key):
             try:
                 article = enrich_article(article)
             except Exception as enrich_error:
-                print(
-                    f"{source_key} source-specific article "
-                    f"enrich failed: {enrich_error}"
-                )
+                print(f"CNN source-specific article enrich failed: {enrich_error}")
 
             cache_article(source_key, article)
             return article
 
         except Exception as error:
-            if source_key == "FOX":
-                print(
-                    "FOX direct and structured homepage "
-                    f"resolvers failed: {error}; refusing "
-                    "generic ranking so a secondary story "
-                    "cannot be presented as the lead."
-                )
-                return fallback_article(
-                    "FOX",
-                    "Fox-specific lead resolution failed: "
-                    + str(error),
-                )
-
-            print(
-                "CNN direct homepage resolver failed: "
-                f"{error}; falling back to generic logic"
-            )
+            print(f"CNN direct homepage resolver failed: {error}; falling back to generic logic")
 
     if source_key == "APNEWS":
         try:
@@ -3702,64 +3683,6 @@ except NameError:
     _FOX_EXISTING_HOMEPAGE_LEAD_RESOLVER = None
 
 
-def fetch_fox_structured_homepage_lead_article(source_key="FOX"):
-    """
-    Last-resort Fox-only fallback.
-
-    Read Fox's own ordered NewsArticle list from homepage JSON-LD and use
-    the first item. Never mix Fox with generic homepage/RSS ranking.
-    """
-    homepage_url = (
-        NEWS_SOURCES[source_key].get("homepage_url")
-        or NEWS_SOURCES[source_key].get("homepage")
-        or FOX_HOMEPAGE
-    )
-    page_html = fetch_url_text(
-        homepage_url,
-        timeout=12,
-    )
-    candidates = (
-        extract_homepage_candidates_from_json_ld(
-            page_html=page_html,
-            base_url=homepage_url,
-            source_name=NEWS_SOURCES[
-                source_key
-            ]["source_name"],
-        )
-    )
-
-    if not candidates:
-        raise RuntimeError(
-            "Fox homepage JSON-LD did not contain "
-            "an ordered NewsArticle lead."
-        )
-
-    selected = candidates[0]
-
-    print(
-        "SELECTED FOX STRUCTURED HOMEPAGE LEAD: "
-        f"{selected.title}"
-    )
-    print(
-        "FOX STRUCTURED LEAD LINK: "
-        f"{selected.link}"
-    )
-    print(
-        "FOX STRUCTURED LEAD IMAGE: "
-        f"{selected.image_url}"
-    )
-
-    return {
-        "source": source_key,
-        "title": selected.title,
-        "link": selected.link,
-        "url": selected.link,
-        "summary": "",
-        "image": selected.image_url,
-        "published": "",
-    }
-
-
 def fetch_fox_homepage_lead_article(source_key="FOX"):
     """
     Select Fox's visible homepage lead by rendered headline prominence.
@@ -3833,121 +3756,6 @@ def fetch_fox_homepage_lead_article(source_key="FOX"):
         "live tv", "weather", "advertisement", "sponsored",
         "privacy policy", "terms of use"
     ];
-
-    const imageFrom = container => {
-        if (!container) return "";
-
-        const image = Array.from(
-            container.querySelectorAll(
-                "img[src], img[data-src], img[data-lazy-src]"
-            )
-        ).find(node => {
-            const rect = node.getBoundingClientRect();
-            return rect.width > 100 && rect.height > 80;
-        });
-
-        return image
-            ? String(
-                image.currentSrc ||
-                image.src ||
-                image.getAttribute("data-src") ||
-                image.getAttribute("data-lazy-src") ||
-                ""
-            ).trim()
-            : "";
-    };
-
-    /*
-     * Fox's editorial lead is structurally identified as the first
-     * big-top story. It may legitimately be a /video/ live event, so
-     * select it before applying the normal video exclusion used for
-     * lower-page cards.
-     */
-    const structuralLead = document.querySelector(
-        ".big-top article.story-1"
-    );
-
-    if (structuralLead && visible(structuralLead)) {
-        const leadLink = structuralLead.querySelector(
-            ".info-header .title a[href], "
-            + "h1 a[href], h2 a[href], h3 a[href]"
-        );
-        const titleNode = leadLink
-            ? (
-                leadLink.closest(
-                    "h1, h2, h3, h4, h5, h6"
-                )
-                || leadLink
-            )
-            : null;
-        const title = clean(
-            titleNode
-                ? (
-                    titleNode.innerText
-                    || titleNode.textContent
-                )
-                : ""
-        );
-        const href = String(
-            leadLink?.href || ""
-        ).trim();
-        const lower = title.toLowerCase();
-
-        let validLeadHost = false;
-
-        try {
-            validLeadHost = new URL(
-                href,
-                window.location.href
-            ).hostname.toLowerCase().endsWith(
-                "foxnews.com"
-            );
-        } catch (_error) {
-            validLeadHost = false;
-        }
-
-        if (
-            title.length >= 20
-            && validLeadHost
-            && !blockedTitles.some(
-                bit => lower.includes(bit)
-            )
-        ) {
-            const style = getComputedStyle(
-                titleNode
-            );
-            const rect =
-                titleNode.getBoundingClientRect();
-
-            return {
-                selected: {
-                    title,
-                    link: href,
-                    image: imageFrom(
-                        structuralLead
-                    ),
-                    fontSize: (
-                        parseFloat(
-                            style.fontSize || "0"
-                        )
-                        || 0
-                    ),
-                    fontWeight: (
-                        parseInt(
-                            style.fontWeight || "400",
-                            10
-                        )
-                        || 400
-                    ),
-                    top: Math.round(rect.top),
-                    left: Math.round(rect.left),
-                    origin: (
-                        "fox_big_top_story_1"
-                    )
-                }
-            };
-        }
-    }
 
     const candidates = [];
     const seen = new Set();
@@ -4101,14 +3909,7 @@ def fetch_fox_homepage_lead_article(source_key="FOX"):
 
                 time.sleep(2)
 
-        print(
-            "Fox rendered homepage lead failed after "
-            f"3 attempts: {last_error}; using Fox-only "
-            "structured homepage fallback."
-        )
-        return fetch_fox_structured_homepage_lead_article(
-            source_key
-        )
+        raise RuntimeError(f"Fox rendered homepage lead failed: {last_error}")
 
     finally:
         if target_id:
