@@ -17,7 +17,7 @@ from services.sports_games_fetcher import (
     fetch_mlb_boxscore,
     get_cached_boxscore,
 )
-from ui.newspaper_chrome import draw_stacked_newspaper_panel
+from ui.newspaper_chrome import draw_stacked_newspaper_panel, oled_newspaper_color
 
 
 class MLBBoxScoreWorker(QObject):
@@ -80,7 +80,7 @@ class MLBTeamPage(QWidget):
     def set_loading(self, label):
         self.score_label.setText("—")
         self.team_label.setText(label)
-        self.body.setHtml(
+        oled_html(self.body, 
             "<div style='font-family:Georgia; font-size:16px; margin-top:28px;'>"
             "Loading box score...</div>"
         )
@@ -88,7 +88,7 @@ class MLBTeamPage(QWidget):
     def set_error(self, message):
         self.score_label.setText("—")
         self.team_label.setText("Box score unavailable")
-        self.body.setHtml(
+        oled_html(self.body, 
             "<div style='font-family:Georgia; font-size:15px; margin-top:20px;'>"
             f"{escape(str(message))}</div>"
         )
@@ -96,7 +96,7 @@ class MLBTeamPage(QWidget):
     def set_team(self, score, team_name, body_html):
         self.score_label.setText(str(score) if score not in (None, "") else "—")
         self.team_label.setText(str(team_name))
-        self.body.setHtml(body_html)
+        oled_html(self.body, body_html)
 
 
 # MORNINGUI_BOXSCORE_REPAINT_V6
@@ -163,7 +163,7 @@ class MLBBoxScoreDialog(QDialog):
     # MORNINGUI_BOXSCORE_REPAINT_V6
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor('#2d2419'))
+        painter.fillRect(self.rect(), oled_newspaper_color('#2d2419'))
         painter.end()
 
     def showEvent(self, event):
@@ -199,7 +199,7 @@ class MLBBoxScoreDialog(QDialog):
         self.setAttribute(Qt.WA_DeleteOnClose, True)
         self.resize(1120, 650)
 
-        self.setStyleSheet("""
+        oled_style(self, """
             QDialog {
                 background: #2d2419;
             }
@@ -775,7 +775,7 @@ class ESPNBoxScoreDialog(QDialog):
     # MORNINGUI_BOXSCORE_REPAINT_V6
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor('#2d2419'))
+        painter.fillRect(self.rect(), oled_newspaper_color('#2d2419'))
         painter.end()
 
     def showEvent(self, event):
@@ -812,7 +812,7 @@ class ESPNBoxScoreDialog(QDialog):
         self.setAutoFillBackground(False)
         self.setAttribute(Qt.WA_DeleteOnClose, True)
 
-        self.setStyleSheet("""
+        oled_style(self, """
             QDialog {
                 background: #2d2419;
             }
@@ -895,7 +895,7 @@ class ESPNBoxScoreDialog(QDialog):
         self.left_page.setObjectName("ESPNBoxScorePage")
         self.left_page.setReadOnly(True)
         self.left_page.setTextInteractionFlags(Qt.NoTextInteraction)
-        self.left_page.setHtml(self.loading_html("Away team"))
+        oled_html(self.left_page, self.loading_html("Away team"))
 
         self.fold = QWidget()
         self.fold.setObjectName("ESPNBoxScoreFold")
@@ -905,7 +905,7 @@ class ESPNBoxScoreDialog(QDialog):
         self.right_page.setObjectName("ESPNBoxScorePage")
         self.right_page.setReadOnly(True)
         self.right_page.setTextInteractionFlags(Qt.NoTextInteraction)
-        self.right_page.setHtml(self.loading_html("Home team"))
+        oled_html(self.right_page, self.loading_html("Home team"))
 
         spread.addWidget(self.left_page, 1)
         spread.addWidget(self.fold)
@@ -968,8 +968,8 @@ class ESPNBoxScoreDialog(QDialog):
             "Box score unavailable</div><hr>"
             f"<div style='margin-top:20px; font-family:Georgia; font-size:18px;'>{safe_message}</div>"
         )
-        self.left_page.setHtml(html)
-        self.right_page.setHtml(html)
+        oled_html(self.left_page, html)
+        oled_html(self.right_page, html)
         self.status.setText("Could not load box score")
 
     def team_side_map(self, payload):
@@ -1023,8 +1023,8 @@ class ESPNBoxScoreDialog(QDialog):
             )
             return
 
-        self.left_page.setHtml(self.team_page_html(grouped["away"]))
-        self.right_page.setHtml(self.team_page_html(grouped["home"]))
+        oled_html(self.left_page, self.team_page_html(grouped["away"]))
+        oled_html(self.right_page, self.team_page_html(grouped["home"]))
 
         game_status = self.fallback_title or f"{self.league} LIVE / FINAL"
         competitions = (
@@ -1356,13 +1356,13 @@ class SportsGamesPanel(QWidget):
         footer_font = QFont("Times New Roman", 7)
         footer_font.setBold(True)
         painter.setFont(footer_font)
-        painter.setPen(QColor("#5a442b"))
-        painter.drawText(
+        painter.setPen(oled_newspaper_color("#5a442b"))
+        oled_text_draw(painter, 
             QRectF(inner.left(), bottom_rule_y + 2, inner.width() / 2, 12),
             Qt.AlignLeft | Qt.AlignVCenter,
             "SCHEDULE BOARD",
         )
-        painter.drawText(
+        oled_text_draw(painter, 
             QRectF(inner.center().x(), bottom_rule_y + 2, inner.width() / 2, 12),
             Qt.AlignRight | Qt.AlignVCenter,
             "PAGE 2",
@@ -1386,8 +1386,8 @@ class SportsGamesPanel(QWidget):
         title_font.setBold(True)
         title_font.setLetterSpacing(QFont.PercentageSpacing, 106)
         painter.setFont(title_font)
-        painter.setPen(QColor("#241a10"))
-        painter.drawText(
+        painter.setPen(oled_newspaper_color("#241a10"))
+        oled_text_draw(painter, 
             QRectF(inner.left(), inner.top() + 2, inner.width() * 0.72, 23),
             Qt.AlignLeft | Qt.AlignVCenter,
             "GAME TIMES",
@@ -1397,8 +1397,8 @@ class SportsGamesPanel(QWidget):
         edition_font.setBold(True)
         edition_font.setLetterSpacing(QFont.PercentageSpacing, 108)
         painter.setFont(edition_font)
-        painter.setPen(QColor("#5a442b"))
-        painter.drawText(
+        painter.setPen(oled_newspaper_color("#5a442b"))
+        oled_text_draw(painter, 
             QRectF(
                 inner.left() + inner.width() * 0.42,
                 inner.top() + 2,
@@ -1431,8 +1431,8 @@ class SportsGamesPanel(QWidget):
 
         emoji_font = QFont("Arial", 15)
         painter.setFont(emoji_font)
-        painter.setPen(QColor("#21170d"))
-        painter.drawText(
+        painter.setPen(oled_newspaper_color("#21170d"))
+        oled_text_draw(painter, 
             QRectF(rect.left(), rect.top(), 24, heading_height),
             Qt.AlignCenter,
             emoji,
@@ -1441,8 +1441,8 @@ class SportsGamesPanel(QWidget):
         league_font = QFont("Georgia", 17)
         league_font.setBold(True)
         painter.setFont(league_font)
-        painter.setPen(QColor("#21170d"))
-        painter.drawText(
+        painter.setPen(oled_newspaper_color("#21170d"))
+        oled_text_draw(painter, 
             QRectF(rect.left() + 28, rect.top(), rect.width() - 28, heading_height),
             Qt.AlignLeft | Qt.AlignVCenter,
             league,
@@ -1494,7 +1494,7 @@ class SportsGamesPanel(QWidget):
         time_font.setBold(True)
         painter.setFont(time_font)
         painter.setPen(QColor("#A27C00" if selected else "#25190d"))
-        painter.drawText(
+        oled_text_draw(painter, 
             QRectF(row.left(), row.top() + 2, time_width, row.height() - 4),
             Qt.AlignLeft | Qt.AlignTop,
             time,
@@ -1536,14 +1536,14 @@ class SportsGamesPanel(QWidget):
                 if " - " not in line:
                     painter.setFont(score_font)
                     painter.setPen(QColor("#A27C00" if selected else "#17100a"))
-                    painter.drawText(line_rect, Qt.AlignLeft | Qt.AlignVCenter, line)
+                    oled_text_draw(painter, line_rect, Qt.AlignLeft | Qt.AlignVCenter, line)
                     continue
 
                 bold_part, pitcher_part = line.split(" - ", 1)
                 bold_text = f"{bold_part} - "
                 painter.setFont(score_font)
                 painter.setPen(QColor("#A27C00" if selected else "#17100a"))
-                painter.drawText(line_rect, Qt.AlignLeft | Qt.AlignVCenter, bold_text)
+                oled_text_draw(painter, line_rect, Qt.AlignLeft | Qt.AlignVCenter, bold_text)
 
                 bold_width = painter.fontMetrics().horizontalAdvance(bold_text)
                 winner_suffix = ""
@@ -1554,7 +1554,7 @@ class SportsGamesPanel(QWidget):
 
                 painter.setFont(pitcher_font)
                 painter.setPen(QColor("#A27C00" if selected else "#4f3c25"))
-                painter.drawText(
+                oled_text_draw(painter, 
                     QRectF(
                         left + bold_width,
                         line_rect.top(),
@@ -1569,7 +1569,7 @@ class SportsGamesPanel(QWidget):
                     pitcher_width = painter.fontMetrics().horizontalAdvance(pitcher_name)
                     painter.setFont(winner_font)
                     painter.setPen(QColor("#A27C00" if selected else "#17100a"))
-                    painter.drawText(
+                    oled_text_draw(painter, 
                         QRectF(
                             left + bold_width + pitcher_width,
                             line_rect.top(),
@@ -1585,7 +1585,7 @@ class SportsGamesPanel(QWidget):
                 painter.setFont(detail_font)
                 painter.setPen(QColor("#A27C00" if selected else "#4f3c25"))
                 detail_height = 18 if compact else 21
-                painter.drawText(
+                oled_text_draw(painter, 
                     QRectF(
                         left,
                         row.bottom() - detail_height - 5,
@@ -1601,7 +1601,7 @@ class SportsGamesPanel(QWidget):
         matchup_font.setBold(True)
         painter.setFont(matchup_font)
         painter.setPen(QColor("#A27C00" if selected else "#17100a"))
-        painter.drawText(
+        oled_text_draw(painter, 
             QRectF(left, row.top() + 1, width, row.height() * 0.42),
             Qt.AlignLeft | Qt.AlignVCenter,
             matchup_text,
@@ -1620,7 +1620,7 @@ class SportsGamesPanel(QWidget):
                 row.height() * (0.54 if compact else 0.52)
             )
 
-            painter.drawText(
+            oled_text_draw(painter, 
                 QRectF(
                     left,
                     detail_top,
@@ -1729,13 +1729,13 @@ class SportsGamesPanel(QWidget):
         dash_font = QFont("Georgia", 28)
         dash_font.setBold(True)
         painter.setFont(dash_font)
-        painter.setPen(QColor("#21170d"))
-        painter.drawText(rect.adjusted(0, 4, 0, -34), Qt.AlignCenter, "—")
+        painter.setPen(oled_newspaper_color("#21170d"))
+        oled_text_draw(painter, rect.adjusted(0, 4, 0, -34), Qt.AlignCenter, "—")
 
         title_font = QFont("Georgia", 15)
         title_font.setBold(True)
         painter.setFont(title_font)
-        painter.drawText(
+        oled_text_draw(painter, 
             rect.adjusted(0, 26, 0, -12),
             Qt.AlignCenter,
             "No games scheduled",
@@ -1743,8 +1743,8 @@ class SportsGamesPanel(QWidget):
 
         body_font = QFont("Times New Roman", 9)
         painter.setFont(body_font)
-        painter.setPen(QColor("#4f3c25"))
-        painter.drawText(
+        painter.setPen(oled_newspaper_color("#4f3c25"))
+        oled_text_draw(painter, 
             rect.adjusted(12, 54, -12, 0),
             Qt.AlignCenter | Qt.TextWordWrap,
             self.message,
@@ -1753,3 +1753,6 @@ class SportsGamesPanel(QWidget):
     def draw_rule(self, painter, x1, y, x2):
         painter.setPen(QPen(QColor(55, 42, 25, 150), 1))
         painter.drawLine(int(x1), int(y), int(x2), int(y))
+
+# OLED_CONTRAST_V4
+from ui.oled_text import oled_text_draw, oled_style, oled_html, oled_layout_draw

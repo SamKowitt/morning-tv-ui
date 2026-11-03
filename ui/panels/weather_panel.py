@@ -155,11 +155,11 @@ class WeatherRow(QWidget):
         # Draw only the rounded weather art; the QWidget must not provide
         # an additional rectangular stylesheet / native background border.
         self.setAttribute(Qt.WA_StyledBackground, False)
-        # MORNINGUI_RENDER_OPAQUE_REPAIR_V2
-        # The custom painter fills every pixel of the WeatherRow, including
-        # the square-corner region outside its rounded artwork. Qt can now
-        # composite its 50 ms animations without uninitialized/stale corners.
-        self.setAttribute(Qt.WA_OpaquePaintEvent, True)
+        # MORNINGUI_WEATHER_PARENT_BACKING_V1
+        # Let Qt propagate the actual parent background into the
+        # transparent corners outside the rounded weather artwork.
+        # Do not claim to paint every pixel opaquely.
+        self.setAttribute(Qt.WA_OpaquePaintEvent, False)
         self.setAutoFillBackground(False)
         self._morningui_remote_selected = False
 
@@ -183,7 +183,7 @@ class WeatherRow(QWidget):
             Qt.WA_TransparentForMouseEvents,
             True,
         )
-        self.icon_label.setStyleSheet("background: transparent;")
+        oled_style(self.icon_label, "background: transparent;")
         self.icon_label.setScaledContents(False)
 
         self.hour_label = AutoFitLabel(
@@ -222,7 +222,7 @@ class WeatherRow(QWidget):
             Qt.WA_TransparentForMouseEvents,
             True,
         )
-        self.precipitation_icon_label.setStyleSheet(
+        oled_style(self.precipitation_icon_label, 
             "background: transparent;"
         )
         self.precipitation_icon_label.setScaledContents(False)
@@ -549,6 +549,40 @@ class WeatherRow(QWidget):
         self.position_precipitation_detail()
         self.update()
 
+        # MORNINGUI_WAYLAND_DIRTY_REGION_BAND_V1
+        # Invalidate the shared backing-store region crossing the
+        # weather/news boundary. Do not paint any new pixels or
+        # modify widget geometry, styling, or navigation.
+
+        panel = self.parentWidget()
+        rows = (
+            getattr(panel, "row_widgets", ())
+            if panel is not None else ()
+        )
+
+        # Only the first hourly row requests this shared update.
+        # All other weather animations continue normally.
+        if rows and rows[0] is self:
+            window = self.window()
+            root = getattr(window, "root", None)
+            news = getattr(window, "fox_card", None)
+
+            if root is not None and news is not None:
+                panel_pos = panel.mapTo(root, QPoint(0, 0))
+                news_pos = news.mapTo(root, QPoint(0, 0))
+
+                left = panel_pos.x() + panel.width() - 3
+                right = max(left + 6, news_pos.x() + 3)
+
+                root.update(
+                    QRect(
+                        left,
+                        panel_pos.y() - 3,
+                        right - left + 1,
+                        panel.height() + 6
+                    )
+                )
+
     def apply_text_colors(self):
         dark_weather_art = self.is_night or self.condition in {"rain", "storm"}
 
@@ -560,46 +594,20 @@ class WeatherRow(QWidget):
         font_css = f"color: {color}; background: transparent;"
         icon_css = "background: transparent;"
 
-        self.temp_label.setStyleSheet(font_css)
-        self.icon_label.setStyleSheet(icon_css)
-        self.hour_label.setStyleSheet(font_css)
-        self.precipitation_detail_label.setStyleSheet(font_css)
-        self.solar_detail_label.setStyleSheet(font_css)
+        oled_style(self.temp_label, font_css)
+        oled_style(self.icon_label, icon_css)
+        oled_style(self.hour_label, font_css)
+        oled_style(self.precipitation_detail_label, font_css)
+        oled_style(self.solar_detail_label, font_css)
 
     def should_draw_night_art(self):
         return bool(self.is_night)
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        # MORNINGUI_RENDER_OPAQUE_REPAIR_V2
-        # The parent dashboard's RootWidget QSS paints a diagonal gradient.
-        # Reproduce it in ROOT coordinates across this ENTIRE child surface
-        # before drawing the rounded weather art. This is crucial because
-        # WA_OpaquePaintEvent=True requires every corner pixel to be painted.
-        root = self.parentWidget()
-        while root is not None and root.objectName() != 'RootWidget':
-            root = root.parentWidget()
-        if root is not None and root.width() > 0 and root.height() > 0:
-            offset = self.mapTo(root, QPoint(0, 0))
-            # Qt stylesheet percentages are normalized independently in X
-            # and Y. Use a gradient vector whose projection equals
-            # t = (root_x / root_width + root_y / root_height) / 2.
-            # A direct (width,height) vector would mismatch the background
-            # and draw noticeable rectangular color patches around cards.
-            rw, rh = float(root.width()), float(root.height())
-            denominator = rw * rw + rh * rh
-            vx = 2.0 * rw * rh * rh / denominator
-            vy = 2.0 * rw * rw * rh / denominator
-            bg = QLinearGradient(
-                -offset.x(), -offset.y(),
-                vx - offset.x(), vy - offset.y()
-            )
-            bg.setColorAt(0.0, QColor('#1f2d35'))
-            bg.setColorAt(0.45, QColor('#2f4548'))
-            bg.setColorAt(1.0, QColor('#5d6f63'))
-            painter.fillRect(self.rect(), bg)
-        else:
-            painter.fillRect(self.rect(), QColor('#1f2d35'))
+        # MORNINGUI_WEATHER_PARENT_BACKING_V1
+        # The parent background is propagated by Qt before this paint.
+        # Only draw the rounded weather artwork and navigation focus.
         painter.setRenderHint(QPainter.Antialiasing)
 
         rect = self.rect().adjusted(1, 1, -1, -1)
@@ -645,6 +653,44 @@ class WeatherRow(QWidget):
                 gradient.setColorAt(1.0, QColor("#f3bd6f"))
                 border = QColor("#dec18b")
 
+        # OLED_BORDER_WEATHER_V5_SAFE
+        # Preserve the existing daytime/nighttime condition.
+        # Only change colors while OLED mode is active.
+        from ui.oled_text import oled_is_dark
+
+        oled_active = oled_is_dark()
+        oled_day = (
+            oled_active
+            and not night_art
+            and self.condition not in ("rain", "storm")
+        )
+
+        if oled_active:
+            if oled_day:
+                if self.condition in ("cloud", "fog"):
+                    gradient.setColorAt(
+                        0.0, QColor("#829087")
+                    )
+                    gradient.setColorAt(
+                        0.55, QColor("#718078")
+                    )
+                    gradient.setColorAt(
+                        1.0, QColor("#61736B")
+                    )
+                    border = QColor("#62796F")
+                else:
+                    # Warm, subdued daylight — not night blue.
+                    gradient.setColorAt(
+                        0.0, QColor("#AD895B")
+                    )
+                    gradient.setColorAt(
+                        1.0, QColor("#876B4F")
+                    )
+                    border = QColor("#8D7859")
+            else:
+                # Night and rain retain their original art.
+                border = QColor("#526977")
+
         painter.setPen(QPen(border, 2))
         painter.setBrush(gradient)
         painter.drawRoundedRect(rect, 16, 16)
@@ -676,6 +722,16 @@ class WeatherRow(QWidget):
         else:
             self.draw_clear(painter, rect)
 
+        # Darken daytime artwork without replacing its animations
+        # or selecting the nighttime artwork.
+        if oled_day:
+            painter.save()
+            painter.fillPath(
+                weather_clip,
+                QColor(32, 37, 34, 65)
+            )
+            painter.restore()
+
         # Weather icons are rendered from shared PNG assets by icon_label.
 
         solar_text = str(getattr(self, "solar_detail_text", "") or "").strip()
@@ -697,7 +753,7 @@ class WeatherRow(QWidget):
                     else QColor(31, 45, 54, 235)
                 )
 
-                painter.drawText(
+                oled_text_draw(painter, 
                     solar_rect,
                     Qt.AlignLeft | Qt.AlignVCenter,
                     solar_text,
@@ -709,7 +765,7 @@ class WeatherRow(QWidget):
         # the animations. No floating rectangular overlay can flash over it.
         if self._morningui_remote_selected:
             painter.setClipping(False)
-            painter.setPen(QPen(QColor(255, 225, 46, 255), 3.2))
+            painter.setPen(QPen(_morningui_oled_nav_color(QColor(255, 225, 46, 255)), 3.2))
             painter.setBrush(Qt.NoBrush)
             painter.drawRoundedRect(
                 self.rect().adjusted(3, 3, -3, -3), 16, 16
@@ -817,13 +873,13 @@ class WeatherRow(QWidget):
 
         for label in labels:
             if label is icon_label:
-                label.setStyleSheet("background: transparent;")
+                oled_style(label, "background: transparent;")
             elif label is temp_label:
-                label.setStyleSheet(f"color: {text_color}; font-weight: 900;")
+                oled_style(label, f"color: {text_color}; font-weight: 900;")
             elif label is time_label_widget:
-                label.setStyleSheet(f"color: {muted_color}; font-weight: 800;")
+                oled_style(label, f"color: {muted_color}; font-weight: 800;")
             else:
-                label.setStyleSheet(f"color: {text_color};")
+                oled_style(label, f"color: {text_color};")
 
         self.update()
 
@@ -1792,6 +1848,21 @@ class WeatherPanel(QWidget):
     def __init__(self):
         super().__init__()
 
+        # MORNINGUI_WEATHER_PANEL_FRAME_FIX_V1
+        # The weather container has no visible frame of its own.
+        # Its children draw the individual rounded forecast cards.
+        # Prevent inherited widget styling from adding an outer edge.
+        self.setObjectName("MorningUIHourlyWeatherContainer")
+        self.setStyleSheet(
+            "QWidget#MorningUIHourlyWeatherContainer {"
+            "background: transparent;"
+            "border: none;"
+            "outline: none;"
+            "}"
+        )
+        self.setAttribute(Qt.WA_StyledBackground, False)
+        self.setAutoFillBackground(False)
+
         self.setMinimumWidth(0)
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
 
@@ -2040,3 +2111,61 @@ class WeatherPanel(QWidget):
             "Weather forecast list begins at:",
             first_label,
         )
+
+# OLED_CONTRAST_V4
+from ui.oled_text import oled_text_draw, oled_style, oled_html, oled_layout_draw
+
+# MORNINGUI_OLED_NAV_BLACK_V13
+# Recolor navigation focus ONLY during OLED dark mode.
+def _morningui_oled_nav_color(value):
+    import os, re
+
+    # Read the live V11 OLED state, never a persistent test flag.
+    try:
+        from ui import oled_palette_targets as _oled_v11
+        active = bool(getattr(_oled_v11, "_ACTIVE", False))
+    except Exception:
+        active = False
+    if not active:
+        return value
+
+    if isinstance(value, str):
+        value = re.sub(
+            r"(?i)#(?:ffd600|ffe12e|a27c00|705c00|21190d|ffe066|ffec89|ffe788|ffef91)",
+            "#000000", value
+        )
+        return re.sub(
+            r"(?i)rgb\(\s*255\s*,\s*(?:225|231|236|239)\s*,\s*(?:46|136|137|145)\s*\)",
+            "rgb(0,0,0)", value
+        )
+
+    if hasattr(value, "setRgb") and hasattr(value, "alpha"):
+        value.setRgb(0, 0, 0, value.alpha())
+
+    return value
+
+# MORNINGUI_OLED_NAV_MODE_SYNC_V14
+import weakref as _morningui_weakref
+_morningui_nav_styles = _morningui_weakref.WeakKeyDictionary()
+
+def _morningui_oled_nav_style(widget, original):
+    rendered = _morningui_oled_nav_color(original)
+    if isinstance(original, str):
+        try:
+            _morningui_nav_styles[widget] = (original, rendered)
+        except (TypeError, RuntimeError):
+            pass
+    return rendered
+
+def _morningui_oled_nav_sync():
+    for widget, (original, applied) in list(_morningui_nav_styles.items()):
+        try:
+            if widget.styleSheet() != applied:
+                continue
+            new = _morningui_oled_nav_color(original)
+            if applied != new:
+                widget.setStyleSheet(new)
+            _morningui_nav_styles[widget] = (original, new)
+            widget.update()
+        except (RuntimeError, TypeError):
+            pass

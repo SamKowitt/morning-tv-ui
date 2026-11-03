@@ -8,7 +8,7 @@ from PySide6.QtGui import QColor, QDesktopServices, QFont, QFontDatabase, QFontM
 from PySide6.QtWidgets import QSizePolicy, QLabel, QVBoxLayout, QWidget, QHBoxLayout, QFrame, QDialog, QTextEdit, QTextBrowser, QPushButton
 
 from ui.auto_fit_label import AutoFitLabel
-from ui.newspaper_chrome import draw_stacked_newspaper_panel
+from ui.newspaper_chrome import draw_stacked_newspaper_panel, oled_newspaper_color
 from services.article_text_fetcher import fetch_article_text_payload
 
 
@@ -46,7 +46,7 @@ class ResponsiveMiniHeadlineLabel(QLabel):
         font.setBold(True)
 
         painter.setFont(font)
-        painter.setPen(QColor("#17100a"))
+        painter.setPen(oled_newspaper_color("#17100a"))
 
         rect = self.contentsRect()
         metrics = painter.fontMetrics()
@@ -57,7 +57,7 @@ class ResponsiveMiniHeadlineLabel(QLabel):
             max(20, rect.width()),
         )
 
-        painter.drawText(
+        oled_text_draw(painter, 
             rect.adjusted(0, 0, 0, -3),
             Qt.AlignLeft | Qt.AlignBottom,
             visible_text,
@@ -71,7 +71,7 @@ class PaperRule(QFrame):
         self.setFrameShape(QFrame.HLine)
         self.setFrameShadow(QFrame.Plain)
         self.setFixedHeight(1)
-        self.setStyleSheet("background-color: rgba(90, 78, 63, 135); border: none;")
+        oled_style(self, "background-color: rgba(90, 78, 63, 135); border: none;")
 
 
 class NewspaperImagePanel(QWidget):
@@ -224,7 +224,7 @@ class NewspaperImagePanel(QWidget):
         painter.save()
         painter.setClipRect(banner_rect)
 
-        painter.fillRect(banner_rect, QColor("#8f120f"))
+        painter.fillRect(banner_rect, oled_newspaper_color("#8f120f"))
 
         label_width = min(112, max(92, int(rect.width() * 0.23)))
         label_rect = QRectF(
@@ -234,14 +234,14 @@ class NewspaperImagePanel(QWidget):
             banner_rect.height(),
         )
 
-        painter.fillRect(label_rect, QColor("#f4e7cf"))
+        painter.fillRect(label_rect, oled_newspaper_color("#f4e7cf"))
 
         label_font = QFont("Arial")
         label_font.setPointSize(10)
         label_font.setBold(True)
         painter.setFont(label_font)
-        painter.setPen(QColor("#7e110d"))
-        painter.drawText(
+        painter.setPen(oled_newspaper_color("#7e110d"))
+        oled_text_draw(painter, 
             label_rect.adjusted(7, 0, -6, 0),
             Qt.AlignLeft | Qt.AlignVCenter,
             "BREAKING",
@@ -258,7 +258,7 @@ class NewspaperImagePanel(QWidget):
         ticker_font.setPointSize(12)
         ticker_font.setBold(True)
         painter.setFont(ticker_font)
-        painter.setPen(QColor("#fff7e8"))
+        painter.setPen(oled_newspaper_color("#fff7e8"))
 
         ticker_text = f"   {self.breaking_headline}     •     {self.breaking_headline}     •"
         text_width = painter.fontMetrics().horizontalAdvance(ticker_text)
@@ -266,7 +266,7 @@ class NewspaperImagePanel(QWidget):
         start_x = ticker_rect.left() - self.breaking_offset
 
         while start_x < ticker_rect.right():
-            painter.drawText(
+            oled_text_draw(painter, 
                 QRectF(
                     start_x,
                     ticker_rect.top(),
@@ -284,13 +284,13 @@ class NewspaperImagePanel(QWidget):
         gradient = QLinearGradient(rect.topLeft(), rect.bottomRight())
 
         if self.variant == "FOX":
-            gradient.setColorAt(0.0, QColor("#d9c8a8"))
-            gradient.setColorAt(0.55, QColor("#8e9b8e"))
-            gradient.setColorAt(1.0, QColor("#7b4f43"))
+            gradient.setColorAt(0.0, oled_newspaper_color("#d9c8a8"))
+            gradient.setColorAt(0.55, oled_newspaper_color("#8e9b8e"))
+            gradient.setColorAt(1.0, oled_newspaper_color("#7b4f43"))
         else:
-            gradient.setColorAt(0.0, QColor("#d9c8a8"))
-            gradient.setColorAt(0.55, QColor("#759797"))
-            gradient.setColorAt(1.0, QColor("#436775"))
+            gradient.setColorAt(0.0, oled_newspaper_color("#d9c8a8"))
+            gradient.setColorAt(0.55, oled_newspaper_color("#759797"))
+            gradient.setColorAt(1.0, oled_newspaper_color("#436775"))
 
         painter.fillRect(rect, gradient)
 
@@ -307,7 +307,7 @@ class NewspaperImagePanel(QWidget):
         font.setPointSize(20)
         font.setBold(True)
         painter.setFont(font)
-        painter.drawText(rect, Qt.AlignCenter, self.source_text)
+        oled_text_draw(painter, rect, Qt.AlignCenter, self.source_text)
 
     def draw_photo_caption(self, painter, rect):
         caption_rect = QRectF(
@@ -328,7 +328,7 @@ class NewspaperImagePanel(QWidget):
         painter.setFont(font)
 
         caption = self.label_text or "LATEST"
-        painter.drawText(
+        oled_text_draw(painter, 
             caption_rect.adjusted(8, 0, -8, 0),
             Qt.AlignLeft | Qt.AlignVCenter,
             caption,
@@ -423,16 +423,16 @@ class ConnectedNewspaperSpread(QWidget):
         painter = QPainter(self)
         # MORNINGUI_RENDER_OPAQUE_REPAIR_V2: cover the entire surface,
         # including its one-pixel border and every child-damage region.
-        painter.fillRect(self.rect(), QColor('#fff1d3'))
+        painter.fillRect(self.rect(), QColor('#354959' if self.property('morningui_oled_dark') else '#fff1d3'))
         painter.setRenderHint(QPainter.Antialiasing, True)
 
         rect = self.rect().adjusted(1, 1, -1, -1)
 
         paper = QLinearGradient(rect.topLeft(), rect.bottomRight())
-        paper.setColorAt(0.0, QColor("#fff1d3"))
-        paper.setColorAt(0.48, QColor("#f6e4bd"))
-        paper.setColorAt(0.52, QColor("#ead4a8"))
-        paper.setColorAt(1.0, QColor("#fff0d0"))
+        paper.setColorAt(0.0, QColor("#354959" if self.property("morningui_oled_dark") else "#fff1d3"))
+        paper.setColorAt(0.48, QColor("#405667" if self.property("morningui_oled_dark") else "#f6e4bd"))
+        paper.setColorAt(0.52, QColor("#364b5b" if self.property("morningui_oled_dark") else "#ead4a8"))
+        paper.setColorAt(1.0, QColor("#364b5b" if self.property("morningui_oled_dark") else "#fff0d0"))
 
         painter.setPen(QPen(QColor(75, 51, 28, 185), 1))
         painter.setBrush(paper)
@@ -482,7 +482,7 @@ class BackPageButton(QPushButton):
         arrow_font.setBold(True)
 
         painter.setFont(arrow_font)
-        painter.setPen(QColor("#24170d"))
+        painter.setPen(oled_newspaper_color("#24170d"))
 
         arrow_rect = QRectF(
             0,
@@ -491,7 +491,7 @@ class BackPageButton(QPushButton):
             self.height(),
         )
 
-        painter.drawText(arrow_rect, Qt.AlignCenter, "‹")
+        oled_text_draw(painter, arrow_rect, Qt.AlignCenter, "‹")
         painter.end()
 
 
@@ -502,7 +502,7 @@ class OpenNewspaperDialog(QDialog):
     # WeatherRow rectangle boundaries inside the newspaper.
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor('#2d2419'))
+        painter.fillRect(self.rect(), oled_newspaper_color('#2d2419'))
         painter.end()
 
     # MORNINGUI_NEWS_REPAINT_FIX_V4
@@ -608,7 +608,7 @@ class OpenNewspaperDialog(QDialog):
         self.setAutoFillBackground(False)
         self.resize(1120, 650)
 
-        self.setStyleSheet("""
+        oled_style(self, """
             QDialog {
                 background-color: #2d2419;
             }
@@ -712,7 +712,7 @@ class OpenNewspaperDialog(QDialog):
         self.masthead.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 
         self.page_counter = QLabel("Loading article...")
-        self.page_counter.setStyleSheet("""
+        oled_style(self.page_counter, """
             QLabel {
                 color: #e8d8b6;
                 font-family: "Times New Roman";
@@ -1403,7 +1403,7 @@ class OpenNewspaperDialog(QDialog):
         def rendered_height(candidate_blocks):
             document = QTextDocument()
             document.setDocumentMargin(0)
-            document.setHtml(
+            oled_html(document, 
                 self.article_page_html(candidate_blocks)
             )
             document.setTextWidth(page_width)
@@ -1430,7 +1430,7 @@ class OpenNewspaperDialog(QDialog):
 
             caption_document = QTextDocument()
             caption_document.setDocumentMargin(0)
-            caption_document.setHtml(
+            oled_html(caption_document, 
                 '<div style="'
                 'font-family: Georgia; '
                 'font-size: 14px; '
@@ -1718,7 +1718,7 @@ class OpenNewspaperDialog(QDialog):
                     image,
                 )
 
-            browser.setHtml(page_html)
+            oled_html(browser, page_html)
 
             # Keep the displayed document geometry identical to the
             # zero-margin document used while calculating page breaks.
@@ -1842,7 +1842,7 @@ class NewsCard(QWidget):
         self.setAttribute(Qt.WA_StyledBackground, False)
         self.setCursor(Qt.PointingHandCursor)
 
-        self.setStyleSheet("""
+        oled_style(self, """
             QWidget#NewspaperNewsCard {
                 background-color: qlineargradient(
                     x1:0, y1:0, x2:1, y2:1,
@@ -1926,7 +1926,7 @@ class NewsCard(QWidget):
         self.top_source_label.setObjectName("OldNewsTopMasthead")
         self.top_source_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 
-        self.top_source_label.setStyleSheet("""
+        oled_style(self.top_source_label, """
             QLabel#OldNewsTopMasthead {
                 font-family: "Rockwell", "Rockwell Extra Bold", "Rockwell Condensed", "Georgia", serif;
                 font-size: 20px;
@@ -1949,7 +1949,7 @@ class NewsCard(QWidget):
         self.reminders_button.setFixedHeight(19)
         self.reminders_button.hide()
         self.reminders_button.clicked.connect(self.reminders_requested.emit)
-        self.reminders_button.setStyleSheet("""
+        oled_style(self.reminders_button, """
             QPushButton#MiniNewsRemindersButton {
                 color: #5e3f1c;
                 background: rgba(255, 248, 236, 0.52);
@@ -1973,7 +1973,7 @@ class NewsCard(QWidget):
         self.market_tape_button.setFixedHeight(19)
         self.market_tape_button.hide()
         self.market_tape_button.clicked.connect(self.market_tape_requested.emit)
-        self.market_tape_button.setStyleSheet("""
+        oled_style(self.market_tape_button, """
             QPushButton#MiniNewsMarketTapeButton {
                 color: #5e3f1c;
                 background: rgba(255, 248, 236, 0.52);
@@ -2078,9 +2078,9 @@ class NewsCard(QWidget):
         masthead_font.setLetterSpacing(QFont.PercentageSpacing, 106)
 
         painter.setFont(masthead_font)
-        painter.setPen(QColor("#241a10"))
+        painter.setPen(oled_newspaper_color("#241a10"))
 
-        painter.drawText(
+        oled_text_draw(painter, 
             QRectF(inner.left(), inner.top() - 1, inner.width() * 0.72, 24),
             Qt.AlignLeft | Qt.AlignVCenter,
             getattr(self, "header_display_source", self.source),
@@ -2112,7 +2112,7 @@ class NewsCard(QWidget):
             self.edition_label.setText(
                 self.reminders_empty_state_message
             )
-            self.edition_label.setStyleSheet("""
+            oled_style(self.edition_label, """
                 QLabel {
                     color: rgba(45, 33, 20, 0.92);
                     background: transparent;
@@ -2125,7 +2125,7 @@ class NewsCard(QWidget):
             self.edition_label.show()
         else:
             self.edition_label.setText("Politics")
-            self.edition_label.setStyleSheet("")
+            oled_style(self.edition_label, "")
             self.edition_label.setVisible(
                 not self.reminders_action_visible
             )
@@ -2370,7 +2370,7 @@ class NewsCard(QWidget):
 
             row_layout.addWidget(title_label, 1)
 
-            row.setStyleSheet("""
+            oled_style(row, """
                 QWidget#Page2HeadlineBox {
                     background: transparent;
                     border: none;
@@ -2474,3 +2474,6 @@ class NewsCard(QWidget):
             self.open_article_popup(self.article_url)
 
         super().mousePressEvent(event)
+
+# OLED_CONTRAST_V4
+from ui.oled_text import oled_text_draw, oled_style, oled_html, oled_layout_draw

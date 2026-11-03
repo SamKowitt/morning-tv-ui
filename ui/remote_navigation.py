@@ -44,7 +44,7 @@ class SelectionOutline(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(QPen(QColor(255, 225, 46, 255), 2.3))
+        painter.setPen(QPen(_morningui_oled_nav_color(QColor(255, 225, 46, 255)), 2.3))
         painter.drawRoundedRect(
             QRectF(self.rect()).adjusted(2.0, 2.0, -2.0, -2.0),
             self.rounding, self.rounding
@@ -375,7 +375,7 @@ class RemoteNavigation(QObject):
         self.highlighted_sports_games_panel = None
         if self.highlighted_popup_button is not None:
             try:
-                self.highlighted_popup_button.setStyleSheet(
+                oled_style(self.highlighted_popup_button, 
                     self.popup_button_original_style or '')
             except RuntimeError:
                 pass
@@ -420,7 +420,7 @@ class RemoteNavigation(QObject):
             self.outline.hide()
             self.highlighted_label = target.owner
             effect = QGraphicsColorizeEffect(target.owner)
-            effect.setColor(QColor('#705C00'))
+            effect.setColor(_morningui_oled_nav_color(QColor('#705C00')))
             effect.setStrength(1.0)
             target.owner.setGraphicsEffect(effect)
         elif target.identity[:2] == ('painted', 'sports_games'):
@@ -435,7 +435,7 @@ class RemoteNavigation(QObject):
             self.highlighted_popup_button = button
             self.popup_button_original_style = button.styleSheet()
             radius = 7 if button.objectName() == 'PageTurnButton' else 5
-            button.setStyleSheet(self.popup_button_original_style +
+            oled_style(button, self.popup_button_original_style +
                 '\nQPushButton#' + button.objectName() + ' {' +
                 ' color: #A27C00; border: 3px solid #FFE12E; ' +
                 f'border-radius: {radius}px; }}')
@@ -494,7 +494,8 @@ class RemoteNavigation(QObject):
             if articles:
                 lead_link = str(getattr(articles[0], 'link', '') or '').strip()
                 zones = getattr(panel, 'click_zones', [])
-                if lead_link:
+                if (lead_link and not bool(
+                        getattr(articles[0], 'is_game_lead', False))):
                     for t in espn:
                         idx = t.identity[2]
                         if idx < len(zones) and str(zones[idx][1] or '').strip() == lead_link:
@@ -1090,7 +1091,7 @@ class _MorningUIBoxscoreFocusFrame(_BSWidget):
         painter = _BSPainter(self)
         painter.setRenderHint(_BSPainter.RenderHint.Antialiasing, True)
         painter.setBrush(_BST.BrushStyle.NoBrush)
-        color = _BSC('#FFD600') if self.scrolling else _BSC('#FFE12E')
+        color = _BSC(_morningui_oled_nav_color('#FFD600')) if self.scrolling else _BSC(_morningui_oled_nav_color('#FFE12E'))
         painter.setPen(_BSPen(color, 4.0 if self.scrolling else 2.6))
         painter.drawRoundedRect(self.rect().adjusted(3, 3, -4, -4), 4, 4)
         painter.end()
@@ -1364,3 +1365,138 @@ def _morningui_v14_special_dashboard_move(self, current, direction, targets):
 
 
 RemoteNavigation._special_dashboard_move = _morningui_v14_special_dashboard_move
+
+
+# MORNINGUI_DPAD_SPORTS_REMINDERS_V15
+# Dashboard navigation only; popup and focus styling unchanged.
+_morningui_v15_previous_special = RemoteNavigation._special_dashboard_move
+
+def _morningui_v15_special_dashboard_move(self, current, direction, targets):
+    if current is None:
+        return _morningui_v15_previous_special(
+            self, current, direction, targets
+        )
+
+    sports = [
+        t for t in targets
+        if t.identity[:2] == ('painted', 'sports_news')
+    ]
+    lead, secondary = self._sports_story_targets(sports)
+
+    # Current weather RIGHT:
+    # editorial -> clickable primary;
+    # live game -> far-left clickable secondary.
+    if (current.identity == ('date', 'current')
+            and direction == Qt.Key.Key_Right):
+        if lead is not None:
+            return lead
+        if secondary:
+            return min(
+                secondary,
+                key=lambda t: (t.center.x(), t.center.y())
+            )
+        return current
+
+    # Any secondary sports headline UP:
+    # clickable lead -> lead;
+    # live-game / nonclickable lead -> remain here.
+    if (current.identity[:2] == ('painted', 'sports_news')
+            and direction == Qt.Key.Key_Up):
+        if lead is not None and current.identity == lead.identity:
+            return current
+        if any(t.identity == current.identity for t in secondary):
+            return lead or current
+
+    # Every Set Reminder button RIGHT enters the right-hand
+    # secondary news section, or the visible Market Tape Hide.
+    reminders = getattr(self.root, 'reminders', None)
+    if (direction == Qt.Key.Key_Right
+            and self._in_panel(current, reminders)
+            and current.owner.objectName() in (
+                'ReminderSendButton',
+                'UpcomingReminderSendButton',
+            )):
+        right_news = [
+            t for t in targets
+            if t.identity[:2] ==
+            ('secondary', 'market_news_card')
+        ]
+        if right_news:
+            return min(
+                right_news,
+                key=lambda t: (t.center.y(), t.center.x())
+            )
+
+        market = getattr(self.root, 'stocks_panel', None)
+        hide = getattr(market, 'hide_button', None)
+        market_hide = next(
+            (t for t in targets if t.owner is hide),
+            None
+        )
+        return market_hide or current
+
+    return _morningui_v15_previous_special(
+        self, current, direction, targets
+    )
+
+RemoteNavigation._special_dashboard_move = (
+    _morningui_v15_special_dashboard_move
+)
+
+# OLED_CONTRAST_V4
+from ui.oled_text import oled_text_draw, oled_style, oled_html, oled_layout_draw
+
+# MORNINGUI_OLED_NAV_BLACK_V13
+# Recolor navigation focus ONLY during OLED dark mode.
+def _morningui_oled_nav_color(value):
+    import os, re
+
+    # Read the live V11 OLED state, never a persistent test flag.
+    try:
+        from ui import oled_palette_targets as _oled_v11
+        active = bool(getattr(_oled_v11, "_ACTIVE", False))
+    except Exception:
+        active = False
+    if not active:
+        return value
+
+    if isinstance(value, str):
+        value = re.sub(
+            r"(?i)#(?:ffd600|ffe12e|a27c00|705c00|21190d|ffe066|ffec89|ffe788|ffef91)",
+            "#000000", value
+        )
+        return re.sub(
+            r"(?i)rgb\(\s*255\s*,\s*(?:225|231|236|239)\s*,\s*(?:46|136|137|145)\s*\)",
+            "rgb(0,0,0)", value
+        )
+
+    if hasattr(value, "setRgb") and hasattr(value, "alpha"):
+        value.setRgb(0, 0, 0, value.alpha())
+
+    return value
+
+# MORNINGUI_OLED_NAV_MODE_SYNC_V14
+import weakref as _morningui_weakref
+_morningui_nav_styles = _morningui_weakref.WeakKeyDictionary()
+
+def _morningui_oled_nav_style(widget, original):
+    rendered = _morningui_oled_nav_color(original)
+    if isinstance(original, str):
+        try:
+            _morningui_nav_styles[widget] = (original, rendered)
+        except (TypeError, RuntimeError):
+            pass
+    return rendered
+
+def _morningui_oled_nav_sync():
+    for widget, (original, applied) in list(_morningui_nav_styles.items()):
+        try:
+            if widget.styleSheet() != applied:
+                continue
+            new = _morningui_oled_nav_color(original)
+            if applied != new:
+                widget.setStyleSheet(new)
+            _morningui_nav_styles[widget] = (original, new)
+            widget.update()
+        except (RuntimeError, TypeError):
+            pass

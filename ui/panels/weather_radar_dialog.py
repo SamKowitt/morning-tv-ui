@@ -1,3 +1,4 @@
+from ui.newspaper_chrome import oled_newspaper_color
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -31,10 +32,10 @@ class RadarPaperSurface(QWidget):
         rect = self.rect().adjusted(1, 1, -1, -1)
 
         paper = QLinearGradient(rect.topLeft(), rect.bottomRight())
-        paper.setColorAt(0.0, QColor("#fff1d3"))
-        paper.setColorAt(0.48, QColor("#f6e4bd"))
-        paper.setColorAt(0.52, QColor("#ead4a8"))
-        paper.setColorAt(1.0, QColor("#fff0d0"))
+        paper.setColorAt(0.0, oled_newspaper_color("#fff1d3"))
+        paper.setColorAt(0.48, oled_newspaper_color("#f6e4bd"))
+        paper.setColorAt(0.52, oled_newspaper_color("#ead4a8"))
+        paper.setColorAt(1.0, oled_newspaper_color("#fff0d0"))
 
         painter.setPen(QPen(QColor(75, 51, 28, 185), 1))
         painter.setBrush(paper)
@@ -145,7 +146,7 @@ class RadarLoopView(QWidget):
                 painter.setRenderHint(QPainter.Antialiasing, True)
                 painter.setPen(
                     QPen(
-                        QColor("#2d2114"),
+                        oled_newspaper_color("#2d2114"),
                         5,
                         Qt.SolidLine,
                         Qt.RoundCap,
@@ -160,8 +161,8 @@ class RadarLoopView(QWidget):
                     250 * 16,
                 )
 
-            painter.setPen(QColor("#263238"))
-            painter.drawText(
+            painter.setPen(oled_newspaper_color("#263238"))
+            oled_text_draw(painter, 
                 self.rect().adjusted(24, 78, -24, -24),
                 Qt.AlignCenter | Qt.TextWordWrap,
                 self.message,
@@ -295,9 +296,9 @@ class RadarTimelineView(QWidget):
         )
 
         if not self.frame_times:
-            painter.setPen(QColor("#5b4128"))
+            painter.setPen(oled_newspaper_color("#5b4128"))
             painter.setFont(QFont("American Typewriter", 10, QFont.Bold))
-            painter.drawText(
+            oled_text_draw(painter, 
                 rect,
                 Qt.AlignCenter,
                 "Preparing radar timeline…",
@@ -323,7 +324,7 @@ class RadarTimelineView(QWidget):
         left_x = rect.left() + endpoint_padding
         right_x = rect.right() - endpoint_padding
 
-        painter.setPen(QPen(QColor("#5a3c21"), 2))
+        painter.setPen(QPen(oled_newspaper_color("#5a3c21"), 2))
         painter.drawLine(left_x, line_y, right_x, line_y)
 
         if count == 1:
@@ -352,9 +353,9 @@ class RadarTimelineView(QWidget):
             )
 
             marker_color = (
-                QColor("#1F5DCC")
+                oled_newspaper_color("#1F5DCC")
                 if radar_type == "PREDICTED RADAR"
-                else QColor("#000000")
+                else oled_newspaper_color("#000000")
             )
 
             if is_current:
@@ -363,11 +364,11 @@ class RadarTimelineView(QWidget):
                 painter.drawEllipse(x - 6, line_y - 6, 12, 12)
 
             else:
-                painter.setPen(QPen(QColor("#684723"), 1))
-                painter.setBrush(QColor("#f6e4bd"))
+                painter.setPen(QPen(oled_newspaper_color("#684723"), 1))
+                painter.setBrush(oled_newspaper_color("#f6e4bd"))
                 painter.drawEllipse(x - 3, line_y - 3, 6, 6)
 
-            painter.setPen(QPen(QColor("#684723"), 1))
+            painter.setPen(QPen(oled_newspaper_color("#684723"), 1))
             painter.drawLine(x, line_y + 5, x, line_y + 10)
 
         label_font = QFont("American Typewriter", font_size)
@@ -389,9 +390,9 @@ class RadarTimelineView(QWidget):
             )
 
             timestamp_color = (
-                QColor("#1F5DCC")
+                oled_newspaper_color("#1F5DCC")
                 if radar_type == "PREDICTED RADAR"
-                else QColor("#000000")
+                else oled_newspaper_color("#000000")
             )
 
             painter.setFont(active_font if is_current else label_font)
@@ -399,7 +400,7 @@ class RadarTimelineView(QWidget):
 
             text_width = painter.fontMetrics().horizontalAdvance(label)
 
-            painter.drawText(
+            oled_text_draw(painter, 
                 int(x - (text_width / 2)),
                 66,
                 label,
@@ -457,7 +458,7 @@ class WeatherRadarDialog(QDialog):
     # underlying 50 ms row repaint damage from mixing into popup backing store.
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor('#2d2419'))
+        painter.fillRect(self.rect(), oled_newspaper_color('#2d2419'))
         painter.end()
 
     def showEvent(self, event):
@@ -608,7 +609,7 @@ class WeatherRadarDialog(QDialog):
         self.setAttribute(Qt.WA_OpaquePaintEvent, True)
         self.resize(1120, 650)
 
-        self.setStyleSheet("""
+        oled_style(self, """
             QDialog {
                 background-color: #2d2419;
             }
@@ -700,7 +701,7 @@ class WeatherRadarDialog(QDialog):
         masthead.setObjectName("RadarMasthead")
 
         self.status_label = QLabel("Preparing Weather.com radar frames…")
-        self.status_label.setStyleSheet("""
+        oled_style(self.status_label, """
             QLabel {
                 color: #e8d8b6;
                 font-family: "Times New Roman";
@@ -740,7 +741,7 @@ class WeatherRadarDialog(QDialog):
         self.radar_map_stack.addWidget(self.radar_view)
 
         zoom_overlay = QWidget()
-        zoom_overlay.setStyleSheet("background: transparent;")
+        oled_style(zoom_overlay, "background: transparent;")
 
         zoom_overlay_layout = QVBoxLayout(zoom_overlay)
         # The map now fills the bordered area, so these margins place
@@ -855,7 +856,7 @@ class WeatherRadarDialog(QDialog):
             rule = QFrame()
             rule.setFrameShape(QFrame.HLine)
             rule.setFixedHeight(1)
-            rule.setStyleSheet(
+            oled_style(rule, 
                 "background-color: rgba(90, 78, 63, 135); border: none;"
             )
             right_layout.addWidget(rule)
@@ -1174,3 +1175,6 @@ class WeatherRadarDialog(QDialog):
             pass
 
         super().closeEvent(event)
+
+# OLED_CONTRAST_V4
+from ui.oled_text import oled_text_draw, oled_style, oled_html, oled_layout_draw

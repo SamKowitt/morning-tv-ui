@@ -1,0 +1,1830 @@
+import math
+import random
+from datetime import datetime, timedelta, timezone
+
+
+SYNODIC_MONTH_DAYS = 29.53058867
+KNOWN_NEW_MOON_UTC = datetime(2000, 1, 6, 18, 14, tzinfo=timezone.utc)
+
+
+def moon_phase_fraction(moment=None):
+    """Return lunar cycle progress: 0.0=new, 0.25=first quarter,
+    0.5=full, 0.75=last quarter.
+    """
+    if isinstance(moment, str):
+        try:
+            moment = datetime.fromisoformat(moment.replace("Z", "+00:00"))
+        except Exception:
+            moment = None
+
+    if not isinstance(moment, datetime):
+        moment = datetime.now().astimezone()
+
+    if moment.tzinfo is None:
+        moment = moment.astimezone()
+
+    moment_utc = moment.astimezone(timezone.utc)
+    elapsed_days = (
+        moment_utc - KNOWN_NEW_MOON_UTC
+    ).total_seconds() / 86400.0
+
+    return (elapsed_days % SYNODIC_MONTH_DAYS) / SYNODIC_MONTH_DAYS
+
+
+def moon_illumination_fraction(moment=None):
+    """Return illuminated fraction from 0.0 to 1.0."""
+    phase_fraction = moon_phase_fraction(moment)
+    return (1.0 - math.cos(2.0 * math.pi * phase_fraction)) / 2.0
+
+from PySide6.QtCore import Qt, QTimer, QPointF, Signal, QRect
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QLinearGradient, QRadialGradient, QPainter, QPen, QPainterPath, QBrush
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
+
+from ui.auto_fit_label import AutoFitLabel
+
+
+class WeatherRow(QWidget):
+    clicked = Signal()
+
+    def __init__(
+        self,
+        temp,
+        icon,
+        hour,
+        condition="clear",
+        is_night=False,
+        is_now=False,
+        detail_text="",
+    ):
+        super().__init__()
+
+        self.temp = temp
+        self.icon = icon
+        self.hour = hour
+        self.condition = condition
+        self.is_night = is_night
+        self.is_now = is_now
+        self.moon_datetime = None
+        self.solar_detail_text = ""
+        self.phase = 0.0
+        self.lightning_cooldown = random.randint(18, 48)
+        self.lightning_frames_left = 0
+        self.lightning_paths = []
+        self.phase = 0.0
+
+        # Independent lightning timing for each row
+        self.lightning_cycle_length = random.randint(95, 125)
+        self.lightning_flash_duration = random.randint(42, 48)
+        self.lightning_offset = random.randint(0, self.lightning_cycle_length - 1)
+        self.lightning_seed = random.randint(1000, 999999)
+
+        self.setMinimumWidth(0)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
+        self.setMinimumHeight(48)
+        self.setCursor(Qt.PointingHandCursor)
+
+        layout = QHBoxLayout()
+        layout.setContentsMargins(14, 6, 14, 6)
+        layout.setSpacing(8)
+        self.setLayout(layout)
+
+        self.temp_label = AutoFitLabel(
+            f"{temp}°",
+            min_size=20,
+            max_size=44,
+            bold=True,
+            alignment=Qt.AlignLeft | Qt.AlignVCenter,
+            word_wrap=False,
+        )
+
+        self.icon_label = AutoFitLabel(
+            "",
+            min_size=12,
+            max_size=26,
+            bold=False,
+            alignment=Qt.AlignCenter,
+            word_wrap=False,
+            font_family="Apple Color Emoji",
+        )
+
+        self.hour_label = AutoFitLabel(
+            hour,
+            min_size=20,
+            max_size=44,
+            bold=True,
+            alignment=Qt.AlignLeft | Qt.AlignVCenter,
+            word_wrap=False,
+        )
+
+        self.detail_widget = QWidget()
+        self.detail_widget.setMinimumWidth(0)
+        self.detail_widget.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
+        self.detail_widget.setAttribute(Qt.WA_StyledBackground, False)
+
+        detail_layout = QVBoxLayout()
+        detail_layout.setContentsMargins(0, 0, 0, 0)
+        detail_layout.setSpacing(0)
+        self.detail_widget.setLayout(detail_layout)
+
+        self.precipitation_detail_label = AutoFitLabel(
+            detail_text,
+            min_size=12,
+            max_size=12,
+            bold=True,
+            alignment=Qt.AlignLeft | Qt.AlignTop,
+            word_wrap=False,
+        )
+        self.precipitation_detail_label.set_auto_fit_enabled(False)
+
+        self.solar_detail_label = AutoFitLabel(
+            "",
+            min_size=12,
+            max_size=12,
+            bold=True,
+            alignment=Qt.AlignRight | Qt.AlignBottom,
+            word_wrap=False,
+        )
+        self.solar_detail_label.set_auto_fit_enabled(False)
+
+        for detail_label in [
+            self.precipitation_detail_label,
+            self.solar_detail_label,
+        ]:
+            detail_font = QFont(detail_label.font())
+            detail_font.setPointSize(11)
+            detail_font.setBold(True)
+            detail_label.setFont(detail_font)
+
+        # Pin the complete detail stack to the actual bottom of the card.
+        # Fixed label heights prevent Qt from expanding the labels upward into
+        # the moon-art area on nighttime rows.
+        self.precipitation_detail_label.setSizePolicy(
+            QSizePolicy.Expanding,
+            QSizePolicy.Fixed,
+        )
+        self.solar_detail_label.setSizePolicy(
+            QSizePolicy.Ignored,
+            QSizePolicy.Fixed,
+        )
+        self.solar_detail_label.setMinimumWidth(0)
+        # One compact precipitation line sits directly above the solar line.
+        # This keeps the forecast emoji below the moon-art zone.
+        self.precipitation_detail_label.setFixedHeight(16)
+        self.precipitation_detail_label.setParent(self)
+        self.precipitation_detail_label.hide()
+        self.solar_detail_label.setFixedHeight(0)
+        self.solar_detail_label.setMaximumWidth(0)
+        self.solar_detail_label.setText("")
+        self.solar_detail_label.hide()
+
+        detail_layout.addStretch(1)
+
+        # Keep all row children inside the existing weather-row width.
+        # These labels must not increase the left column's size hint.
+        for compact_label in (self.hour_label, self.icon_label, self.temp_label):
+            compact_label.setMinimumWidth(0)
+            compact_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
+
+        # Give the hour section a larger proportional share and take the
+        # same share from the unused detail container. This shifts the main
+        # forecast emoji and temperature to the right while preserving their
+        # existing widths, font sizes, and artwork sizes.
+        layout.addWidget(self.hour_label, 36)
+        layout.addSpacing(2)
+        layout.addWidget(self.icon_label, 18)
+        layout.addWidget(self.temp_label, 24)
+        layout.addWidget(self.detail_widget, 22)
+
+        self.apply_text_colors()
+        self.position_precipitation_detail()
+
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.tick)
+        self.timer.start(50)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.position_precipitation_detail()
+
+    def detail_text_layout(self):
+        precip_text = str(
+            getattr(self, "precipitation_detail_label", None).text()
+            if hasattr(self, "precipitation_detail_label")
+            else ""
+        ).strip()
+        solar_text = str(
+            getattr(self, "solar_detail_text", "") or ""
+        ).strip()
+
+        precip_rect = QRect()
+        solar_rect = QRect()
+
+        if not hasattr(self, "temp_label"):
+            return precip_rect, solar_rect
+
+        temp_rect = self.temp_label.geometry()
+
+        if temp_rect.width() <= 0 or temp_rect.height() <= 0:
+            return precip_rect, solar_rect
+
+        line_height = 16
+        bottom_margin = 4
+        right_margin = 8
+        detail_gap = 8
+        precipitation_left_shift = 11
+        solar_vertical_offset = 2
+        bottom_y = max(0, self.height() - line_height - bottom_margin)
+
+        if not solar_text:
+            if not precip_text:
+                return precip_rect, solar_rect
+
+            precip_width = max(44, min(82, temp_rect.width() + 30))
+            precip_x = max(
+                0,
+                temp_rect.left() - 14 - precipitation_left_shift,
+            )
+            precip_y = min(
+                bottom_y,
+                temp_rect.top() + int(temp_rect.height() * 0.69),
+            )
+
+            precip_rect = QRect(
+                precip_x,
+                max(0, precip_y),
+                precip_width,
+                line_height,
+            )
+            return precip_rect, solar_rect
+
+        icon_rect = (
+            self.icon_label.geometry()
+            if hasattr(self, "icon_label")
+            else temp_rect
+        )
+
+        available_left = max(0, icon_rect.left() + 3)
+        available_right = max(available_left, self.width() - right_margin)
+        available_width = max(0, available_right - available_left)
+
+        if available_width <= 0:
+            return precip_rect, solar_rect
+
+        solar_font = QFont("Times New Roman")
+        solar_font.setPointSize(10)
+        solar_font.setBold(True)
+        solar_metrics = QFontMetrics(solar_font)
+        solar_width = min(
+            available_width,
+            max(28, solar_metrics.horizontalAdvance(solar_text) + 6),
+        )
+
+        # Keep sunrise/sunset pinned to the far-right side.
+        solar_rect = QRect(
+            available_right - solar_width,
+            max(0, bottom_y - solar_vertical_offset),
+            solar_width,
+            line_height,
+        )
+
+        if precip_text:
+            precip_metrics = QFontMetrics(
+                self.precipitation_detail_label.font()
+            )
+            precip_lines = precip_text.splitlines() or [precip_text]
+            precip_text_width = max(
+                precip_metrics.horizontalAdvance(line)
+                for line in precip_lines
+            )
+            precip_width = min(
+                available_width,
+                max(44, precip_text_width + 6),
+            )
+
+            # Use the same default precipitation anchor on every row,
+            # including the sunrise/sunset hour. Only move it farther left
+            # when needed to preserve the gap before the solar text.
+            default_precip_x = max(
+                0,
+                temp_rect.left() - 14 - precipitation_left_shift,
+            )
+            latest_same_line_x = (
+                solar_rect.left()
+                - detail_gap
+                - precip_width
+            )
+            same_line_x = min(
+                default_precip_x,
+                latest_same_line_x,
+            )
+
+            if same_line_x >= available_left:
+                # During the sunrise/sunset hour, align the precipitation
+                # chance with the raised solar-event text baseline.
+                precip_rect = QRect(
+                    same_line_x,
+                    solar_rect.top(),
+                    precip_width,
+                    line_height,
+                )
+            else:
+                precip_rect = QRect(
+                    available_left,
+                    max(0, bottom_y - line_height - 2),
+                    min(precip_width, available_width),
+                    line_height,
+                )
+
+        return precip_rect, solar_rect
+
+    def position_precipitation_detail(self):
+        if not hasattr(self, "precipitation_detail_label"):
+            return
+
+        detail_text = str(self.precipitation_detail_label.text() or "").strip()
+
+        if not detail_text:
+            self.precipitation_detail_label.hide()
+            return
+
+        precip_rect, _solar_rect = self.detail_text_layout()
+
+        if not precip_rect.isValid():
+            self.precipitation_detail_label.hide()
+            return
+
+        self.precipitation_detail_label.setGeometry(precip_rect)
+        self.precipitation_detail_label.show()
+        self.precipitation_detail_label.raise_()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit()
+            event.accept()
+            return
+
+        super().mousePressEvent(event)
+
+    def tick(self):
+        # Smooth medium-speed rainfall
+        self.phase += 1.5
+        self.position_precipitation_detail()
+        self.update()
+
+    def apply_text_colors(self):
+        dark_weather_art = self.is_night or self.condition in {"rain", "storm"}
+
+        if dark_weather_art:
+            color = "#ffffff"
+        else:
+            color = "#22313b"
+
+        font_css = f"color: {color}; background: transparent;"
+        icon_css = "background: transparent;"
+
+        self.temp_label.setStyleSheet(font_css)
+        self.icon_label.setStyleSheet(icon_css)
+        self.hour_label.setStyleSheet(font_css)
+        self.precipitation_detail_label.setStyleSheet(font_css)
+        self.solar_detail_label.setStyleSheet(font_css)
+
+    def should_draw_night_art(self):
+        return bool(self.is_night)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        rect = self.rect().adjusted(1, 1, -1, -1)
+
+        night_art = self.should_draw_night_art()
+
+        # Background gradient
+        gradient = QLinearGradient(rect.topLeft(), rect.bottomRight())
+
+        if self.condition in ["rain", "storm"]:
+            # Rain and thunderstorm use the exact same base art/colors.
+            gradient.setColorAt(0.0, QColor("#6f8794"))
+            gradient.setColorAt(0.5, QColor("#536c78"))
+            gradient.setColorAt(1.0, QColor("#394f5b"))
+            border = QColor("#9eb8c4")
+
+        elif night_art:
+            gradient.setColorAt(0.0, QColor("#0d1b2a"))
+            gradient.setColorAt(1.0, QColor("#223a5e"))
+            border = QColor("#5f7da0")
+
+        elif self.condition == "cloud":
+            # Daytime partly-cloudy should stay close to the sunny/warm art,
+            # not the dark rain/storm palette.
+            if self.is_now:
+                gradient.setColorAt(0.0, QColor("#c7c7b8"))
+                gradient.setColorAt(0.55, QColor("#b8b8aa"))
+                gradient.setColorAt(1.0, QColor("#a9aba0"))
+                border = QColor("#d8c89a")
+            else:
+                gradient.setColorAt(0.0, QColor("#d3cfbd"))
+                gradient.setColorAt(0.55, QColor("#c3c0ae"))
+                gradient.setColorAt(1.0, QColor("#b3b2a6"))
+                border = QColor("#d8c89a")
+
+        else:
+            if self.is_now:
+                gradient.setColorAt(0.0, QColor("#f9cd76"))
+                gradient.setColorAt(1.0, QColor("#f2a65a"))
+                border = QColor("#e2b35e")
+            else:
+                gradient.setColorAt(0.0, QColor("#f7d28f"))
+                gradient.setColorAt(1.0, QColor("#f3bd6f"))
+                border = QColor("#dec18b")
+
+        painter.setPen(QPen(border, 2))
+        painter.setBrush(gradient)
+        painter.drawRoundedRect(rect, 16, 16)
+
+        # Important:
+        # Rain and storm always keep the existing rain animation.
+        # Only non-rain rows from 12am–5am use deep night/moon art.
+        if self.condition in ["rain", "storm"]:
+            self.draw_rain(painter, rect)
+
+            if self.condition == "storm":
+                self.draw_lightning(painter, rect)
+
+        elif night_art:
+            self.draw_night_sky(painter, rect)
+
+        elif self.condition == "cloud":
+            self.draw_cloudy(painter, rect)
+
+        elif self.condition == "fog":
+            self.draw_cloudy(painter, rect)
+
+        else:
+            self.draw_clear(painter, rect)
+
+        # Draw weather emoji via QPainter (bypasses Qt6 QLabel colour-emoji bug on macOS)
+        if hasattr(self, "icon") and self.icon and hasattr(self, "icon_label"):
+            icon_geom = self.icon_label.geometry().adjusted(-6, -2, 2, 2)
+            if icon_geom.width() > 4 and icon_geom.height() > 4:
+                emoji_font = QFont()
+                emoji_font.setFamilies(["Apple Color Emoji"])
+                emoji_font.setPointSize(max(14, min(24, icon_geom.height() - 12)))
+                painter.save()
+                painter.setFont(emoji_font)
+                dark_bg = self.is_night or self.condition in {"rain", "storm"}
+                painter.setPen(QColor(255, 255, 255, 230) if dark_bg else QColor(30, 30, 30, 230))
+                painter.drawText(icon_geom, Qt.AlignCenter, self.icon)
+                painter.restore()
+
+        solar_text = str(getattr(self, "solar_detail_text", "") or "").strip()
+        if solar_text:
+            _precip_rect, solar_rect = self.detail_text_layout()
+
+            if solar_rect.isValid():
+                painter.save()
+
+                solar_font = QFont("Times New Roman")
+                solar_font.setPointSize(10)
+                solar_font.setBold(True)
+                painter.setFont(solar_font)
+
+                dark_bg = self.is_night or self.condition in {"rain", "storm"}
+                painter.setPen(
+                    QColor(255, 255, 255, 225)
+                    if dark_bg
+                    else QColor(31, 45, 54, 235)
+                )
+
+                painter.drawText(
+                    solar_rect,
+                    Qt.AlignLeft | Qt.AlignVCenter,
+                    solar_text,
+                )
+
+                painter.restore()
+
+        painter.end()
+
+    def update_weather(
+        self,
+        temperature,
+        icon,
+        time_label,
+        condition,
+        is_night=False,
+        detail_text="",
+        precipitation_detail_text=None,
+        solar_detail_text="",
+        moon_datetime=None,
+    ):
+        temp_text = f"{temperature}°"
+
+        # Force lightning storms to use lightning bolt icon everywhere.
+        if condition == "storm":
+            icon = "⚡️"
+        self.icon = icon
+
+        # Save animation/background state
+        self.condition = condition
+        self.is_night = is_night
+        self.moon_datetime = moon_datetime
+
+        # Try common attribute names first
+        temp_label = (
+            getattr(self, "temperature_label", None)
+            or getattr(self, "temp_label", None)
+            or getattr(self, "degree_label", None)
+        )
+
+        icon_label = (
+            getattr(self, "icon_label", None)
+            or getattr(self, "weather_icon_label", None)
+            or getattr(self, "emoji_label", None)
+        )
+
+        time_label_widget = (
+            getattr(self, "time_label", None)
+            or getattr(self, "hour_label", None)
+            or getattr(self, "label_time", None)
+        )
+
+        labels = self.findChildren(QLabel)
+
+        if temp_label is None:
+            for label in labels:
+                if "°" in label.text():
+                    temp_label = label
+                    break
+
+        if icon_label is None:
+            for label in labels:
+                text = label.text()
+                if any(symbol in text for symbol in ["☀", "🌤", "☁", "🌧", "⛈", "⚡", "🌙", "🌫", "🌨"]):
+                    icon_label = label
+                    break
+
+        if time_label_widget is None:
+            for label in labels:
+                text = label.text().lower()
+                if "am" in text or "pm" in text:
+                    time_label_widget = label
+                    break
+
+        if temp_label is not None:
+            temp_label.setText(temp_text)
+
+        # icon stored in self.icon and drawn via paintEvent; do not setText on icon_label
+
+        if time_label_widget is not None:
+            time_label_widget.setText(time_label)
+
+        if precipitation_detail_text is None:
+            precipitation_detail_text = detail_text
+
+        self.precipitation_detail_label.setText(
+            str(precipitation_detail_text or "")
+        )
+        self.solar_detail_text = str(solar_detail_text or "")
+        self.position_precipitation_detail()
+        self.solar_detail_label.setText("")
+        self.solar_detail_label.hide()
+
+        # Rain and thunderstorms use dark art even during daytime.
+        # Keep time and temperature white whenever that art is active.
+        dark_weather_art = is_night or condition in {"rain", "storm"}
+
+        if dark_weather_art:
+            text_color = "#ffffff"
+            muted_color = "rgba(255, 255, 255, 210)"
+        else:
+            text_color = "#263238"
+            muted_color = "rgba(38, 50, 56, 210)"
+
+        for label in labels:
+            if label is icon_label:
+                label.setStyleSheet(
+                    'background: transparent; font-family: "Apple Color Emoji";'
+                )
+            elif label is temp_label:
+                label.setStyleSheet(f"color: {text_color}; font-weight: 900;")
+            elif label is time_label_widget:
+                label.setStyleSheet(f"color: {muted_color}; font-weight: 800;")
+            else:
+                label.setStyleSheet(f"color: {text_color};")
+
+        self.update()
+
+    def build_lightning_bolt(self, rect, seed_offset=0):
+        w = max(1, rect.width())
+        h = max(1, rect.height())
+
+        random.seed((int(self.phase // 105) * 17) + seed_offset + w + h)
+
+        top_y = rect.top() + 4
+        bottom_y = rect.bottom() - 4
+
+        start_x = rect.left() + random.uniform(w * 0.30, w * 0.70)
+
+        points = [QPointF(start_x, top_y)]
+
+        x = start_x
+        y = top_y
+        sideways_bias = random.uniform(-w * 0.015, w * 0.015)
+
+        # 7–9 segments so the bolt reaches all the way down the section
+        segment_count = random.randint(7, 9)
+
+        for i in range(segment_count):
+            remaining = bottom_y - y
+            remaining_steps = max(1, segment_count - i)
+
+            # Keep moving downward so it reaches the bottom
+            step_y = remaining / remaining_steps
+            step_y *= random.uniform(0.88, 1.12)
+
+            # Jagged but still mostly vertical
+            sideways_bias += random.uniform(-w * 0.035, w * 0.035)
+            sideways_bias = max(-w * 0.09, min(w * 0.09, sideways_bias))
+
+            x += sideways_bias + random.uniform(-w * 0.035, w * 0.035)
+            x = max(rect.left() + 8, min(rect.right() - 8, x))
+
+            y += step_y
+            y = min(bottom_y, y)
+
+            points.append(QPointF(x, y))
+
+        # Force the bolt to end near the bottom edge
+        if points[-1].y() < bottom_y - 1:
+            points.append(QPointF(points[-1].x(), bottom_y))
+
+        branches = []
+
+        # Add 1–2 subtle branches for realism
+        branch_total = random.randint(1, 2)
+
+        if len(points) >= 5:
+            valid_indices = list(range(2, len(points) - 2))
+            random.shuffle(valid_indices)
+
+            for branch_index in valid_indices[:branch_total]:
+                anchor = points[branch_index]
+
+                direction = -1 if random.random() < 0.5 else 1
+                branch_length = random.randint(2, 3)
+
+                bx = anchor.x()
+                by = anchor.y()
+
+                branch_points = [QPointF(bx, by)]
+
+                for _ in range(branch_length):
+                    bx += direction * random.uniform(w * 0.04, w * 0.09)
+                    by += random.uniform(h * 0.06, h * 0.12)
+
+                    bx = max(rect.left() + 6, min(rect.right() - 6, bx))
+                    by = min(rect.bottom() - 6, by)
+
+                    branch_points.append(QPointF(bx, by))
+
+                branches.append(branch_points)
+
+        return points, branches
+
+    def draw_lightning(self, painter, rect):
+        painter.save()
+
+        w = max(1, rect.width())
+        h = max(1, rect.height())
+
+        # Each row now has its own independent timing.
+        cycle_length = max(80, self.lightning_cycle_length)
+        visible_length = min(self.lightning_flash_duration, cycle_length - 8)
+
+        local_phase = self.phase + self.lightning_offset
+        flash_cycle = int(local_phase) % cycle_length
+
+        # Only draw during this row's own flash window.
+        if flash_cycle > visible_length:
+            painter.restore()
+            return
+
+        flash_progress = flash_cycle / max(1, visible_length)
+
+        # Quick fade-in, hold, then fade-out.
+        if flash_progress < 0.14:
+            fade_strength = flash_progress / 0.14
+        elif flash_progress > 0.78:
+            fade_strength = max(0.0, 1.0 - ((flash_progress - 0.78) / 0.22))
+        else:
+            fade_strength = 1.0
+
+        # Whole-row flash
+        flash_alpha = int(34 + 46 * fade_strength)
+
+        painter.setOpacity(0.08 + 0.05 * fade_strength)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(255, 255, 255, flash_alpha))
+        painter.drawRoundedRect(rect.adjusted(4, 4, -4, -4), 16, 16)
+
+        # Stable bolt for this specific flash event on this specific row
+        event_index = int(local_phase // cycle_length)
+        trunk_points, branches = self.build_lightning_bolt(
+            rect,
+            seed_offset=self.lightning_seed + (event_index * 97),
+        )
+
+        trunk_path = QPainterPath(trunk_points[0])
+        for point in trunk_points[1:]:
+            trunk_path.lineTo(point)
+
+        pulse = 0.88 + 0.12 * abs(math.sin(local_phase * 0.18))
+
+        # Outer glow
+        painter.setOpacity(0.55 * fade_strength * pulse)
+        painter.setPen(
+            QPen(
+                QColor(255, 234, 150, 210),
+                1.8,
+                Qt.SolidLine,
+                Qt.RoundCap,
+                Qt.RoundJoin,
+            )
+        )
+        painter.drawPath(trunk_path)
+
+        # Bright core
+        painter.setOpacity(0.95 * fade_strength * pulse)
+        painter.setPen(
+            QPen(
+                QColor(255, 255, 255, 245),
+                0.8,
+                Qt.SolidLine,
+                Qt.RoundCap,
+                Qt.RoundJoin,
+            )
+        )
+        painter.drawPath(trunk_path)
+
+        # Small branches
+        for branch_points in branches:
+            if len(branch_points) < 2:
+                continue
+
+            branch_path = QPainterPath(branch_points[0])
+            for point in branch_points[1:]:
+                branch_path.lineTo(point)
+
+            painter.setOpacity(0.42 * fade_strength * pulse)
+            painter.setPen(
+                QPen(
+                    QColor(255, 235, 160, 190),
+                    1.1,
+                    Qt.SolidLine,
+                    Qt.RoundCap,
+                    Qt.RoundJoin,
+                )
+            )
+            painter.drawPath(branch_path)
+
+            painter.setOpacity(0.85 * fade_strength * pulse)
+            painter.setPen(
+                QPen(
+                    QColor(255, 255, 255, 230),
+                    0.45,
+                    Qt.SolidLine,
+                    Qt.RoundCap,
+                    Qt.RoundJoin,
+                )
+            )
+            painter.drawPath(branch_path)
+
+        painter.restore()
+
+    def draw_cloudy(self, painter, rect):
+        painter.save()
+
+        w = max(1, rect.width())
+        h = max(1, rect.height())
+
+        # Warm partly-cloudy overlay that keeps the sunny daytime feel.
+        sky = QLinearGradient(rect.topLeft(), rect.bottomRight())
+        sky.setColorAt(0.0, QColor(190, 197, 196, 145))
+        sky.setColorAt(0.45, QColor(176, 185, 184, 132))
+        sky.setColorAt(1.0, QColor(160, 169, 169, 112))
+
+        painter.setOpacity(0.52)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(sky))
+        painter.drawRoundedRect(rect.adjusted(5, 5, -5, -5), 14, 14)
+
+        # Brighter sun glow behind clouds for daytime partly-cloudy rows.
+        sun_x = rect.left() + int(w * 0.80)
+        sun_y = rect.top() + int(h * 0.28)
+        sun_radius = max(9, min(w, h) * 0.13)
+
+        painter.setOpacity(0.14)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(255, 226, 145, 95))
+        painter.drawEllipse(QPointF(sun_x, sun_y), sun_radius * 2.0, sun_radius * 2.0)
+
+        painter.setOpacity(0.22)
+        painter.setBrush(QColor(255, 238, 170, 125))
+        painter.drawEllipse(QPointF(sun_x, sun_y), sun_radius, sun_radius)
+
+        # Big slow cloud bank
+        self.draw_cloud_bank(
+            painter=painter,
+            rect=rect,
+            x_ratio=0.12,
+            y_ratio=0.38,
+            scale=0.95,
+            speed=0.085,
+            opacity=0.62,
+            shade=QColor(226, 231, 232, 188),
+            shadow=QColor(125, 135, 139, 112),
+        )
+
+        # Second layer drifting at a different speed
+        self.draw_cloud_bank(
+            painter=painter,
+            rect=rect,
+            x_ratio=0.50,
+            y_ratio=0.60,
+            scale=0.75,
+            speed=0.055,
+            opacity=0.48,
+            shade=QColor(210, 218, 222, 170),
+            shadow=QColor(105, 116, 122, 96),
+        )
+
+        # Thin lower haze
+        haze_x = rect.left() + ((self.phase * 0.10) % (w + 90)) - 70
+
+        painter.setOpacity(0.16)
+        painter.setPen(QPen(QColor(240, 244, 245, 120), 5))
+        painter.drawLine(
+            QPointF(haze_x, rect.top() + h * 0.76),
+            QPointF(haze_x + w * 0.85, rect.top() + h * 0.70),
+        )
+
+        painter.restore()
+
+    def draw_cloud_bank(self, painter, rect, x_ratio, y_ratio, scale, speed, opacity, shade, shadow):
+        painter.save()
+
+        w = max(1, rect.width())
+        h = max(1, rect.height())
+
+        cloud_w = max(38, int(w * 0.54 * scale))
+        cloud_h = max(18, int(h * 0.26 * scale))
+
+        drift = (self.phase * speed) % (w + cloud_w)
+        base_x = rect.left() + int(w * x_ratio)
+        x = base_x + drift
+
+        if x > rect.right() + cloud_w:
+            x = rect.left() - cloud_w + (x - rect.right() - cloud_w)
+
+        y = rect.top() + int(h * y_ratio) + math.sin(self.phase * 0.012 + x_ratio * 9) * 2
+
+        # Cloud shadow underside
+        painter.setOpacity(opacity * 0.55)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(shadow)
+
+        painter.drawEllipse(QPointF(x + cloud_w * 0.18, y + cloud_h * 0.58), cloud_w * 0.28, cloud_h * 0.26)
+        painter.drawEllipse(QPointF(x + cloud_w * 0.48, y + cloud_h * 0.62), cloud_w * 0.36, cloud_h * 0.26)
+        painter.drawEllipse(QPointF(x + cloud_w * 0.74, y + cloud_h * 0.60), cloud_w * 0.26, cloud_h * 0.22)
+
+        # Main cloud puffs
+        painter.setOpacity(opacity)
+        painter.setBrush(shade)
+
+        painter.drawEllipse(QPointF(x + cloud_w * 0.10, y + cloud_h * 0.50), cloud_w * 0.22, cloud_h * 0.34)
+        painter.drawEllipse(QPointF(x + cloud_w * 0.30, y + cloud_h * 0.28), cloud_w * 0.31, cloud_h * 0.47)
+        painter.drawEllipse(QPointF(x + cloud_w * 0.55, y + cloud_h * 0.22), cloud_w * 0.34, cloud_h * 0.52)
+        painter.drawEllipse(QPointF(x + cloud_w * 0.78, y + cloud_h * 0.45), cloud_w * 0.25, cloud_h * 0.36)
+
+        # Soft highlight
+        painter.setOpacity(opacity * 0.36)
+        painter.setBrush(QColor(255, 255, 255, 145))
+        painter.drawEllipse(QPointF(x + cloud_w * 0.42, y + cloud_h * 0.18), cloud_w * 0.22, cloud_h * 0.16)
+
+        painter.restore()
+
+    def draw_night_sky(self, painter, rect):
+        self.draw_night(painter, rect)
+
+    def draw_clear(self, painter, rect):
+        painter.save()
+
+        w = max(1, rect.width())
+        h = max(1, rect.height())
+
+        # Soft clear sky background
+        sky = QLinearGradient(rect.topLeft(), rect.bottomRight())
+        sky.setColorAt(0.0, QColor(98, 177, 225, 165))
+        sky.setColorAt(0.55, QColor(151, 207, 236, 130))
+        sky.setColorAt(1.0, QColor(255, 219, 142, 105))
+
+        painter.setOpacity(0.52)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(sky))
+        painter.drawRoundedRect(rect.adjusted(5, 5, -5, -5), 14, 14)
+
+        # Fixed sun in the upper-right area
+        sun_x = rect.left() + int(w * 0.82)
+        sun_y = rect.top() + int(h * 0.28)
+        sun_radius = max(9, min(w, h) * 0.13)
+
+        # Sun glow
+        for layer in range(4):
+            radius = sun_radius + layer * 7
+            alpha = max(18, 58 - layer * 11)
+
+            painter.setOpacity(0.34)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(255, 224, 120, alpha))
+            painter.drawEllipse(QPointF(sun_x, sun_y), radius, radius)
+
+        # Gentle rays
+        painter.setOpacity(0.28)
+        painter.setPen(QPen(QColor(255, 238, 164, 105), 1))
+
+        for ray in range(12):
+            angle = (ray / 12.0) * math.tau + self.phase * 0.006
+            inner = sun_radius + 5
+            outer = sun_radius + 14 + math.sin(self.phase * 0.030 + ray) * 2
+
+            x1 = sun_x + math.cos(angle) * inner
+            y1 = sun_y + math.sin(angle) * inner
+            x2 = sun_x + math.cos(angle) * outer
+            y2 = sun_y + math.sin(angle) * outer
+
+            painter.drawLine(QPointF(x1, y1), QPointF(x2, y2))
+
+        # Main sun
+        painter.setOpacity(0.84)
+        painter.setPen(QPen(QColor(255, 245, 190, 130), 1))
+        painter.setBrush(QColor(255, 211, 92, 220))
+        painter.drawEllipse(QPointF(sun_x, sun_y), sun_radius, sun_radius)
+
+        # Very light shimmer
+        for i in range(8):
+            x = rect.left() + ((i * 41 + self.phase * 0.08) % w)
+            y = rect.top() + h * (0.22 + ((i * 17) % 48) / 100)
+
+            opacity = 0.14 + 0.16 * abs(math.sin(self.phase * 0.028 + i))
+
+            painter.setOpacity(opacity)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(255, 250, 210, 100))
+            painter.drawEllipse(QPointF(x, y), 1.1, 1.1)
+
+        painter.restore()
+
+    def draw_sun(self, painter, rect):
+        painter.save()
+        painter.setOpacity(0.20)
+
+        cx = rect.right() - 58
+        cy = rect.center().y()
+        radius = 18
+
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(255, 233, 140, 180))
+        painter.drawEllipse(QPointF(cx, cy), radius, radius)
+
+        painter.setPen(QPen(QColor(255, 223, 120, 170), 2))
+        for i in range(12):
+            angle = math.radians(i * 30 + self.phase * 2)
+            x1 = cx + math.cos(angle) * (radius + 6)
+            y1 = cy + math.sin(angle) * (radius + 6)
+            x2 = cx + math.cos(angle) * (radius + 14)
+            y2 = cy + math.sin(angle) * (radius + 14)
+            painter.drawLine(int(x1), int(y1), int(x2), int(y2))
+
+        painter.restore()
+
+    def draw_rain(self, painter, rect):
+        painter.save()
+
+        # Soft wet-glass overlay
+        painter.setOpacity(0.14)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(180, 215, 230, 85))
+        painter.drawRoundedRect(rect.adjusted(5, 5, -5, -5), 14, 14)
+
+        w = max(1, rect.width())
+        h = max(1, rect.height())
+
+        # Larger loop height helps hide any repeating pattern
+        loop_height = h + 120
+
+        # Create many more small raindrops across the row
+        columns = 18
+        for col in range(columns):
+            x_ratio = 0.04 + (col / (columns - 1)) * 0.92
+            x = rect.left() + int(w * x_ratio)
+
+            # Stagger the rows of drops
+            for row in range(4):
+                y_ratio = 0.08 + row * 0.24 + ((col % 3) * 0.03)
+
+                # Smaller drops
+                size = 2.2 + ((col + row) % 3) * 0.6
+
+                # Slight opacity variation
+                opacity = 0.40 + (((col * 7 + row * 5) % 5) * 0.07)
+
+                # Slight speed variation
+                speed = 0.42 + ((col + row) % 4) * 0.045
+
+                base_y = rect.top() - 80 + int(loop_height * y_ratio)
+                y = rect.top() - 80 + ((base_y + self.phase * speed) % loop_height)
+
+                # Draw repeated copies for seamless looping
+                for copy_offset in (-loop_height, 0, loop_height):
+                    draw_y = y + copy_offset
+
+                    if draw_y < rect.top() - 60 or draw_y > rect.bottom() + 60:
+                        continue
+
+                    self.draw_single_raindrop(
+                        painter=painter,
+                        x=x,
+                        y=draw_y,
+                        size=size,
+                        opacity=opacity,
+                    )
+
+        # Add lots of tiny bead droplets for extra density
+        tiny_columns = 14
+        tiny_loop = h + 90
+
+        for col in range(tiny_columns):
+            x_ratio = 0.06 + (col / (tiny_columns - 1)) * 0.88
+            x = rect.left() + int(w * x_ratio)
+
+            for row in range(3):
+                size = 1.3 + ((col + row) % 2) * 0.35
+                speed = 0.30 + ((col + row) % 3) * 0.035
+                y_ratio = 0.12 + row * 0.28 + ((col % 4) * 0.02)
+
+                base_y = rect.top() - 40 + int(tiny_loop * y_ratio)
+                y = rect.top() - 40 + ((base_y + self.phase * speed) % tiny_loop)
+
+                for copy_offset in (-tiny_loop, 0, tiny_loop):
+                    draw_y = y + copy_offset
+
+                    if draw_y < rect.top() - 30 or draw_y > rect.bottom() + 30:
+                        continue
+
+                    painter.setOpacity(0.26)
+                    painter.setPen(Qt.NoPen)
+                    painter.setBrush(QColor(230, 245, 255, 140))
+                    painter.drawEllipse(QPointF(x, draw_y), size, size * 1.45)
+
+        painter.restore()
+
+    def draw_single_raindrop(self, painter, x, y, size, opacity):
+        painter.save()
+
+        # Smaller subtle trail
+        painter.setOpacity(opacity * 0.22)
+        painter.setPen(QPen(QColor(220, 245, 255, 140), max(1, int(size * 0.22))))
+        painter.drawLine(
+            int(x),
+            int(y - size * 2.8),
+            int(x),
+            int(y - size * 0.7),
+        )
+
+        # Main teardrop shape
+        path = QPainterPath()
+        path.moveTo(x, y - size * 1.9)
+
+        path.cubicTo(
+            x + size * 0.85,
+            y - size * 0.7,
+            x + size * 0.85,
+            y + size * 0.55,
+            x,
+            y + size * 1.15,
+        )
+
+        path.cubicTo(
+            x - size * 0.85,
+            y + size * 0.55,
+            x - size * 0.85,
+            y - size * 0.7,
+            x,
+            y - size * 1.9,
+        )
+
+        painter.setOpacity(opacity)
+        painter.setPen(QPen(QColor(235, 250, 255, 165), 1))
+        painter.setBrush(QBrush(QColor(195, 230, 250, 145)))
+        painter.drawPath(path)
+
+        # Small highlight
+        painter.setOpacity(opacity * 0.65)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(255, 255, 255, 120))
+        painter.drawEllipse(
+            QPointF(x - size * 0.22, y - size * 0.58),
+            size * 0.16,
+            size * 0.24,
+        )
+
+        painter.restore()
+
+    def draw_accurate_moon_phase(
+        self,
+        painter,
+        moon_x,
+        moon_y,
+        moon_radius,
+    ):
+        """Paint a more realistic full lunar disk with softer earthshine."""
+        moment = getattr(self, "moon_datetime", None)
+        phase_fraction = moon_phase_fraction(moment)
+        illumination_fraction = moon_illumination_fraction(moment)
+        waxing = phase_fraction < 0.5
+        phase_cos = math.cos(2.0 * math.pi * phase_fraction)
+
+        moon_center = QPointF(moon_x, moon_y)
+        moon_disk_path = QPainterPath()
+        moon_disk_path.addEllipse(
+            moon_center,
+            moon_radius,
+            moon_radius,
+        )
+
+        painter.save()
+        painter.setPen(Qt.NoPen)
+
+        # Restore the full dark side, but do not outline the lunar rim. Use a
+        # soft earthshine gradient instead of a darker border.
+        dark_disk_gradient = QRadialGradient(
+            moon_x - moon_radius * 0.10,
+            moon_y - moon_radius * 0.18,
+            moon_radius * 1.20,
+        )
+        dark_disk_gradient.setColorAt(0.00, QColor(86, 92, 101, 234))
+        dark_disk_gradient.setColorAt(0.42, QColor(58, 63, 72, 240))
+        dark_disk_gradient.setColorAt(0.78, QColor(34, 38, 46, 244))
+        dark_disk_gradient.setColorAt(1.00, QColor(22, 25, 32, 248))
+
+        painter.setOpacity(0.96)
+        painter.setBrush(dark_disk_gradient)
+        painter.drawEllipse(
+            moon_center,
+            moon_radius,
+            moon_radius,
+        )
+
+        # Subtle global earthshine texture across the full disk keeps the dark
+        # side from reading as a flat cartoon fill.
+        painter.setClipPath(moon_disk_path)
+        shadow_texture_random = random.Random(11311)
+        full_disk_speckles = 42 if moon_radius >= 12 else 16
+
+        for _index in range(full_disk_speckles):
+            angle = shadow_texture_random.uniform(0.0, math.tau)
+            distance = moon_radius * math.sqrt(
+                shadow_texture_random.uniform(0.02, 0.92)
+            )
+            texture_x = moon_x + math.cos(angle) * distance
+            texture_y = moon_y + math.sin(angle) * distance
+            texture_radius = max(
+                0.18,
+                moon_radius * shadow_texture_random.uniform(0.010, 0.028),
+            )
+
+            if shadow_texture_random.random() < 0.68:
+                texture_color = QColor(112, 118, 126, 104)
+            else:
+                texture_color = QColor(170, 176, 182, 90)
+
+            painter.setOpacity(shadow_texture_random.uniform(0.025, 0.065))
+            painter.setBrush(texture_color)
+            painter.drawEllipse(
+                QPointF(texture_x, texture_y),
+                texture_radius * 1.7,
+                texture_radius,
+            )
+
+        # At/near new moon, keep only the subtle earthshine disk.
+        if illumination_fraction <= 0.012:
+            painter.setClipping(False)
+            painter.restore()
+            return
+
+        # Build the illuminated region from the outer lunar limb and the true
+        # phase terminator.
+        steps = 128
+        lit_path = QPainterPath()
+
+        if waxing:
+            for index in range(steps + 1):
+                y = -moon_radius + ((2.0 * moon_radius) * index / steps)
+                x_extent = math.sqrt(
+                    max(0.0, (moon_radius * moon_radius) - (y * y))
+                )
+                terminator_x = phase_cos * x_extent
+                point = QPointF(moon_x + terminator_x, moon_y + y)
+
+                if index == 0:
+                    lit_path.moveTo(point)
+                else:
+                    lit_path.lineTo(point)
+
+            for index in range(steps, -1, -1):
+                y = -moon_radius + ((2.0 * moon_radius) * index / steps)
+                x_extent = math.sqrt(
+                    max(0.0, (moon_radius * moon_radius) - (y * y))
+                )
+                lit_path.lineTo(
+                    QPointF(moon_x + x_extent, moon_y + y)
+                )
+        else:
+            for index in range(steps + 1):
+                y = -moon_radius + ((2.0 * moon_radius) * index / steps)
+                x_extent = math.sqrt(
+                    max(0.0, (moon_radius * moon_radius) - (y * y))
+                )
+                point = QPointF(moon_x - x_extent, moon_y + y)
+
+                if index == 0:
+                    lit_path.moveTo(point)
+                else:
+                    lit_path.lineTo(point)
+
+            for index in range(steps, -1, -1):
+                y = -moon_radius + ((2.0 * moon_radius) * index / steps)
+                x_extent = math.sqrt(
+                    max(0.0, (moon_radius * moon_radius) - (y * y))
+                )
+                terminator_x = (-phase_cos) * x_extent
+                lit_path.lineTo(
+                    QPointF(moon_x + terminator_x, moon_y + y)
+                )
+
+        lit_path.closeSubpath()
+        lit_path = moon_disk_path.intersected(lit_path)
+        painter.setClipPath(lit_path)
+
+        # More photographic lit surface: neutral lunar regolith, softer warm
+        # highlights, and stronger spherical falloff.
+        surface_gradient = QRadialGradient(
+            moon_x + (moon_radius * (0.26 if waxing else -0.26)),
+            moon_y - moon_radius * 0.28,
+            moon_radius * 1.36,
+        )
+        surface_gradient.setColorAt(0.00, QColor(248, 245, 236, 252))
+        surface_gradient.setColorAt(0.20, QColor(232, 228, 217, 251))
+        surface_gradient.setColorAt(0.46, QColor(204, 198, 184, 249))
+        surface_gradient.setColorAt(0.72, QColor(160, 154, 142, 247))
+        surface_gradient.setColorAt(1.00, QColor(112, 109, 103, 244))
+
+        painter.setOpacity(1.0)
+        painter.setBrush(surface_gradient)
+        painter.drawEllipse(
+            moon_center,
+            moon_radius,
+            moon_radius,
+        )
+
+        terminator_gradient = QLinearGradient(
+            moon_x - moon_radius,
+            moon_y,
+            moon_x + moon_radius,
+            moon_y,
+        )
+
+        if waxing:
+            terminator_gradient.setColorAt(0.00, QColor(30, 32, 36, 214))
+            terminator_gradient.setColorAt(0.28, QColor(70, 70, 69, 124))
+            terminator_gradient.setColorAt(0.54, QColor(156, 151, 141, 42))
+            terminator_gradient.setColorAt(1.00, QColor(255, 252, 242, 18))
+        else:
+            terminator_gradient.setColorAt(0.00, QColor(255, 252, 242, 18))
+            terminator_gradient.setColorAt(0.46, QColor(156, 151, 141, 42))
+            terminator_gradient.setColorAt(0.72, QColor(70, 70, 69, 124))
+            terminator_gradient.setColorAt(1.00, QColor(30, 32, 36, 214))
+
+        painter.setOpacity(0.74)
+        painter.setBrush(terminator_gradient)
+        painter.drawEllipse(
+            moon_center,
+            moon_radius,
+            moon_radius,
+        )
+
+        limb_highlight = QRadialGradient(
+            moon_x + (moon_radius * (0.52 if waxing else -0.52)),
+            moon_y - moon_radius * 0.18,
+            moon_radius * 1.02,
+        )
+        limb_highlight.setColorAt(0.00, QColor(255, 251, 240, 84))
+        limb_highlight.setColorAt(0.45, QColor(255, 249, 236, 26))
+        limb_highlight.setColorAt(1.00, QColor(255, 249, 236, 0))
+        painter.setOpacity(0.40)
+        painter.setBrush(limb_highlight)
+        painter.drawEllipse(
+            moon_center,
+            moon_radius,
+            moon_radius,
+        )
+
+        maria_regions = [
+            (-0.36, -0.24, 0.33, 0.22, QColor(84, 84, 86, 92)),
+            (0.13, -0.27, 0.25, 0.17, QColor(92, 90, 89, 82)),
+            (0.03, 0.15, 0.45, 0.24, QColor(76, 77, 80, 96)),
+            (0.39, 0.19, 0.18, 0.13, QColor(96, 93, 90, 72)),
+            (-0.48, 0.13, 0.17, 0.12, QColor(100, 96, 92, 64)),
+            (0.23, 0.43, 0.20, 0.11, QColor(86, 86, 88, 60)),
+        ]
+
+        painter.setOpacity(0.72)
+        for x_ratio, y_ratio, width_ratio, height_ratio, color in maria_regions:
+            painter.setBrush(color)
+            painter.drawEllipse(
+                QPointF(
+                    moon_x + moon_radius * x_ratio,
+                    moon_y + moon_radius * y_ratio,
+                ),
+                max(0.8, moon_radius * width_ratio),
+                max(0.8, moon_radius * height_ratio),
+            )
+
+        texture_random = random.Random(46027)
+        crater_count = 26 if moon_radius >= 12 else 11
+
+        for _index in range(crater_count):
+            angle = texture_random.uniform(0.0, math.tau)
+            distance = moon_radius * math.sqrt(
+                texture_random.uniform(0.02, 0.78)
+            )
+            crater_x = moon_x + math.cos(angle) * distance
+            crater_y = moon_y + math.sin(angle) * distance
+            crater_radius = max(
+                0.30,
+                moon_radius * texture_random.uniform(0.018, 0.060),
+            )
+
+            painter.setOpacity(texture_random.uniform(0.08, 0.18))
+            painter.setBrush(QColor(72, 72, 74, 145))
+            painter.drawEllipse(
+                QPointF(
+                    crater_x + crater_radius * 0.18,
+                    crater_y + crater_radius * 0.16,
+                ),
+                crater_radius,
+                crater_radius * 0.76,
+            )
+
+            painter.setOpacity(texture_random.uniform(0.05, 0.12))
+            painter.setBrush(QColor(250, 247, 238, 138))
+            painter.drawEllipse(
+                QPointF(
+                    crater_x - crater_radius * 0.16,
+                    crater_y - crater_radius * 0.17,
+                ),
+                crater_radius * 0.70,
+                crater_radius * 0.54,
+            )
+
+        speckle_count = 58 if moon_radius >= 12 else 20
+
+        for _index in range(speckle_count):
+            angle = texture_random.uniform(0.0, math.tau)
+            distance = moon_radius * math.sqrt(
+                texture_random.uniform(0.0, 0.88)
+            )
+            texture_x = moon_x + math.cos(angle) * distance
+            texture_y = moon_y + math.sin(angle) * distance
+            texture_radius = max(
+                0.18,
+                moon_radius * texture_random.uniform(0.007, 0.024),
+            )
+
+            if texture_random.random() < 0.58:
+                texture_color = QColor(68, 69, 72, 114)
+            else:
+                texture_color = QColor(248, 245, 235, 108)
+
+            painter.setOpacity(texture_random.uniform(0.030, 0.082))
+            painter.setBrush(texture_color)
+            painter.drawEllipse(
+                QPointF(texture_x, texture_y),
+                texture_radius * 1.6,
+                texture_radius,
+            )
+
+        painter.setClipping(False)
+        painter.restore()
+
+    def draw_night(self, painter, rect):
+        painter.save()
+
+        w = max(1, rect.width())
+        h = max(1, rect.height())
+
+        # Deep animated night gradient
+        sky = QLinearGradient(rect.topLeft(), rect.bottomRight())
+        sky.setColorAt(0.0, QColor(10, 18, 42, 235))
+        sky.setColorAt(0.45, QColor(22, 34, 70, 215))
+        sky.setColorAt(1.0, QColor(45, 55, 88, 195))
+
+        painter.setOpacity(0.78)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(sky))
+        painter.drawRoundedRect(rect.adjusted(5, 5, -5, -5), 14, 14)
+
+        # Subtle drifting galaxy haze
+        haze_x = rect.left() + ((self.phase * 0.10) % (w + 120)) - 80
+        haze_y = rect.top() + h * 0.35
+
+        painter.setOpacity(0.12)
+        painter.setPen(QPen(QColor(170, 190, 255, 90), 7))
+        painter.drawLine(
+            QPointF(haze_x, haze_y + 24),
+            QPointF(haze_x + w * 0.85, haze_y - 12),
+        )
+
+        painter.setOpacity(0.08)
+        painter.setPen(QPen(QColor(245, 230, 255, 80), 3))
+        painter.drawLine(
+            QPointF(haze_x + 20, haze_y + 30),
+            QPointF(haze_x + w * 0.90, haze_y - 4),
+        )
+
+        # Moon placement can be customized by specific rows.
+        # Keep moon art fully above the compact precipitation / solar band.
+        # Keep the moon fully inside the upper-right of the hourly card.
+        # The lower-right detail band remains reserved for precipitation and
+        # sunrise/sunset text.
+        moon_x_ratio = getattr(self, "moon_x_ratio", 0.86)
+        moon_y_ratio = getattr(self, "moon_y_ratio", 0.22)
+
+        moon_x = rect.left() + int(w * moon_x_ratio)
+        moon_y = rect.top() + int(h * moon_y_ratio)
+        moon_radius = max(6, min(w, h) * 0.075)
+
+        # Do not draw a circular halo behind visible phases. The moon renderer
+        # below paints only the illuminated phase shape, except at new moon.
+
+        self.draw_accurate_moon_phase(
+            painter=painter,
+            moon_x=moon_x,
+            moon_y=moon_y,
+            moon_radius=moon_radius,
+        )
+
+        # Twinkling stars
+        star_points = [
+            (0.12, 0.22, 1.0),
+            (0.22, 0.42, 0.7),
+            (0.33, 0.24, 0.9),
+            (0.48, 0.34, 0.65),
+            (0.61, 0.17, 0.85),
+            (0.70, 0.52, 0.55),
+            (0.86, 0.45, 0.75),
+            (0.17, 0.68, 0.6),
+            (0.39, 0.62, 0.8),
+            (0.57, 0.72, 0.62),
+        ]
+
+        for index, (x_ratio, y_ratio, size) in enumerate(star_points):
+            x = rect.left() + w * x_ratio + math.sin(self.phase * 0.006 + index) * 1.4
+            y = rect.top() + h * y_ratio + math.cos(self.phase * 0.005 + index) * 1.0
+
+            twinkle = 0.32 + 0.42 * abs(math.sin(self.phase * 0.035 + index * 0.9))
+
+            painter.setOpacity(twinkle)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(245, 248, 255, 210))
+            painter.drawEllipse(QPointF(x, y), size + 0.6, size + 0.6)
+
+            # tiny sparkle cross for a few stars
+            if index % 3 == 0:
+                painter.setOpacity(twinkle * 0.55)
+                painter.setPen(QPen(QColor(245, 248, 255, 155), 0.7))
+                painter.drawLine(QPointF(x - 3, y), QPointF(x + 3, y))
+                painter.drawLine(QPointF(x, y - 3), QPointF(x, y + 3))
+
+        # Slow drifting night clouds
+        self.draw_night_cloud(
+            painter,
+            rect,
+            x_ratio=0.15,
+            y_ratio=0.64,
+            scale=0.58,
+            speed=0.10,
+            opacity=0.22,
+        )
+
+        self.draw_night_cloud(
+            painter,
+            rect,
+            x_ratio=0.55,
+            y_ratio=0.76,
+            scale=0.48,
+            speed=0.075,
+            opacity=0.16,
+        )
+
+        painter.restore()
+
+    def draw_night_cloud(self, painter, rect, x_ratio, y_ratio, scale, speed, opacity):
+        painter.save()
+
+        w = max(1, rect.width())
+        h = max(1, rect.height())
+
+        cloud_w = max(28, int(w * 0.36 * scale))
+        cloud_h = max(12, int(h * 0.18 * scale))
+
+        drift = (self.phase * speed) % (w + cloud_w)
+        base_x = rect.left() + int(w * x_ratio)
+        x = base_x + drift
+
+        if x > rect.right() + cloud_w:
+            x = rect.left() - cloud_w + (x - rect.right() - cloud_w)
+
+        y = rect.top() + int(h * y_ratio) + math.sin(self.phase * 0.012 + x_ratio * 7) * 2
+
+        painter.setOpacity(opacity)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(145, 165, 205, 135))
+
+        painter.drawEllipse(QPointF(x, y + cloud_h * 0.36), cloud_w * 0.30, cloud_h * 0.42)
+        painter.drawEllipse(QPointF(x + cloud_w * 0.22, y), cloud_w * 0.34, cloud_h * 0.56)
+        painter.drawEllipse(QPointF(x + cloud_w * 0.50, y + cloud_h * 0.24), cloud_w * 0.32, cloud_h * 0.46)
+        painter.drawEllipse(QPointF(x + cloud_w * 0.72, y + cloud_h * 0.38), cloud_w * 0.24, cloud_h * 0.34)
+
+        painter.setOpacity(opacity * 0.55)
+        painter.setBrush(QColor(75, 88, 125, 135))
+        painter.drawEllipse(QPointF(x + cloud_w * 0.40, y + cloud_h * 0.70), cloud_w * 0.42, cloud_h * 0.16)
+
+        painter.restore()
+
+
+class WeatherPanel(QWidget):
+    hour_selected = Signal(object, int)
+
+    def __init__(self):
+        super().__init__()
+
+        self.setMinimumWidth(0)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
+
+        from PySide6.QtWidgets import QVBoxLayout
+
+        main = QVBoxLayout()
+        main.setSpacing(12)
+        main.setContentsMargins(0, 0, 0, 0)
+        self.setLayout(main)
+
+        self.row_widgets = []
+        self.current_rows = []
+        self.visible_rows = []
+
+        rows = [
+            ("68", "☀️", "10am", "clear", False),
+            ("70", "☀️", "11am", "clear", False),
+            ("71", "☀️", "12pm", "clear", False),
+            ("72", "☀️", "1pm", "clear", False),
+            ("72", "🌤️", "2pm", "clear", False),
+            ("73", "🌤️", "3pm", "clear", False),
+            ("70", "🌧️", "4pm", "rain", False),
+            ("67", "🌧️", "5pm", "rain", False),
+            ("65", "🌧️", "6pm", "rain", False),
+        ]
+
+        for index, (temp, icon, hour, condition, is_night) in enumerate(rows):
+            row_widget = WeatherRow(
+                temp=temp,
+                icon=icon,
+                hour=hour,
+                condition=condition,
+                is_night=is_night,
+                is_now=(index == 0),
+            )
+
+            row_widget.clicked.connect(
+                lambda selected_index=index: self.emit_selected_hour(selected_index)
+            )
+            self.row_widgets.append(row_widget)
+            main.addWidget(row_widget, 1)
+
+    def _next_full_hour_rows(self):
+        parsed_rows = []
+
+        for original_index, row in enumerate(self.current_rows):
+            raw_start = str(
+                getattr(row, "forecast_start", "") or ""
+            ).strip()
+
+            try:
+                start_time = datetime.fromisoformat(
+                    raw_start.replace("Z", "+00:00")
+                )
+
+                if start_time.tzinfo is None:
+                    start_time = start_time.replace(tzinfo=timezone.utc)
+
+                parsed_rows.append(
+                    (original_index, row, start_time.astimezone(timezone.utc))
+                )
+
+            except Exception:
+                continue
+
+        if not parsed_rows:
+            return []
+
+        now_utc = datetime.now(timezone.utc)
+
+        next_full_hour_utc = now_utc.replace(
+            minute=0,
+            second=0,
+            microsecond=0,
+        ) + timedelta(hours=1)
+
+        return [
+            (original_index, row)
+            for original_index, row, start_time_utc in parsed_rows
+            if start_time_utc >= next_full_hour_utc
+        ]
+
+    def _display_hour_for_row(self, row):
+        raw_start = str(
+            getattr(row, "forecast_start", "") or ""
+        ).strip()
+
+        if raw_start:
+            try:
+                value = datetime.fromisoformat(
+                    raw_start.replace("Z", "+00:00")
+                )
+                return value.strftime("%-I%p").lower()
+            except Exception:
+                pass
+
+        return str(
+            getattr(row, "time_label", "") or ""
+        ).strip()
+
+    def emit_selected_hour(self, index):
+        if 0 <= index < len(self.visible_rows):
+            original_index, row = self.visible_rows[index]
+            self.hour_selected.emit(row, original_index)
+
+    def update_weather_rows(self, rows):
+        self.current_rows = list(rows or [])
+        self.visible_rows = self._next_full_hour_rows()
+
+        weather_row_widgets = list(self.row_widgets or [])
+
+        if not weather_row_widgets:
+            print("Weather panel update skipped: no weather row widgets found.")
+            return
+
+        for index, weather_row_widget in enumerate(weather_row_widgets):
+            if index >= len(self.visible_rows):
+                weather_row_widget.hide()
+                continue
+
+            _original_index, row = self.visible_rows[index]
+
+            weather_row_widget.show()
+            weather_row_widget.is_now = False
+            weather_row_widget.weather_data = row
+            precipitation_display_text = ""
+            solar_display_text = ""
+
+            precipitation_amount = getattr(
+                row,
+                "precipitation_amount_inches",
+                None,
+            )
+
+            try:
+                precipitation_amount = float(precipitation_amount)
+            except (TypeError, ValueError):
+                precipitation_amount = 0.0
+
+            condition = str(
+                getattr(row, "condition", "") or ""
+            ).strip().lower()
+
+            precipitation_condition = str(
+                getattr(row, "precipitation_forecast_condition", "")
+                or condition
+            ).strip().lower()
+
+            precipitation_detail_parts = []
+
+            try:
+                precipitation_probability = int(
+                    getattr(row, "precipitation_probability", None)
+                )
+            except (TypeError, ValueError):
+                precipitation_probability = None
+
+            if precipitation_amount > 0.01:
+                precipitation_text = (
+                    f"{precipitation_amount:.2f}".rstrip("0").rstrip(".")
+                )
+                precipitation_detail_parts.append(f'{precipitation_text}"')
+
+            if (
+                precipitation_condition in {"rain", "snow", "storm"}
+                and precipitation_probability is not None
+            ):
+                precipitation_detail_parts.append(
+                    f"{max(0, min(100, precipitation_probability))}%"
+                )
+
+            precipitation_detail = "  ".join(precipitation_detail_parts)
+
+            if precipitation_detail:
+                precipitation_emoji = {
+                    "rain": "🌧️",
+                    "snow": "🌨️",
+                    "storm": "⚡️",
+                }.get(precipitation_condition, "🌧️")
+
+                if (
+                    not bool(getattr(row, "is_night", False))
+                    and precipitation_amount > 0.01
+                    and precipitation_probability is not None
+                ):
+                    chance_text = (
+                        f"{max(0, min(100, precipitation_probability))}%"
+                    )
+                    amount_text = (
+                        f'{precipitation_text}"'
+                    )
+                    precipitation_display_text = (
+                        f"{precipitation_emoji} {chance_text}\n{amount_text}"
+                    )
+                else:
+                    precipitation_display_text = (
+                        f"{precipitation_emoji} {precipitation_detail}"
+                    )
+
+            solar_event_time = str(
+                getattr(row, "solar_event_time", "") or ""
+            ).strip()
+
+            solar_event_label = str(
+                getattr(row, "solar_event_label", "") or ""
+            ).strip().lower()
+
+            if solar_event_time:
+                if solar_event_label == "sunrise":
+                    solar_display_text = f"\u2600\ufe0f {solar_event_time}"
+                elif solar_event_label == "sunset":
+                    solar_display_text = f"\U0001F319 {solar_event_time}"
+                else:
+                    solar_display_text = solar_event_time
+
+            displayed_hour = self._display_hour_for_row(row)
+
+            weather_row_widget.update_weather(
+                temperature=row.temperature,
+                icon=row.icon,
+                time_label=displayed_hour,
+                condition=row.condition,
+                is_night=row.is_night,
+                precipitation_detail_text=precipitation_display_text,
+                solar_detail_text=solar_display_text,
+                moon_datetime=getattr(row, "forecast_start", ""),
+            )
+
+            print(
+                "Weather row display -> "
+                f"hour={displayed_hour}, "
+                f"forecast_start={getattr(row, 'forecast_start', '')}, "
+                f"chance={getattr(row, 'precipitation_probability', None)}, "
+                f"amount={getattr(row, 'precipitation_amount_inches', None)}, "
+                f"condition={getattr(row, 'condition', '')}, "
+                f"precip_type={getattr(row, 'precipitation_forecast_condition', '')}"
+            )
+
+        first_label = (
+            self.visible_rows[0][1].time_label
+            if self.visible_rows
+            else "none"
+        )
+
+        print(
+            "Weather forecast list begins at:",
+            first_label,
+        )

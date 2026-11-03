@@ -81,7 +81,7 @@ class SparklineChart(QWidget):
             )
 
             painter.setPen(tick_color)
-            painter.drawText(
+            oled_text_draw(painter, 
                 x - 9,
                 label_y - 6,
                 18,
@@ -253,7 +253,7 @@ class StocksPanel(QWidget):
         self.setObjectName("MarketTapeCard")
         self.setAttribute(Qt.WA_StyledBackground, True)
 
-        self.setStyleSheet("""
+        oled_style(self, """
             QWidget#MarketTapeCard {
                 margin-bottom: 9px;
             }
@@ -289,7 +289,7 @@ class StocksPanel(QWidget):
         self.hide_button.setCursor(Qt.PointingHandCursor)
         self.hide_button.setFixedHeight(18)
         self.hide_button.clicked.connect(self.hide_requested.emit)
-        self.hide_button.setStyleSheet("""
+        oled_style(self.hide_button, """
             QPushButton#MarketTapeHideButton {
                 color: #f7f0df;
                 background: rgba(20, 35, 52, 0.72);
@@ -375,3 +375,6 @@ class StocksPanel(QWidget):
                 ah_change=quote.ah_change,
                 history=quote.history,
             )
+
+# OLED_CONTRAST_V4
+from ui.oled_text import oled_text_draw, oled_style, oled_html, oled_layout_draw

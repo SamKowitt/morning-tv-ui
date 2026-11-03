@@ -69,7 +69,7 @@ class ReminderTimeDialog(QDialog):
         layout.addWidget(self.time_input)
         layout.addWidget(buttons)
 
-        self.setStyleSheet("""
+        oled_style(self, """
             QDialog#ReminderTimeDialog {
                 background: #f5ead7;
                 border: 2px solid rgba(83, 59, 33, 0.35);
@@ -155,7 +155,7 @@ class ReminderItem(QWidget):
         else:
             self.setMinimumHeight(28)
 
-        self.setStyleSheet("""
+        oled_style(self, """
             QWidget#TodayReminderRow {
                 background: qlineargradient(
                     x1: 0, y1: 0, x2: 1, y2: 0,
@@ -244,7 +244,7 @@ class ReminderItem(QWidget):
         icon_label.setFixedWidth(20)
 
         text_column = QWidget()
-        text_column.setStyleSheet("background: transparent; border: none;")
+        oled_style(text_column, "background: transparent; border: none;")
 
         text_layout = QVBoxLayout()
         text_layout.setContentsMargins(0, 0, 0, 0)
@@ -329,7 +329,7 @@ class ReminderItem(QWidget):
         confirmation.setWindowTitle("Reminder Scheduled")
         confirmation.setIcon(QMessageBox.Information)
         confirmation.setText(f"Reminder scheduled for {selected_time_text}.")
-        confirmation.setStyleSheet("""
+        oled_style(confirmation, """
             QMessageBox {
                 background-color: #f5ead7;
                 color: #2d2114;
@@ -373,7 +373,7 @@ class RemindersPanel(QWidget):
         self.setObjectName("RemindersCard")
         self.setAttribute(Qt.WA_StyledBackground, True)
 
-        self.setStyleSheet("""
+        oled_style(self, """
             QWidget#RemindersCard {
                 background: transparent;
                 border: none;
@@ -554,7 +554,7 @@ class RemindersPanel(QWidget):
         button = QPushButton(label)
         button.setCursor(Qt.PointingHandCursor)
         button.setMinimumHeight(34)
-        button.setStyleSheet("""
+        oled_style(button, """
             QPushButton {
                 background: rgba(114, 84, 45, 0.18);
                 color: #4d351b;
@@ -581,7 +581,7 @@ class RemindersPanel(QWidget):
         label.setObjectName("CalendarDetailsEmptyState")
         label.setAlignment(Qt.AlignCenter)
         label.setMinimumHeight(42)
-        label.setStyleSheet("""
+        oled_style(label, """
             QLabel#CalendarDetailsEmptyState {
                 background: #72542d;
                 color: #ffffff;
@@ -602,7 +602,7 @@ class RemindersPanel(QWidget):
         dialog.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         dialog.setAttribute(Qt.WA_StyledBackground, True)
         dialog.resize(620, 560)
-        dialog.setStyleSheet("""
+        oled_style(dialog, """
             QDialog#CalendarDetailsDialog {
                 background: #f5ead7;
                 border: none;
@@ -657,7 +657,7 @@ class RemindersPanel(QWidget):
 
         content = QWidget()
         content.setObjectName("CalendarDetailsContent")
-        content.setStyleSheet("""
+        oled_style(content, """
             QWidget#CalendarDetailsContent {
                 background: #fff8ec;
                 border: none;
@@ -671,7 +671,7 @@ class RemindersPanel(QWidget):
 
         def detail_row(event, today):
             row = self.make_event_row(event, today=today)
-            row.setStyleSheet("""
+            oled_style(row, """
                 QWidget#TodayReminderRow {
                     background: #f6dda3;
                     border: 1px solid #b58a48;
@@ -757,7 +757,7 @@ class RemindersPanel(QWidget):
 
         close_button = QPushButton("Close")
         close_button.setCursor(Qt.PointingHandCursor)
-        close_button.setStyleSheet("""
+        oled_style(close_button, """
             QPushButton {
                 background: #d8c7a4;
                 color: #2d2114;
@@ -965,3 +965,6 @@ class RemindersPanel(QWidget):
         ]
 
         self.rebuild_calendar_rows(today_widgets, upcoming_widgets)
+
+# OLED_CONTRAST_V4
+from ui.oled_text import oled_text_draw, oled_style, oled_html, oled_layout_draw

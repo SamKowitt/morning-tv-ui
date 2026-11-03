@@ -537,6 +537,24 @@ DEFAULT_SPORTS_TEAM_ORDERS = {
 
 
 
+
+class _MorningUIOLEDViewport(QWidget):
+    """Fixed-size dashboard host; shifting never resizes contents."""
+    def __init__(self, content):
+        super().__init__()
+        self.content = content
+        content.setParent(self)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.content.setGeometry(
+            0, 0, self.width(), self.height()
+        )
+
+
+
+
+
 class DashboardWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -545,7 +563,7 @@ class DashboardWindow(QMainWindow):
 
         self.setWindowTitle("Morning TV UI")
         self.resize(1280, 720)
-        self.setStyleSheet(APP_STYLE)
+        oled_style(self, APP_STYLE)
 
         self.outer_margin = 18
         self.main_spacing = 16
@@ -701,6 +719,8 @@ class DashboardWindow(QMainWindow):
         date_card_layout.addWidget(self.date_card)
 
         self.weather_panel = WeatherPanel()
+        # MORNINGUI_EDGE_GEOMETRY_PROBE_V2
+        QTimer.singleShot(3000, lambda: _morningui_edge_geometry_probe_v2(self))
         self.weather_panel.hour_selected.connect(self.open_weather_radar_popup)
         self.weather_radar_dialog = None
         self.weather_rows = []
@@ -755,9 +775,12 @@ class DashboardWindow(QMainWindow):
         main.addLayout(self.right_area, 86)
 
         self.settings_page = self.build_settings_page()
-        self.page_stack.addWidget(self.dashboard_page)
+        self.dashboard_viewport = _MorningUIOLEDViewport(
+            self.dashboard_page
+        )
+        self.page_stack.addWidget(self.dashboard_viewport)
         self.page_stack.addWidget(self.settings_page)
-        self.page_stack.setCurrentWidget(self.dashboard_page)
+        self.page_stack.setCurrentWidget(self.dashboard_viewport)
 
         self.settings_button = QPushButton("⚙", self.root)
         self.settings_button.setObjectName("DashboardSettingsButton")
@@ -769,7 +792,7 @@ class DashboardWindow(QMainWindow):
         self.settings_button.enterEvent = self.settings_button_enter_event
         self.settings_button.leaveEvent = self.settings_button_leave_event
         self.settings_button.setFixedSize(22, 22)
-        self.settings_button.setStyleSheet("""
+        oled_style(self.settings_button, """
             QPushButton {
                 background: rgba(245, 234, 215, 0.65);
                 border: 1px solid rgba(83, 59, 33, 0.45);
@@ -1323,7 +1346,7 @@ class DashboardWindow(QMainWindow):
         self.more_news_card.read_label.setAlignment(
             Qt.AlignRight | Qt.AlignVCenter
         )
-        self.more_news_card.read_label.setStyleSheet("""
+        oled_style(self.more_news_card.read_label, """
             QLabel {
                 color: rgba(45, 33, 20, 0.82);
                 background: transparent;
@@ -1713,7 +1736,7 @@ class DashboardWindow(QMainWindow):
         divider.setObjectName("SettingsSectionDivider")
         divider.setFrameShape(QFrame.NoFrame)
         divider.setFixedHeight(2)
-        divider.setStyleSheet("""
+        oled_style(divider, """
             QFrame#SettingsSectionDivider {
                 background-color: rgba(83, 59, 33, 0.32);
                 border: none;
@@ -1837,7 +1860,7 @@ class DashboardWindow(QMainWindow):
         section_title = QLabel("SPORTS TEAMS")
         section_title.setObjectName("SettingsSectionTitle")
         section_title.setAlignment(Qt.AlignLeft)
-        section_title.setStyleSheet("""
+        oled_style(section_title, """
             QLabel {
                 color: #2d2114;
                 background: transparent;
@@ -1867,7 +1890,7 @@ class DashboardWindow(QMainWindow):
         for league in ["MLB", "NFL", "NBA"]:
             league_box = QFrame()
             league_box.setObjectName("SportsTeamLeagueBox")
-            league_box.setStyleSheet("""
+            oled_style(league_box, """
                 QFrame#SportsTeamLeagueBox {
                     background: rgba(255, 248, 236, 0.36);
                     border: 1px solid rgba(83, 59, 33, 0.20);
@@ -1886,7 +1909,7 @@ class DashboardWindow(QMainWindow):
             league_header.setMinimumHeight(26)
             league_header.setMaximumHeight(26)
             league_header.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-            league_header.setStyleSheet("""
+            oled_style(league_header, """
                 QFrame#SportsTeamLeagueHeaderFrame {
                     background: rgba(216, 199, 164, 0.72);
                     border: 1px solid rgba(83, 59, 33, 0.32);
@@ -1906,7 +1929,7 @@ class DashboardWindow(QMainWindow):
             league_label.setMinimumHeight(24)
             league_label.setMaximumHeight(24)
             league_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-            league_label.setStyleSheet("""
+            oled_style(league_label, """
                 QLabel#SportsTeamLeagueHeaderText {
                     color: #2d2114;
                     background: transparent;
@@ -2021,19 +2044,19 @@ class DashboardWindow(QMainWindow):
                     button.setChecked(True)
                     button.setToolTip(f"{badge}: {team_name}")
                     button.setText(f"{display_code} {badge}")
-                    button.setStyleSheet(button_style_selected)
+                    oled_style(button, button_style_selected)
                 else:
                     button.setChecked(False)
                     button.setToolTip(team_name)
                     button.setText(display_code)
-                    button.setStyleSheet(button_style_unselected)
+                    oled_style(button, button_style_unselected)
 
 
     def build_stock_settings_section(self, card_layout):
         section_title = QLabel("MARKET TAPE")
         section_title.setObjectName("SettingsSectionTitle")
         section_title.setAlignment(Qt.AlignLeft)
-        section_title.setStyleSheet("""
+        oled_style(section_title, """
             QLabel {
                 color: #2d2114;
                 background: transparent;
@@ -2288,7 +2311,7 @@ class DashboardWindow(QMainWindow):
         button.setFixedSize(30, 24)
 
         if positive:
-            button.setStyleSheet("""
+            oled_style(button, """
                 QPushButton {
                     background: #397a42;
                     color: #ffffff;
@@ -2303,7 +2326,7 @@ class DashboardWindow(QMainWindow):
                 }
             """)
         else:
-            button.setStyleSheet("""
+            oled_style(button, """
                 QPushButton {
                     background: rgba(173, 41, 35, 0.14);
                     color: #9f211b;
@@ -2552,7 +2575,7 @@ class DashboardWindow(QMainWindow):
 
         frame = QFrame()
         frame.setObjectName("RecurringCalendarEventRow")
-        frame.setStyleSheet("""
+        oled_style(frame, """
             QFrame#RecurringCalendarEventRow {
                 background: rgba(255, 248, 236, 0.42);
                 border: 1px solid rgba(83, 59, 33, 0.24);
@@ -2679,7 +2702,7 @@ class DashboardWindow(QMainWindow):
         button = QPushButton("Add Calendar Event")
         button.setCursor(Qt.PointingHandCursor)
         button.setMinimumHeight(34)
-        button.setStyleSheet("""
+        oled_style(button, """
             QPushButton {
                 background-color: #d8c7a4;
                 color: #2d2114;
@@ -2740,7 +2763,7 @@ class DashboardWindow(QMainWindow):
         picker_dialog = QDialog(parent_dialog)
         picker_dialog.setWindowTitle("Choose Specific Date")
         picker_dialog.setModal(True)
-        picker_dialog.setStyleSheet("""
+        oled_style(picker_dialog, """
             QDialog {
                 background-color: #f5ead7;
                 border: 2px solid rgba(83, 59, 33, 0.42);
@@ -2786,7 +2809,7 @@ class DashboardWindow(QMainWindow):
         cancel_button = QPushButton("Cancel")
         select_button = QPushButton("Select Date")
 
-        cancel_button.setStyleSheet("""
+        oled_style(cancel_button, """
             QPushButton {
                 background: #d8c7a4;
                 color: #2d2114;
@@ -2797,7 +2820,7 @@ class DashboardWindow(QMainWindow):
             }
         """)
 
-        select_button.setStyleSheet("""
+        oled_style(select_button, """
             QPushButton {
                 background: #397a42;
                 color: #ffffff;
@@ -2834,7 +2857,7 @@ class DashboardWindow(QMainWindow):
         dialog.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         dialog.setModal(True)
         dialog.resize(820, 560)
-        dialog.setStyleSheet("""
+        oled_style(dialog, """
             QDialog {
                 background-color: #f5ead7;
                 border: 2px solid rgba(83, 59, 33, 0.42);
@@ -2906,7 +2929,7 @@ class DashboardWindow(QMainWindow):
         add_button = QPushButton("Add")
         add_button.setCursor(Qt.PointingHandCursor)
         add_button.setMinimumHeight(30)
-        add_button.setStyleSheet("""
+        oled_style(add_button, """
             QPushButton {
                 background: #397a42;
                 color: white;
@@ -2938,7 +2961,7 @@ class DashboardWindow(QMainWindow):
         specific_date_button.setCursor(Qt.PointingHandCursor)
         specific_date_button.setMinimumWidth(190)
         specific_date_button.setToolTip("Choose today or a future date")
-        specific_date_button.setStyleSheet("""
+        oled_style(specific_date_button, """
             QPushButton {
                 background: #fff7e7;
                 color: #2d2114;
@@ -2999,7 +3022,7 @@ class DashboardWindow(QMainWindow):
         close_button = QPushButton("Close")
         close_button.setCursor(Qt.PointingHandCursor)
         close_button.setMinimumHeight(30)
-        close_button.setStyleSheet("""
+        oled_style(close_button, """
             QPushButton {
                 background: #d8c7a4;
                 color: #2d2114;
@@ -3307,7 +3330,7 @@ class DashboardWindow(QMainWindow):
             delete_button.setToolTip(f"Delete {title}")
             delete_button.setFixedHeight(26)
             delete_button.setProperty("calendar_event_id", event_id)
-            delete_button.setStyleSheet("""
+            oled_style(delete_button, """
                 QPushButton {
                     background-color: #c62828;
                     color: #ffffff;
@@ -3420,7 +3443,7 @@ class DashboardWindow(QMainWindow):
         news_sites_title = QLabel("NEWS SITES")
         news_sites_title.setObjectName("SettingsSectionTitle")
         news_sites_title.setAlignment(Qt.AlignLeft)
-        news_sites_title.setStyleSheet(section_title_style)
+        oled_style(news_sites_title, section_title_style)
 
         news_sites_subtitle = QLabel("Choose the news sources for the two article cards.")
         news_sites_subtitle.setObjectName("SettingsSectionSubtitle")
@@ -3459,7 +3482,7 @@ class DashboardWindow(QMainWindow):
         self.hide_reminders_checkbox.setObjectName("HideRemindersCheckbox")
         self.hide_reminders_checkbox.setChecked(self.hide_reminders)
         self.hide_reminders_checkbox.setCursor(Qt.PointingHandCursor)
-        self.hide_reminders_checkbox.setStyleSheet("""
+        oled_style(self.hide_reminders_checkbox, """
             QCheckBox#HideRemindersCheckbox {
                 color: #2d2114;
                 background: transparent;
@@ -3502,7 +3525,7 @@ class DashboardWindow(QMainWindow):
             self.replace_market_tape_with_news
         )
         self.replace_market_tape_checkbox.setCursor(Qt.PointingHandCursor)
-        self.replace_market_tape_checkbox.setStyleSheet("""
+        oled_style(self.replace_market_tape_checkbox, """
             QCheckBox#ReplaceMarketTapeCheckbox {
                 color: #2d2114;
                 background: transparent;
@@ -3535,7 +3558,7 @@ class DashboardWindow(QMainWindow):
         weather_title = QLabel("WEATHER")
         weather_title.setObjectName("SettingsSectionTitle")
         weather_title.setAlignment(Qt.AlignLeft)
-        weather_title.setStyleSheet(section_title_style)
+        oled_style(weather_title, section_title_style)
 
         weather_subtitle = QLabel(
             "Type an address, city, landmark, or ZIP code, then choose one "
@@ -3602,7 +3625,7 @@ class DashboardWindow(QMainWindow):
         self.weather_address_suggestion_popup.setVerticalScrollBarPolicy(
             Qt.ScrollBarAsNeeded
         )
-        self.weather_address_suggestion_popup.setStyleSheet("""
+        oled_style(self.weather_address_suggestion_popup, """
             QListWidget#WeatherAddressSuggestionPopup {
                 background: #fff8ec;
                 color: #2d2114;
@@ -3642,7 +3665,7 @@ class DashboardWindow(QMainWindow):
         apple_calendar_title = QLabel("CALENDAR")
         apple_calendar_title.setObjectName("SettingsSectionTitle")
         apple_calendar_title.setAlignment(Qt.AlignLeft)
-        apple_calendar_title.setStyleSheet(section_title_style)
+        oled_style(apple_calendar_title, section_title_style)
 
         apple_calendar_subtitle = QLabel(
             "Connect one or two Apple Calendars. Each account uses its own Days Ahead range."
@@ -3653,7 +3676,7 @@ class DashboardWindow(QMainWindow):
 
         calendar_accounts_frame = QFrame()
         calendar_accounts_frame.setObjectName("CalendarAccountsFrame")
-        calendar_accounts_frame.setStyleSheet("""
+        oled_style(calendar_accounts_frame, """
             QFrame#CalendarAccountsFrame {
                 background: transparent;
                 border: none;
@@ -3701,7 +3724,7 @@ class DashboardWindow(QMainWindow):
 
         divider = QFrame()
         divider.setFixedWidth(1)
-        divider.setStyleSheet("background: rgba(0, 0, 0, 0.78); border: none;")
+        oled_style(divider, "background: rgba(0, 0, 0, 0.78); border: none;")
 
         account_two_column = QVBoxLayout()
         account_two_column.setSpacing(5)
@@ -3830,8 +3853,8 @@ class DashboardWindow(QMainWindow):
             border: 2px solid #4d351b;
         }
         """
-        self.settings_back_button.setStyleSheet(settings_button_style)
-        self.settings_apply_button.setStyleSheet(apply_button_style)
+        oled_style(self.settings_back_button, settings_button_style)
+        oled_style(self.settings_apply_button, apply_button_style)
         button_row.addWidget(self.settings_back_button)
         button_row.addWidget(self.settings_apply_button)
 
@@ -3889,7 +3912,7 @@ class DashboardWindow(QMainWindow):
         self.resize_settings_card_to_window()
 
     def show_dashboard_page(self):
-        self.page_stack.setCurrentWidget(self.dashboard_page)
+        self.page_stack.setCurrentWidget(self.dashboard_viewport)
         self.settings_button.show()
         self.position_settings_button()
 
@@ -3905,7 +3928,7 @@ class DashboardWindow(QMainWindow):
                 "the new location."
             )
             warning.setStandardButtons(QMessageBox.Ok)
-            warning.setStyleSheet("""
+            oled_style(warning, """
                 QMessageBox {
                     background: #242424;
                 }
@@ -4099,7 +4122,7 @@ class DashboardWindow(QMainWindow):
         source_palette = source_label.palette()
         text_color = source_palette.color(source_label.foregroundRole()).name()
 
-        self.date_location_label.setStyleSheet(f"""
+        oled_style(self.date_location_label, f"""
             QLabel {{
                 color: {text_color};
                 background: transparent;
@@ -5538,7 +5561,7 @@ def _calendar_enhanced_apply_settings(self):
 
     _original_apply_news_settings(self)
 
-    if self.page_stack.currentWidget() is not self.dashboard_page:
+    if self.page_stack.currentWidget() is not self.dashboard_viewport:
         return
 
     self._save_calendar_enhancement_settings()
@@ -5549,7 +5572,7 @@ def _build_calendar_button(text):
     button = QPushButton(text)
     button.setCursor(Qt.PointingHandCursor)
     button.setMinimumHeight(34)
-    button.setStyleSheet("""
+    oled_style(button, """
         QPushButton {
             background-color: #d8c7a4;
             color: #2d2114;
@@ -5603,7 +5626,7 @@ def _open_holiday_picker_popup(self):
     dialog.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
     dialog.setModal(True)
     dialog.resize(660, 470)
-    dialog.setStyleSheet("""
+    oled_style(dialog, """
         QDialog {
             background: #f5ead7;
             border: 2px solid rgba(83, 59, 33, 0.42);
@@ -5641,7 +5664,7 @@ def _open_holiday_picker_popup(self):
 
     title = QLabel("NATIONAL / RELIGIOUS HOLIDAYS")
     title.setAlignment(Qt.AlignCenter)
-    title.setStyleSheet("font-size: 20px; letter-spacing: 0.8px;")
+    oled_style(title, "font-size: 20px; letter-spacing: 0.8px;")
     root.addWidget(title)
 
     selectors = QHBoxLayout()
@@ -5872,7 +5895,7 @@ def _open_holiday_picker_popup_fixed(self):
     dialog.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
     dialog.setModal(True)
     dialog.resize(760, 485)
-    dialog.setStyleSheet("""
+    oled_style(dialog, """
         QDialog {
             background: #f5ead7;
             border: 2px solid rgba(83, 59, 33, 0.42);
@@ -5961,7 +5984,7 @@ def _open_holiday_picker_popup_fixed(self):
 
     title = QLabel("NATIONAL / RELIGIOUS HOLIDAYS")
     title.setAlignment(Qt.AlignCenter)
-    title.setStyleSheet("font-size: 20px; letter-spacing: 0.8px;")
+    oled_style(title, "font-size: 20px; letter-spacing: 0.8px;")
     root.addWidget(title)
 
     selectors = QHBoxLayout()
@@ -6135,7 +6158,7 @@ def _open_holiday_picker_popup_two_columns(self):
     dialog.setAttribute(Qt.WA_TranslucentBackground, False)
     dialog.setModal(True)
     dialog.resize(760, 500)
-    dialog.setStyleSheet("""
+    oled_style(dialog, """
         QDialog {
             background: #f5ead7;
             border: 2px solid rgba(83, 59, 33, 0.42);
@@ -6220,7 +6243,7 @@ def _open_holiday_picker_popup_two_columns(self):
 
     title = QLabel("NATIONAL / RELIGIOUS HOLIDAYS")
     title.setAlignment(Qt.AlignCenter)
-    title.setStyleSheet("font-size: 20px; letter-spacing: 0.8px;")
+    oled_style(title, "font-size: 20px; letter-spacing: 0.8px;")
     root.addWidget(title)
 
     selectors = QHBoxLayout()
@@ -6256,7 +6279,7 @@ def _open_holiday_picker_popup_two_columns(self):
 
     national_header = QLabel("NATIONAL HOLIDAY CALENDARS")
     national_header.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-    national_header.setStyleSheet(
+    oled_style(national_header, 
         "font-size: 11px; letter-spacing: 0.8px;"
     )
     national_column.addWidget(national_header)
@@ -6266,7 +6289,7 @@ def _open_holiday_picker_popup_two_columns(self):
     national_scroll.setMinimumHeight(225)
 
     national_content = QWidget()
-    national_content.setStyleSheet("background: transparent; border: none;")
+    oled_style(national_content, "background: transparent; border: none;")
 
     national_list_layout = QVBoxLayout(national_content)
     national_list_layout.setContentsMargins(7, 7, 7, 7)
@@ -6281,7 +6304,7 @@ def _open_holiday_picker_popup_two_columns(self):
 
     religious_header = QLabel("RELIGIOUS HOLIDAY CALENDARS")
     religious_header.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-    religious_header.setStyleSheet(
+    oled_style(religious_header, 
         "font-size: 11px; letter-spacing: 0.8px;"
     )
     religious_column.addWidget(religious_header)
@@ -6291,7 +6314,7 @@ def _open_holiday_picker_popup_two_columns(self):
     religious_scroll.setMinimumHeight(225)
 
     religious_content = QWidget()
-    religious_content.setStyleSheet("background: transparent; border: none;")
+    oled_style(religious_content, "background: transparent; border: none;")
 
     religious_list_layout = QVBoxLayout(religious_content)
     religious_list_layout.setContentsMargins(7, 7, 7, 7)
@@ -6335,7 +6358,7 @@ def _open_holiday_picker_popup_two_columns(self):
 
     def add_row(layout, label_text, kind, value):
         row = QWidget()
-        row.setStyleSheet("""
+        oled_style(row, """
             QWidget {
                 background: rgba(245, 234, 215, 0.56);
                 border: 1px solid rgba(83, 59, 33, 0.24);
@@ -6349,7 +6372,7 @@ def _open_holiday_picker_popup_two_columns(self):
 
         name = QLabel(label_text)
         name.setWordWrap(True)
-        name.setStyleSheet("""
+        oled_style(name, """
             QLabel {
                 color: #2d2114;
                 background: transparent;
@@ -6361,7 +6384,7 @@ def _open_holiday_picker_popup_two_columns(self):
 
         delete_button = QPushButton("Delete")
         delete_button.setObjectName("HolidayDeleteButton")
-        delete_button.setStyleSheet("""
+        oled_style(delete_button, """
             QPushButton {
                 background-color: #c62828;
                 color: #ffffff;
@@ -6397,7 +6420,7 @@ def _open_holiday_picker_popup_two_columns(self):
         empty = QLabel(message)
         empty.setAlignment(Qt.AlignCenter)
         empty.setWordWrap(True)
-        empty.setStyleSheet("""
+        oled_style(empty, """
             QLabel {
                 color: rgba(45, 33, 20, 0.55);
                 background: transparent;
@@ -6821,7 +6844,7 @@ class HolidayChoiceList(QListWidget):
         self.setSelectionMode(QListWidget.SingleSelection)
         self.setVerticalScrollMode(QListWidget.ScrollPerPixel)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.setStyleSheet("""
+        oled_style(self, """
             QListWidget {
                 background: #fff8ec;
                 color: #1e160d;
@@ -6887,7 +6910,7 @@ class HolidayChoiceButton(QPushButton):
 
         self.setCursor(Qt.PointingHandCursor)
         self.setMinimumHeight(36)
-        self.setStyleSheet("""
+        oled_style(self, """
             QPushButton {
                 color: #1e160d;
                 background: #fff8ec;
@@ -6920,7 +6943,7 @@ class HolidayChoiceButton(QPushButton):
 
         popup = QFrame(None, Qt.Popup | Qt.FramelessWindowHint)
         popup.setObjectName("HolidayChoicePopup")
-        popup.setStyleSheet("""
+        oled_style(popup, """
             QFrame#HolidayChoicePopup {
                 background: #fff8ec;
                 border: none;
@@ -7042,3 +7065,140 @@ class HolidayChoiceButton(QPushButton):
         self.popup = popup
         popup.show()
         popup.raise_()
+
+# OLED_CONTRAST_V4
+from ui.oled_text import oled_text_draw, oled_style, oled_html, oled_layout_draw
+
+
+# MORNINGUI_EDGE_GEOMETRY_PROBE_V2
+def _morningui_edge_geometry_probe_v2(win):
+    from pathlib import Path
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtWidgets import QApplication
+
+    out = Path.home() / ".cache/morningui_edge_probe_v2.txt"
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    lines = []
+
+    def log(*items):
+        lines.append(" ".join(map(str, items)))
+
+    def describe(w):
+        if w is None:
+            return "<none>"
+        try:
+            point = w.mapTo(win.root, QPoint(0, 0))
+            return (
+                f"{type(w).__name__} "
+                f"name={w.objectName()!r} "
+                f"x={point.x()} y={point.y()} "
+                f"w={w.width()} h={w.height()} "
+                f"right={point.x()+w.width()-1} "
+                f"styled={w.testAttribute(Qt.WA_StyledBackground)} "
+                f"opaque={w.testAttribute(Qt.WA_OpaquePaintEvent)} "
+                f"autofill={w.autoFillBackground()} "
+                f"updates={w.updatesEnabled()} "
+                f"css={w.styleSheet()[:150]!r}"
+            )
+        except RuntimeError:
+            return "<deleted>"
+
+    try:
+        panel = win.weather_panel
+        root = win.root
+
+        log("MORNINGUI WEATHER EDGE GEOMETRY")
+        log("Root:", describe(root))
+        log("Dashboard:", describe(win.dashboard_page))
+        log("WeatherPanel:", describe(panel))
+        log("DateCard:", describe(win.date_card))
+        log("DateCardContainer:", describe(win.date_card_container))
+
+        log("\nWEATHER ROW GEOMETRY")
+
+        for i, row in enumerate(panel.row_widgets):
+            log(f"ROW {i}:", describe(row))
+
+        edge = panel.mapTo(
+            root, QPoint(panel.width()-1, 0)
+        ).x()
+
+        mid = panel.mapTo(
+            root, QPoint(0, panel.height()//2)
+        ).y()
+
+        log("\nPANEL RIGHT EDGE X:", edge)
+        log("PANEL MIDPOINT Y:", mid)
+        log("DEVICE PIXEL RATIO:", root.devicePixelRatioF())
+
+        log("\nVISIBLE WIDGETS WITH EDGES NEAR WEATHER BOUNDARY")
+
+        app = QApplication.instance()
+        matches = []
+
+        for w in app.allWidgets():
+            try:
+                if not w.isVisible():
+                    continue
+
+                point = w.mapTo(root, QPoint(0, 0))
+                right = point.x() + w.width() - 1
+
+                overlaps = (
+                    point.y() <= mid <
+                    point.y() + w.height()
+                )
+
+                if abs(right-edge) <= 10 and overlaps:
+                    matches.append((abs(right-edge), w))
+
+            except RuntimeError:
+                continue
+
+        for _, w in sorted(
+            matches,
+            key=lambda item: item[0]
+        )[:40]:
+            log(describe(w))
+
+        log("\nWIDGETS AT WEATHER RIGHT EDGE")
+
+        for dx in (-10, -5, -3, -2, -1, 0, 1, 2, 3, 5, 10):
+            hit = root.childAt(QPoint(edge+dx, mid))
+            log(f"X offset {dx:+d}:", describe(hit))
+
+        log("\nWEATHER PANEL PARENT HIERARCHY")
+
+        w = panel
+        while w is not None:
+            log(describe(w))
+            w = w.parentWidget()
+
+        log("\nSCREEN CAPTURES")
+
+        panel_path = out.parent / "morningui_panel_probe.png"
+        root_path = out.parent / "morningui_root_probe.png"
+
+        log(
+            "Panel screenshot saved:",
+            panel.grab().save(str(panel_path))
+        )
+        log(
+            "Root screenshot saved:",
+            root.grab().save(str(root_path))
+        )
+
+        log("Panel image:", panel_path)
+        log("Root image:", root_path)
+
+    except Exception as e:
+        log("DIAGNOSTIC ERROR:", repr(e))
+
+    out.write_text("\n".join(lines) + "\n")
+
+    print(
+        "WEATHER EDGE DIAGNOSTIC SAVED:",
+        out,
+        flush=True
+    )

@@ -7,7 +7,7 @@ from PySide6.QtGui import QColor, QDesktopServices, QFont, QFontMetrics, QLinear
 from PySide6.QtWidgets import QWidget
 
 
-from ui.newspaper_chrome import draw_stacked_newspaper_panel
+from ui.newspaper_chrome import draw_stacked_newspaper_panel, oled_newspaper_color
 from ui.panels.news_card import OpenNewspaperDialog
 from services.article_text_fetcher import prefetch_article_text_payload
 
@@ -106,14 +106,14 @@ class SportsNewsPanel(QWidget):
         footer_font = QFont("Times New Roman", 7)
         footer_font.setBold(True)
         painter.setFont(footer_font)
-        painter.setPen(QColor("#5a442b"))
+        painter.setPen(oled_newspaper_color("#5a442b"))
 
-        painter.drawText(
+        oled_text_draw(painter, 
             QRectF(inner.left(), footer_rule_y + 2, inner.width() / 2, 12),
             Qt.AlignLeft | Qt.AlignVCenter,
             "SPORTS ESPN",
         )
-        painter.drawText(
+        oled_text_draw(painter, 
             QRectF(inner.center().x(), footer_rule_y + 2, inner.width() / 2, 12),
             Qt.AlignRight | Qt.AlignVCenter,
             "PAGE 1",
@@ -134,8 +134,8 @@ class SportsNewsPanel(QWidget):
         title_font.setLetterSpacing(QFont.PercentageSpacing, 106)
 
         painter.setFont(title_font)
-        painter.setPen(QColor("#241a10"))
-        painter.drawText(
+        painter.setPen(oled_newspaper_color("#241a10"))
+        oled_text_draw(painter, 
             QRectF(inner.left(), inner.top() + 2, inner.width() * 0.72, 23),
             Qt.AlignLeft | Qt.AlignVCenter,
             "ESPN",
@@ -146,8 +146,8 @@ class SportsNewsPanel(QWidget):
         page_font.setLetterSpacing(QFont.PercentageSpacing, 108)
 
         painter.setFont(page_font)
-        painter.setPen(QColor("#5a442b"))
-        painter.drawText(
+        painter.setPen(oled_newspaper_color("#5a442b"))
+        oled_text_draw(painter, 
             QRectF(inner.left() + inner.width() * 0.72, inner.top() + 2, inner.width() * 0.28, 18),
             Qt.AlignRight | Qt.AlignVCenter,
             "P. 1",
@@ -185,8 +185,8 @@ class SportsNewsPanel(QWidget):
         kicker_font.setBold(True)
 
         painter.setFont(kicker_font)
-        painter.setPen(QColor("#9c6424"))
-        painter.drawText(
+        painter.setPen(oled_newspaper_color("#9c6424"))
+        oled_text_draw(painter, 
             QRectF(rect.left(), rect.top(), rect.width(), 16),
             Qt.AlignLeft | Qt.AlignVCenter,
             "TOP STORIES",
@@ -196,8 +196,8 @@ class SportsNewsPanel(QWidget):
         headline_font.setBold(True)
 
         painter.setFont(headline_font)
-        painter.setPen(QColor("#17100a"))
-        painter.drawText(
+        painter.setPen(oled_newspaper_color("#17100a"))
+        oled_text_draw(painter, 
             rect.adjusted(0, 16, 0, 0),
             Qt.AlignLeft | Qt.AlignVCenter | Qt.TextWordWrap,
             "Loading latest sports headlines...",
@@ -208,8 +208,8 @@ class SportsNewsPanel(QWidget):
         kicker_font.setBold(True)
 
         painter.setFont(kicker_font)
-        painter.setPen(QColor("#9c6424"))
-        painter.drawText(
+        painter.setPen(oled_newspaper_color("#9c6424"))
+        oled_text_draw(painter, 
             QRectF(rect.left(), rect.top(), rect.width(), 15),
             Qt.AlignLeft | Qt.AlignVCenter,
             "TOP STORIES",
@@ -239,10 +239,10 @@ class SportsNewsPanel(QWidget):
 
         painter.setFont(headline_font)
         # MORNINGUI_CEC_SPORTS_TEXT_V6: tint only selected headline glyphs.
-        painter.setPen(QColor(
+        painter.setPen(_morningui_oled_nav_color(QColor(
             "#705C00" if getattr(self, "_morningui_remote_sports_index", -1) == 0
             else "#15100b"
-        ))
+        )))
 
         headline_rect = QRectF(
             rect.left(),
@@ -258,11 +258,12 @@ class SportsNewsPanel(QWidget):
             headline_font,
         )
 
-        self.add_click_zone(
-            headline_rect,
-            getattr(article, "link", ""),
-            self.clean_title(getattr(article, "title", "")),
-        )
+        if not bool(getattr(article, "is_game_lead", False)):
+            self.add_click_zone(
+                headline_rect,
+                getattr(article, "link", ""),
+                self.clean_title(getattr(article, "title", "")),
+            )
 
     def draw_live_game_lead(
         self,
@@ -348,25 +349,15 @@ class SportsNewsPanel(QWidget):
         painter.save()
         painter.setClipRect(caption_rect)
         painter.setFont(caption_font)
-        painter.setPen(QColor("#15100b"))
-        painter.drawText(
+        painter.setPen(oled_newspaper_color("#15100b"))
+        oled_text_draw(painter, 
             caption_rect,
             Qt.AlignLeft | Qt.AlignVCenter,
             visible_headline,
         )
         painter.restore()
 
-        self.add_click_zone(
-            QRectF(
-                rect.left(),
-                content_top,
-                rect.width(),
-                rect.bottom() - content_top,
-            ),
-            getattr(article, "link", ""),
-            headline,
-            open_external=True,
-        )
+        # Live-game scoreboards are intentionally not clickable.
 
     def draw_game_lead_headline(
         self,
@@ -386,10 +377,10 @@ class SportsNewsPanel(QWidget):
             # This is the hard boundary that prevents the headline from
             # entering the divider or the four smaller article columns.
             painter.setClipRect(rect)
-            painter.setPen(QColor(
+            painter.setPen(_morningui_oled_nav_color(QColor(
                 "#705C00" if getattr(self, "_morningui_remote_sports_index", -1) == 0
                 else "#15100b"
-            ))
+            )))
 
             text = " ".join(
                 str(title or "").split()
@@ -549,7 +540,7 @@ class SportsNewsPanel(QWidget):
                 if remaining_height <= 0:
                     break
 
-                painter.drawText(
+                oled_text_draw(painter, 
                     QRectF(
                         rect.left(),
                         line_top,
@@ -748,7 +739,7 @@ class SportsNewsPanel(QWidget):
             center.height() + 16,
         )
 
-        painter.drawText(
+        oled_text_draw(painter, 
             status_rect,
             Qt.AlignCenter,
             status_text,
@@ -847,9 +838,9 @@ class SportsNewsPanel(QWidget):
         score_font.setBold(True)
 
         painter.setFont(score_font)
-        painter.setPen(QColor("#171717"))
+        painter.setPen(oled_newspaper_color("#171717"))
 
-        painter.drawText(
+        oled_text_draw(painter, 
             score_rect,
             Qt.AlignCenter,
             str(score),
@@ -881,9 +872,9 @@ class SportsNewsPanel(QWidget):
             fallback_font.setBold(True)
 
             painter.setFont(fallback_font)
-            painter.setPen(QColor("#4a4339"))
+            painter.setPen(oled_newspaper_color("#4a4339"))
 
-            painter.drawText(
+            oled_text_draw(painter, 
                 logo_rect,
                 Qt.AlignCenter,
                 self.team_abbreviation(team_name),
@@ -1048,7 +1039,7 @@ class SportsNewsPanel(QWidget):
 
         painter.setClipRect(name_rect)
         painter.setFont(chosen_font)
-        painter.setPen(QColor("#202020"))
+        painter.setPen(oled_newspaper_color("#202020"))
 
         for i, line in enumerate(chosen_lines):
             display_line = metrics.elidedText(
@@ -1064,7 +1055,7 @@ class SportsNewsPanel(QWidget):
                 line_height,
             )
 
-            painter.drawText(
+            oled_text_draw(painter, 
                 line_rect,
                 alignment | Qt.AlignVCenter,
                 display_line,
@@ -1145,7 +1136,7 @@ class SportsNewsPanel(QWidget):
             )
 
         for row, line in enumerate(lines[:2]):
-            painter.drawText(
+            oled_text_draw(painter, 
                 QRectF(
                     rect.left(),
                     rect.top() + row * line_height,
@@ -1267,12 +1258,12 @@ class SportsNewsPanel(QWidget):
 
             painter.save()
             painter.setClipRect(headline_rect)
-            painter.setPen(QColor(
+            painter.setPen(_morningui_oled_nav_color(QColor(
                 "#705C00" if getattr(self, "_morningui_remote_sports_index", -1) == index + 1
                 else "#21180f"
-            ))
+            )))
 
-            chosen_layout.draw(
+            oled_layout_draw(chosen_layout, 
                 painter,
                 QPointF(
                     headline_rect.left(),
@@ -1287,9 +1278,9 @@ class SportsNewsPanel(QWidget):
             page_font.setBold(True)
 
             painter.setFont(page_font)
-            painter.setPen(QColor("#5a442b"))
+            painter.setPen(oled_newspaper_color("#5a442b"))
 
-            painter.drawText(
+            oled_text_draw(painter, 
                 QRectF(
                     padded.left(),
                     padded.bottom() - 9,
@@ -1400,3 +1391,61 @@ class SportsNewsPanel(QWidget):
             return "Story unavailable"
 
         return text
+
+# OLED_CONTRAST_V4
+from ui.oled_text import oled_text_draw, oled_style, oled_html, oled_layout_draw
+
+# MORNINGUI_OLED_NAV_BLACK_V13
+# Recolor navigation focus ONLY during OLED dark mode.
+def _morningui_oled_nav_color(value):
+    import os, re
+
+    # Read the live V11 OLED state, never a persistent test flag.
+    try:
+        from ui import oled_palette_targets as _oled_v11
+        active = bool(getattr(_oled_v11, "_ACTIVE", False))
+    except Exception:
+        active = False
+    if not active:
+        return value
+
+    if isinstance(value, str):
+        value = re.sub(
+            r"(?i)#(?:ffd600|ffe12e|a27c00|705c00|21190d|ffe066|ffec89|ffe788|ffef91)",
+            "#000000", value
+        )
+        return re.sub(
+            r"(?i)rgb\(\s*255\s*,\s*(?:225|231|236|239)\s*,\s*(?:46|136|137|145)\s*\)",
+            "rgb(0,0,0)", value
+        )
+
+    if hasattr(value, "setRgb") and hasattr(value, "alpha"):
+        value.setRgb(0, 0, 0, value.alpha())
+
+    return value
+
+# MORNINGUI_OLED_NAV_MODE_SYNC_V14
+import weakref as _morningui_weakref
+_morningui_nav_styles = _morningui_weakref.WeakKeyDictionary()
+
+def _morningui_oled_nav_style(widget, original):
+    rendered = _morningui_oled_nav_color(original)
+    if isinstance(original, str):
+        try:
+            _morningui_nav_styles[widget] = (original, rendered)
+        except (TypeError, RuntimeError):
+            pass
+    return rendered
+
+def _morningui_oled_nav_sync():
+    for widget, (original, applied) in list(_morningui_nav_styles.items()):
+        try:
+            if widget.styleSheet() != applied:
+                continue
+            new = _morningui_oled_nav_color(original)
+            if applied != new:
+                widget.setStyleSheet(new)
+            _morningui_nav_styles[widget] = (original, new)
+            widget.update()
+        except (RuntimeError, TypeError):
+            pass

@@ -2,6 +2,61 @@ from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPen, QBrush
 
 
+# OLED_PAPER_PALETTE_V3
+# Colors only; never changes article data or widget geometry.
+_OLED_DARK_PAPER = False
+
+_OLED_COLORS = {'#ead6b0': '#425969', '#d8b985': '#384d5d', '#f6e9c8': '#42596b', '#ead3a3': '#3b5161', '#d4b073': '#354a5a', '#efdcaf': '#425969', '#ecd5a4': '#3e5365', '#e4c48b': '#202e3a', '#d9b06f': '#374c5d', '#fff1d3': '#3d5362', '#f6e4bd': '#3d5362', '#ead4a8': '#384e5e', '#fff0d0': '#405667', '#f4e7cf': '#293b49', '#f3e6c9': '#405768', '#fff0cf': '#405667', '#241a10': '#ead3a3', '#17100a': '#ead3a3', '#24170d': '#ead3a3', '#1b130c': '#ead3a3', '#2d2419': '#ead3a3', '#5a442b': '#ead3a3', '#5d3d20': '#ead3a3'}
+
+def set_oled_newspaper_dark(enabled):
+    global _OLED_DARK_PAPER
+    enabled = bool(enabled)
+    changed = _OLED_DARK_PAPER != enabled
+    _OLED_DARK_PAPER = enabled
+    return changed
+
+def oled_newspaper_color(*args):
+    color = QColor(*args)
+
+    if not _OLED_DARK_PAPER:
+        return color
+
+    if len(args) != 1 or not isinstance(args[0], str):
+        return color
+
+    value = args[0].lower()
+
+    # OLED_BORDER_WEATHER_V5_SAFE
+    # Dark-mode newspaper outline follows the charcoal paper.
+    if value == "#5d3d20":
+        return QColor("#526977")
+
+    if value in _OLED_COLORS:
+        return QColor(_OLED_COLORS[value])
+
+    if len(value) != 7 or not value.startswith("#"):
+        return color
+
+    if not all(c in "0123456789abcdef" for c in value[1:]):
+        return color
+
+    r, g, b = color.red(), color.green(), color.blue()
+
+    # Light parchment tones become dark charcoal.
+    if r >= g >= b and r >= 175 and g >= 135 and b >= 100:
+        return oled_newspaper_color("#42596b")
+
+    # Brown/black newspaper ink becomes readable light ink.
+    if r >= g >= b and r < 115 and g < 90 and b < 80:
+        return oled_newspaper_color("#ead3a3")
+
+    if r >= g >= b and r < 165 and g < 120 and b < 110:
+        return oled_newspaper_color("#ead3a3")
+
+    return color
+
+
+
 def draw_newspaper_sheet(painter: QPainter, rect, seed: int = 1):
     draw_stacked_newspaper_panel(painter, rect, seed=seed)
 
@@ -17,14 +72,14 @@ def draw_stacked_newspaper_panel(painter: QPainter, rect, seed: int = 1):
         back = QRectF(outer).adjusted(dx, dy, dx - 10, dy - 22)
 
         back_grad = QLinearGradient(back.topLeft(), back.bottomLeft())
-        back_grad.setColorAt(0.0, QColor("#ead6b0"))
-        back_grad.setColorAt(1.0, QColor("#d8b985"))
+        back_grad.setColorAt(0.0, oled_newspaper_color("#ead6b0"))
+        back_grad.setColorAt(1.0, oled_newspaper_color("#d8b985"))
 
         painter.setBrush(back_grad)
-        painter.setPen(QPen(QColor(90, 62, 31, alpha), 1))
+        painter.setPen(QPen((QColor(65, 83, 98, int(alpha * 0.55)) if _OLED_DARK_PAPER else QColor(90, 62, 31, alpha)), 1))
         painter.drawRoundedRect(back, 5, 5)
 
-        painter.setPen(QPen(QColor(110, 80, 44, 30), 1))
+        painter.setPen(QPen((QColor(65, 83, 98, 20) if _OLED_DARK_PAPER else QColor(110, 80, 44, 30)), 1))
         painter.drawLine(
             int(back.left() + 34),
             int(back.top() + 4),
@@ -176,21 +231,21 @@ def draw_stacked_newspaper_panel(painter: QPainter, rect, seed: int = 1):
     painter.restore()
 
     paper_grad = QLinearGradient(sheet.topLeft(), sheet.bottomRight())
-    paper_grad.setColorAt(0.00, QColor("#f6e9c8"))
-    paper_grad.setColorAt(0.52, QColor("#ead3a3"))
-    paper_grad.setColorAt(1.00, QColor("#d4b073"))
+    paper_grad.setColorAt(0.00, oled_newspaper_color("#f6e9c8"))
+    paper_grad.setColorAt(0.52, oled_newspaper_color("#ead3a3"))
+    paper_grad.setColorAt(1.00, oled_newspaper_color("#d4b073"))
 
     painter.setBrush(paper_grad)
-    painter.setPen(QPen(QColor("#5d3d20"), 1))
+    painter.setPen(QPen(oled_newspaper_color("#5d3d20"), 1))
     painter.drawRoundedRect(sheet, 6, 6)
 
     # Soft aged edge.
     painter.setBrush(Qt.BrushStyle.NoBrush)
-    painter.setPen(QPen(QColor(92, 63, 31, 55), 1))
+    painter.setPen(QPen((QColor(67, 87, 101, 28) if _OLED_DARK_PAPER else QColor(92, 63, 31, 55)), 1))
     painter.drawRoundedRect(sheet.adjusted(2, 2, -2, -2), 5, 5)
 
     # Top/left highlights.
-    painter.setPen(QPen(QColor(255, 248, 229, 70), 1))
+    painter.setPen(QPen((QColor(91, 115, 130, 24) if _OLED_DARK_PAPER else QColor(255, 248, 229, 70)), 1))
     painter.drawLine(
         int(sheet.left() + 14),
         int(sheet.top() + 2),
@@ -205,7 +260,7 @@ def draw_stacked_newspaper_panel(painter: QPainter, rect, seed: int = 1):
     )
 
     # Right-side paper thickness, ending at the fold.
-    painter.setPen(QPen(QColor(59, 37, 15, 30), 2))
+    painter.setPen(QPen((QColor(55, 74, 88, 25) if _OLED_DARK_PAPER else QColor(59, 37, 15, 30)), 2))
     painter.drawLine(
         int(sheet.right() - 2),
         int(sheet.top() + 12),
@@ -285,10 +340,10 @@ def _draw_bottom_fold_full_width(painter: QPainter, sheet: QRectF):
     top = bottom - fold_h
 
     paper = QLinearGradient(left, 0, right, 0)
-    paper.setColorAt(0.00, QColor("#efdcaf"))
-    paper.setColorAt(0.25, QColor("#ecd5a4"))
-    paper.setColorAt(0.60, QColor("#e4c48b"))
-    paper.setColorAt(1.00, QColor("#d9b06f"))
+    paper.setColorAt(0.00, oled_newspaper_color("#efdcaf"))
+    paper.setColorAt(0.25, oled_newspaper_color("#ecd5a4"))
+    paper.setColorAt(0.60, oled_newspaper_color("#e4c48b"))
+    paper.setColorAt(1.00, oled_newspaper_color("#d9b06f"))
 
     painter.setPen(Qt.PenStyle.NoPen)
 
@@ -420,3 +475,5 @@ def _draw_bottom_fold_full_width(painter: QPainter, sheet: QRectF):
 
     painter.restore()
 
+
+# OLED_INSET_LINES_V6

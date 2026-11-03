@@ -179,7 +179,7 @@ def get_route():
 
 
 # Faster webOS backend. All Bluetooth and lift logic unchanged.
-def tv_worker():
+def _mr23_webos_worker_once():
     proc = subprocess.Popen(
         [
             "runuser", "-u", OWNER, "--",
@@ -271,6 +271,29 @@ def tv_worker():
                 proc.kill()
 
 
+
+# MR23_WEBOS_RECOVERY_V1
+# Supervise the actual webOS subprocess.
+# Recreate it ONLY when it exits or fails.
+def tv_worker():
+    while not stopping.is_set():
+        try:
+            _mr23_webos_worker_once()
+        except Exception as exc:
+            print(
+                "WEBOS SESSION FAILED:",
+                repr(exc),
+                flush=True
+            )
+
+        if not stopping.is_set():
+            print(
+                "WEBOS SESSION LOST - RECONNECTING",
+                flush=True
+            )
+            stopping.wait(2.0)
+
+
 def app_watcher():
     # The persistent webOS connection supplies app changes.
     return
@@ -356,6 +379,19 @@ try:
                     continue
 
                 code = packet[-3:].hex()
+                # MORNINGUI_OLED_PROTECTION_V1
+                # Send user activity only; do not alter command routing.
+                if code != "000000":
+                    try:
+                        with socket.socket(
+                            socket.AF_UNIX, socket.SOCK_DGRAM
+                        ) as oled_s:
+                            oled_s.sendto(
+                                b"1",
+                                f"/home/{OWNER}/.cache/morningui-oled-activity.sock"
+                            )
+                    except OSError:
+                        pass
 
                 # MR23_WHEEL_NAVIGATION_V1
                 # Each wheel delta represents real scroll ticks.

@@ -21,7 +21,7 @@ class DateCardWeatherIcon(QLabel):
         self.icon = ""
         self.setAlignment(Qt.AlignCenter)
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-        self.setStyleSheet("background: transparent;")
+        oled_style(self, "background: transparent;")
         self.setScaledContents(False)
 
     def resizeEvent(self, event):
@@ -187,7 +187,7 @@ class DateCard(QWidget):
         )
         self.precipitation_emoji_label.setAlignment(Qt.AlignCenter)
         self.precipitation_emoji_label.setFixedSize(18, 18)
-        self.precipitation_emoji_label.setStyleSheet(
+        oled_style(self.precipitation_emoji_label, 
             "background: transparent;"
         )
         self.precipitation_emoji_label.setScaledContents(False)
@@ -338,13 +338,13 @@ class DateCard(QWidget):
                 # WeatherRow paints the emoji itself using this label's
                 # geometry, so the empty anchor must remain in the layout.
                 label.setText("")
-                label.setStyleSheet("background: transparent;")
+                oled_style(label, "background: transparent;")
                 label.show()
 
             elif label in geometry_labels:
                 # Preserve the original WeatherRow proportions while keeping
                 # its built-in hour and temperature text invisible.
-                label.setStyleSheet(
+                oled_style(label, 
                     "color: transparent; background: transparent;"
                 )
                 label.show()
@@ -619,7 +619,7 @@ class DateCard(QWidget):
         self.set_low_high(min(temperatures), max(temperatures))
 
     def force_label_color(self, label, color):
-        label.setStyleSheet(f"color: {color};")
+        oled_style(label, f"color: {color};")
 
         palette = label.palette()
         qcolor = QColor(color)
@@ -648,3 +648,5 @@ class DateCard(QWidget):
     def set_day_text(self):
         self.text_color = "#2f2a24"
         self.apply_text_color()
+# OLED_CONTRAST_V4
+from ui.oled_text import oled_text_draw, oled_style, oled_html, oled_layout_draw

@@ -8,15 +8,15 @@ async def main():
         states=[],
         ping_interval=None
     )
-    await client.connect()
+    await asyncio.wait_for(client.connect(), timeout=12)
 
     async def on_app(app):
         if app:
             print("APP " + app, flush=True)
 
     try:
-        await client.subscribe_current_app(on_app)
-        await on_app(await client.get_current_app())
+        await asyncio.wait_for(client.subscribe_current_app(on_app), timeout=12)
+        await on_app(await asyncio.wait_for(client.get_current_app(), timeout=8))
         print("READY", flush=True)
 
         while True:
@@ -30,15 +30,52 @@ async def main():
 
             try:
                 if button == "__SET_HDMI1__":
-                    await client.set_input("HDMI_1")
+                    await asyncio.wait_for(client.set_input("HDMI_1"), timeout=8)
                 else:
-                    await client.button(button)
+                    await asyncio.wait_for(client.button(button), timeout=8)
                 print("SENT " + button, flush=True)
             except Exception as exc:
+                # MR23_WEBOS_RECOVERY_V1
                 print("ERROR " + button + ": " + str(exc),
                       flush=True)
+
+                message = str(exc).lower()
+                connection_error = (
+                    isinstance(
+                        exc,
+                        (asyncio.TimeoutError, ConnectionError, OSError)
+                    )
+                    or any(
+                        word in message
+                        for word in (
+                            "connection closed",
+                            "not connected",
+                            "websocket",
+                            "timed out",
+                            "connection lost"
+                        )
+                    )
+                )
+
+                if connection_error:
+                    print(
+                        "WEBOS CONNECTION UNHEALTHY - RECONNECTING",
+                        flush=True
+                    )
+                    raise
     finally:
-        await client.disconnect()
+        # MR23_WEBOS_RECOVERY_V1
+        try:
+            await asyncio.wait_for(
+                client.disconnect(),
+                timeout=3
+            )
+        except Exception as exc:
+            print(
+                "WEBOS DISCONNECT WARNING:",
+                repr(exc),
+                flush=True
+            )
 
 while True:
     try:
