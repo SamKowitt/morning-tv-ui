@@ -179,7 +179,7 @@ class ReminderItem(QWidget):
             QLabel#UpcomingReminderIcon {
                 background: transparent;
                 color: #4c3420;
-                font-size: 12px;
+                font-size: 16px;
             }
 
             QLabel#ReminderMeta {
@@ -195,7 +195,7 @@ class ReminderItem(QWidget):
                 background: transparent;
                 color: #17100a;
                 font-family: "Georgia";
-                font-size: 14px;
+                font-size: 19px;
                 font-weight: 1000;
             }
 
@@ -203,7 +203,7 @@ class ReminderItem(QWidget):
                 background: transparent;
                 color: #302116;
                 font-family: "Georgia";
-                font-size: 10px;
+                font-size: 16px;
                 font-weight: 800;
             }
 
@@ -215,7 +215,7 @@ class ReminderItem(QWidget):
                 border-radius: 3px;
                 padding: 1px 7px;
                 font-family: "Times New Roman";
-                font-size: 8px;
+                font-size: 12px;
                 font-weight: 1000;
             }
 
@@ -241,7 +241,7 @@ class ReminderItem(QWidget):
             "TodayReminderIcon" if today else "UpcomingReminderIcon"
         )
         icon_label.setAlignment(Qt.AlignCenter)
-        icon_label.setFixedWidth(20)
+        icon_label.setFixedWidth(25)
 
         text_column = QWidget()
         oled_style(text_column, "background: transparent; border: none;")
@@ -253,8 +253,8 @@ class ReminderItem(QWidget):
 
         text_label = AutoFitLabel(
             text,
-            min_size=8 if today else 7,
-            max_size=15 if today else 11,
+            min_size=11 if today else 10,
+            max_size=19 if today else 16,
             bold=True,
             alignment=Qt.AlignLeft | Qt.AlignVCenter,
             word_wrap=False,
@@ -274,7 +274,7 @@ class ReminderItem(QWidget):
                 "ReminderSendButton" if today else "UpcomingReminderSendButton"
             )
             send_button.setCursor(Qt.PointingHandCursor)
-            send_button.setFixedSize(88 if today else 82, 21 if today else 20)
+            send_button.setFixedSize(120 if today else 116, 30 if today else 28)
             send_button.clicked.connect(self.open_reminder_time_popup)
 
             layout.addWidget(send_button, 0, Qt.AlignRight | Qt.AlignVCenter)
@@ -408,7 +408,7 @@ class RemindersPanel(QWidget):
                 border-radius: 5px;
                 padding: 1px 7px;
                 font-family: "Times New Roman";
-                font-size: 9px;
+                font-size: 11px;
                 font-weight: 900;
             }
 
@@ -420,7 +420,7 @@ class RemindersPanel(QWidget):
             QLabel#TodayReminderGroupTitle,
             QLabel#UpcomingReminderGroupTitle {
                 font-family: "Times New Roman";
-                font-size: 8px;
+                font-size: 11px;
                 font-weight: 1000;
                 color: #9c6424;
                 letter-spacing: 1.4px;
@@ -442,7 +442,7 @@ class RemindersPanel(QWidget):
         self.setLayout(self.main_layout)
 
         title_row = QHBoxLayout()
-        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setContentsMargins(0, 0, 7, 0)
         title_row.setSpacing(8)
 
         title = QLabel("REMINDERS")
@@ -456,7 +456,8 @@ class RemindersPanel(QWidget):
         self.hide_button = QPushButton("Hide")
         self.hide_button.setObjectName("RemindersHideButton")
         self.hide_button.setCursor(Qt.PointingHandCursor)
-        self.hide_button.setFixedHeight(20)
+        self.hide_button.setFixedHeight(28)
+        self.hide_button.setMinimumWidth(52)
         self.hide_button.clicked.connect(self.hide_requested.emit)
 
         title_row.addWidget(

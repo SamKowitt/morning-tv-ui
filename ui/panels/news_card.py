@@ -19,7 +19,7 @@ class ResponsiveMiniHeadlineLabel(QLabel):
     Long titles stay the same size and end with an ellipsis.
     """
 
-    FONT_SIZE = 14
+    FONT_SIZE = 18
 
     def __init__(self, text=""):
         super().__init__()
@@ -63,6 +63,49 @@ class ResponsiveMiniHeadlineLabel(QLabel):
             visible_text,
         )
         painter.end()
+
+
+class BoundedPrimaryHeadlineLabel(AutoFitLabel):
+    """Fit lead headlines without changing the card layout."""
+
+    def fit_text(self):
+        if not self.auto_fit_enabled:
+            return
+
+        rect = self.contentsRect()
+        if rect.width() < 30 or rect.height() < 18 or not self.text():
+            return
+
+        width = max(1, rect.width() - 8)
+        height = max(1, rect.height() - 4)
+        selected = None
+
+        for pixels in range(31, 17, -1):
+            font = QFont("Georgia")
+            font.setPixelSize(pixels)
+            font.setBold(True)
+
+            bounds = QFontMetrics(font).boundingRect(
+                0, 0, width, 10000,
+                Qt.TextWordWrap | Qt.AlignLeft,
+                self.text()
+            )
+
+            if bounds.width() <= width and bounds.height() <= height:
+                selected = font
+                break
+
+        if selected is None:
+            selected = QFont("Georgia")
+            selected.setPixelSize(18)
+            selected.setBold(True)
+
+        current = self.font()
+
+        if (current.family() != selected.family()
+                or current.pixelSize() != selected.pixelSize()
+                or current.bold() != selected.bold()):
+            self.setFont(selected)
 
 
 class PaperRule(QFrame):
@@ -1896,6 +1939,7 @@ class NewsCard(QWidget):
             }
 
             QLabel#OldNewsHeadline {
+                font-size: 30pt;
                 font-family: "Georgia";
                 font-weight: 1000;
                 color: #15100b;
@@ -1914,12 +1958,12 @@ class NewsCard(QWidget):
 
         self.outer_layout = QVBoxLayout()
         outer = self.outer_layout
-        outer.setContentsMargins(14, 6, 13, 10)
+        outer.setContentsMargins(10, 6, 10, 10)
         outer.setSpacing(0)
         self.setLayout(outer)
 
         top_row = QHBoxLayout()
-        top_row.setContentsMargins(0, 0, 0, 0)
+        top_row.setContentsMargins(4, 0, 0, 0)
         top_row.setSpacing(5)
 
         self.top_source_label = QLabel(source)
@@ -2012,7 +2056,7 @@ class NewsCard(QWidget):
 
         self.text_layout = QVBoxLayout()
         text_layout = self.text_layout
-        text_layout.setContentsMargins(2, 0, 2, 0)
+        text_layout.setContentsMargins(6, 0, 2, 0)
         text_layout.setSpacing(1)
         self.text_panel.setLayout(text_layout)
 
@@ -2020,15 +2064,23 @@ class NewsCard(QWidget):
         self.kicker_label.setObjectName("OldNewsKicker")
         self.kicker_label.setAlignment(Qt.AlignLeft)
 
-        self.headline_label = AutoFitLabel(
+        self.headline_label = BoundedPrimaryHeadlineLabel(
             headline,
-            min_size=12,
-            max_size=34,
+            min_size=18,
+            max_size=31,
             bold=True,
             alignment=Qt.AlignLeft | Qt.AlignTop,
             word_wrap=True,
         )
         self.headline_label.setObjectName("OldNewsHeadline")
+        # MORNINGUI_V14_FIXED_HEADLINE
+        self.headline_label.set_auto_fit_enabled(False)
+        self.headline_label.setWordWrap(True)
+        _headline_font = QFont("Georgia", 30)
+        _headline_font.setBold(True)
+        self.headline_label.setFont(_headline_font)
+        self.text_panel.setMinimumHeight(96)  # MORNINGUI_VISUAL_V17  # MORNINGUI_VISUAL_V16
+        self.headline_label.set_auto_fit_enabled(True)
         self.headline_label.setCursor(Qt.PointingHandCursor)
 
         bottom_row = QHBoxLayout()
@@ -2051,8 +2103,8 @@ class NewsCard(QWidget):
         text_layout.addWidget(self.headline_label, 1)
 
         # Newspaper layout: headline above image, footer below image.
-        outer.addWidget(self.text_panel, 16)
-        outer.addWidget(self.image, 72)
+        outer.addWidget(self.text_panel, 18)
+        outer.addWidget(self.image, 70)
 
         # Paper gap between the bottom of the article image and the newspaper footer.
         outer.addSpacing(5)
@@ -2061,6 +2113,39 @@ class NewsCard(QWidget):
         outer.addWidget(PaperRule())
 
         outer.addLayout(bottom_row, 4)
+
+    def _mw16_fit_primary_text_height(self):
+        # MORNINGUI_VISUAL_V16
+        # Measure each headline so long stories are not cut off.
+        if not self.image.isVisible() or not self.headline_label.isVisible():
+            return
+
+        from PySide6.QtCore import QRect
+        from PySide6.QtGui import QFontMetrics
+
+        margins = self.text_layout.contentsMargins()
+        width = (
+            self.text_panel.width()
+            - margins.left()
+            - margins.right()
+        )
+
+        if width < 240:
+            return
+
+        metrics = QFontMetrics(self.headline_label.font())
+
+        required = metrics.boundingRect(
+            QRect(0, 0, width, 4096),
+            Qt.TextWordWrap,
+            self.headline_label.text()
+        ).height()
+
+        header = self.kicker_label.sizeHint().height() + 18
+        target = max(96, min(210, required + header - 13))  # MORNINGUI_VISUAL_V17
+
+        if self.text_panel.minimumHeight() != target:
+            self.text_panel.setMinimumHeight(target)
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -2204,10 +2289,10 @@ class NewsCard(QWidget):
 
     def update_article(self, article):
         self.clear_page2_widgets()
-        self.outer_layout.setStretchFactor(self.text_panel, 16)
-        self.outer_layout.setStretchFactor(self.image, 72)
-        self.outer_layout.setStretch(2, 16)
-        self.outer_layout.setStretch(3, 72)
+        self.outer_layout.setStretchFactor(self.text_panel, 18)
+        self.outer_layout.setStretchFactor(self.image, 70)
+        self.outer_layout.setStretch(2, 18)
+        self.outer_layout.setStretch(3, 70)
         self.outer_layout.setStretch(6, 4)
         self.text_layout.setStretchFactor(self.headline_label, 1)
         self.source = article.source
@@ -2223,6 +2308,14 @@ class NewsCard(QWidget):
             getattr(article, "breaking_headline", "") or ""
         )
         self.headline_label.setText(article.title)
+        # MORNINGUI_V14_PRESERVE_FIXED_SIZE
+        self.headline_label.set_auto_fit_enabled(False)
+        _headline_font = QFont("Georgia", 30)
+        _headline_font.setBold(True)
+        self.headline_label.setFont(_headline_font)
+        # MORNINGUI_VISUAL_V16: fit headline height
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(0, self._mw16_fit_primary_text_height)
         self.update()
 
         if article.source == "FOX NEWS":

@@ -42,7 +42,8 @@ class DateCardWeatherIcon(QLabel):
         self.setPixmap(pixmap)
 
     def set_icon(self, icon):
-        self.icon = str(icon or "")
+        normalized = str(icon or "").replace("\ufe0f", "").strip()
+        self.icon = "" if normalized == "🌙" else str(icon or "")
         self.setVisible(bool(self.icon))
         self.refresh_icon_art()
 
@@ -128,6 +129,9 @@ class DateCard(QWidget):
             word_wrap=False,
         )
         self.date_number_label.setObjectName("DateNumberWeather")
+        self.date_number_label.setTextFormat(Qt.RichText)
+        self.date_number_label.set_auto_fit_enabled(False)
+        self.date_number_label.setContentsMargins(10, 0, 0, 0)
 
         date_block.addWidget(self.month_label, 24)
         date_block.addWidget(self.date_number_label, 76)
@@ -138,18 +142,25 @@ class DateCard(QWidget):
 
         self.current_weather_label = AutoFitLabel(
             "--°",
-            min_size=20,
-            max_size=40,
+            min_size=28,
+            max_size= 56,
             bold=True,
             alignment=Qt.AlignRight | Qt.AlignBottom,
             word_wrap=False,
         )
         self.current_weather_label.setObjectName("DateCurrentWeather")
+        self.current_weather_label.setContentsMargins(0, 0, 20, 0)
+        self.current_weather_label.set_auto_fit_enabled(False)
+        self.current_weather_label.setMinimumHeight(38)
+        _mui_temp_font = QFont(self.current_weather_label.font())
+        _mui_temp_font.setPointSize(26)
+        _mui_temp_font.setBold(True)
+        self.current_weather_label.setFont(_mui_temp_font)
 
         self.low_high_label = AutoFitLabel(
             "H --°  L --°",
-            min_size=12,
-            max_size=24,
+            min_size=18,
+            max_size= 36,
             bold=True,
             alignment=Qt.AlignRight | Qt.AlignBottom,
             word_wrap=False,
@@ -309,7 +320,7 @@ class DateCard(QWidget):
         if not hasattr(self, "footer_overlay"):
             return
 
-        footer_height = max(24, int(self.height() * 0.075))
+        footer_height = max(31, int(self.height() * 0.075))
         left_margin = 14
         right_margin = 12
         bottom_offset = 4
@@ -386,7 +397,15 @@ class DateCard(QWidget):
             now.strftime("%-I:%M %p").lstrip("0")
         )
         self.month_label.setText(now.strftime("%B"))
-        self.date_number_label.setText(now.strftime("%-d"))
+        _day = now.day
+        _suffix = (
+            "th" if 11 <= _day % 100 <= 13
+            else {1: "st", 2: "nd", 3: "rd"}.get(_day % 10, "th")
+        )
+        self.date_number_label.setText(
+            f'<span style="font-size:38pt; font-weight:700">{_day}</span>'
+            f'<sup style="font-size:16pt; font-weight:700">{_suffix}</sup>'
+        )
 
         self.sync_day_and_time_font_sizes()
         self.apply_text_color()
@@ -650,3 +669,177 @@ class DateCard(QWidget):
         self.apply_text_color()
 # OLED_CONTRAST_V4
 from ui.oled_text import oled_text_draw, oled_style, oled_html, oled_layout_draw
+
+# MORNINGUI_WEATHER_V13_START
+
+from PySide6.QtWidgets import QLabel as _MW13Label
+from PySide6.QtCore import Qt as _MW13Qt, QTimer as _MW13Timer
+from PySide6.QtGui import QFont as _MW13Font, QFontMetrics as _MW13Metrics
+from ui.oled_text import oled_style as _mw13_oled_style
+from datetime import datetime as _MW13Datetime
+
+_mw13_old_update_date = DateCard.update_date
+_mw13_old_apply_color = DateCard.apply_text_color
+_mw13_old_resize = DateCard.resizeEvent
+
+def _mw13_position_suffix(self):
+    label = getattr(self, "date_number_label", None)
+    suffix = getattr(self, "_mw13_suffix", None)
+
+    if label is None or suffix is None or label.width() < 5:
+        return
+
+    day = _MW13Datetime.now().day
+    number_font = _MW13Font(label.font())
+    rect = label.contentsRect()
+    available = max(1, rect.width())
+
+    # Keep the original automatically fitted number size.
+    # Only reduce it when a two-digit date needs suffix space.
+    for _ in range(70):
+        number_metrics = _MW13Metrics(number_font)
+        suffix_font = _MW13Font(number_font)
+
+        suffix_font.setPointSize(
+            max(
+                10,
+                max(21, min(30, round(number_font.pointSizeF() * 0.82)))
+            )
+        )
+
+        suffix_metrics = _MW13Metrics(suffix_font)
+
+        required = (
+            number_metrics.horizontalAdvance(str(day))
+            + 3
+            + suffix_metrics.horizontalAdvance(suffix.text())
+        )
+
+        if required <= available or number_font.pointSize() <= 25:
+            break
+
+        number_font.setPointSize(number_font.pointSize() - 1)
+
+    if number_font.pointSize() != label.font().pointSize():
+        label.set_auto_fit_enabled(False)
+        label.setFont(number_font)
+
+    suffix.setFont(suffix_font)
+
+    x = (
+        rect.left()
+        + number_metrics.horizontalAdvance(str(day))
+        + 3
+    )
+
+    y = rect.top() + 12
+
+    suffix.setGeometry(
+        x,
+        y,
+        max(
+            1,
+            min(
+                suffix_metrics.horizontalAdvance(suffix.text()) + 4,
+                label.width() - x,
+            )
+        ),
+        max(16, suffix_metrics.height() + 2),
+    )
+
+    suffix.show()
+    suffix.raise_()
+
+def _mw13_update_date(self):
+    _mw13_old_update_date(self)
+
+    label = self.date_number_label
+    day = _MW13Datetime.now().day
+
+    # Restore the original plain-number AutoFitLabel.
+    label.setTextFormat(_MW13Qt.PlainText)
+    label.set_auto_fit_enabled(True)
+    label.setText(str(day))
+
+    suffix = getattr(self, "_mw13_suffix", None)
+
+    if suffix is None:
+        suffix = _MW13Label(label)
+        suffix.setAttribute(
+            _MW13Qt.WA_TransparentForMouseEvents,
+            True
+        )
+        suffix.setAutoFillBackground(False)
+        suffix.setAlignment(
+            _MW13Qt.AlignLeft | _MW13Qt.AlignTop
+        )
+        self._mw13_suffix = suffix
+
+    suffix_text = (
+        "th"
+        if 11 <= day % 100 <= 13
+        else {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
+    )
+
+    suffix.setText(suffix_text)
+
+    _mw13_oled_style(
+        suffix,
+        f"color: {self.text_color}; background: transparent;"
+    )
+
+    _mw13_position_suffix(self)
+
+    _MW13Timer.singleShot(
+        0,
+        lambda: _mw13_position_suffix(self)
+    )
+
+def _mw13_apply_text_color(self):
+    _mw13_old_apply_color(self)
+
+    label = getattr(self, "current_weather_label", None)
+
+    if label is not None:
+        # Restore the previous horizontal position.
+        label.setContentsMargins(0, 0, 20, 0)
+
+        # Actually enlarge the rendered text, not just AutoFit limits.
+        label.set_auto_fit_enabled(False)
+        label.setMinimumHeight(46)
+
+        font = _MW13Font(label.font())
+        font.setPointSize(34)
+        font.setBold(True)
+        label.setFont(font)
+
+        _mw13_oled_style(
+            label,
+            f"color: {self.text_color}; "
+            "font-size: 34pt; "
+            "font-weight: 700; "
+            "background: transparent;"
+        )
+
+    suffix = getattr(self, "_mw13_suffix", None)
+
+    if suffix is not None:
+        _mw13_oled_style(
+            suffix,
+            f"color: {self.text_color}; background: transparent;"
+        )
+
+def _mw13_resize(self, event):
+    _mw13_old_resize(self, event)
+
+    if hasattr(self, "_mw13_suffix"):
+        _MW13Timer.singleShot(
+            0,
+            lambda: _mw13_position_suffix(self)
+        )
+
+DateCard.update_date = _mw13_update_date
+DateCard.apply_text_color = _mw13_apply_text_color
+DateCard.resizeEvent = _mw13_resize
+
+# MORNINGUI_WEATHER_V13_END

@@ -195,6 +195,25 @@ class WeatherRow(QWidget):
             word_wrap=False,
         )
 
+        # MORNINGUI_VISUAL_V16: consistent hourly typography.
+        self.hour_label.set_auto_fit_enabled(False)
+
+        _mw_hour_font = QFont(self.hour_label.font())
+        _mw_hour_font.setPointSize(29)  # MORNINGUI_VISUAL_V17
+        _mw_hour_font.setBold(True)
+        self.hour_label.setFont(_mw_hour_font)
+
+        # MORNINGUI_VISUAL_V17
+        # Restore original temperature auto-fitting.
+        # MORNINGUI_TEMPERATURE_V18
+        # Restore medium-sized hourly temperatures.
+        # Keep the existing width and degree symbol.
+        self.temp_label.set_auto_fit_enabled(False)
+        _mw18_temp_font = QFont(self.temp_label.font())
+        _mw18_temp_font.setPointSize(28)
+        _mw18_temp_font.setBold(True)
+        self.temp_label.setFont(_mw18_temp_font)
+
         self.detail_widget = QWidget()
         self.detail_widget.setMinimumWidth(0)
         self.detail_widget.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
@@ -214,6 +233,7 @@ class WeatherRow(QWidget):
             word_wrap=False,
         )
         self.precipitation_detail_label.set_auto_fit_enabled(False)
+        self.precipitation_detail_label.setWordWrap(False)
 
         self.precipitation_icon = ""
         self.precipitation_icon_label = QLabel(self)
@@ -243,7 +263,7 @@ class WeatherRow(QWidget):
             self.solar_detail_label,
         ]:
             detail_font = QFont(detail_label.font())
-            detail_font.setPointSize(11)
+            detail_font.setPointSize(14)
             detail_font.setBold(True)
             detail_label.setFont(detail_font)
 
@@ -261,7 +281,8 @@ class WeatherRow(QWidget):
         self.solar_detail_label.setMinimumWidth(0)
         # One compact precipitation line sits directly above the solar line.
         # This keeps the forecast emoji below the moon-art zone.
-        self.precipitation_detail_label.setFixedHeight(16)
+        self.precipitation_detail_label.setMinimumHeight(18)
+        self.precipitation_detail_label.setMaximumHeight(36)
         self.precipitation_detail_label.setParent(self)
         self.precipitation_detail_label.hide()
         self.solar_detail_label.setFixedHeight(0)
@@ -281,11 +302,13 @@ class WeatherRow(QWidget):
         # same share from the unused detail container. This shifts the main
         # forecast emoji and temperature to the right while preserving their
         # existing widths, font sizes, and artwork sizes.
-        layout.addWidget(self.hour_label, 36)
+        layout.addWidget(self.hour_label, 42)
         layout.addSpacing(2)
         layout.addWidget(self.icon_label, 18)
-        layout.addWidget(self.temp_label, 24)
-        layout.addWidget(self.detail_widget, 22)
+        layout.addSpacing(5)
+        layout.addWidget(self.temp_label, 32)
+        self.temp_label.setContentsMargins(18, 0, 0, 0)
+        layout.addWidget(self.detail_widget, 8)
 
         self.apply_text_colors()
         self.position_precipitation_detail()
@@ -358,12 +381,12 @@ class WeatherRow(QWidget):
         if temp_rect.width() <= 0 or temp_rect.height() <= 0:
             return precip_rect, solar_rect
 
-        line_height = 16
+        line_height = 19
         # Move precipitation and solar-event details 2 px lower.
         bottom_margin = 2
         right_margin = 8
         detail_gap = 8
-        precipitation_left_shift = 11
+        precipitation_left_shift = 14
         solar_vertical_offset = 2
         bottom_y = max(0, self.height() - line_height - bottom_margin)
 
@@ -385,6 +408,21 @@ class WeatherRow(QWidget):
                 0,
                 temp_rect.left() - 14 - precipitation_left_shift,
             )
+            # MORNINGUI_V12B_DYNAMIC_PRECIP_WIDTH
+            _mui_advance = QFontMetrics(
+                self.precipitation_detail_label.font()
+            ).horizontalAdvance(precip_text.replace("\n", " "))
+            _mui_needed = _mui_advance + (
+                18 if getattr(self, "precipitation_icon", "") else 0
+            ) + 8
+            if _mui_needed > precip_width:
+                precip_x = min(
+                    precip_x, max(0, self.width() - _mui_needed - 2)
+                )
+                precip_width = min(
+                    max(1, self.width() - precip_x - 2),
+                    _mui_needed,
+                )
             precip_y = min(
                 bottom_y,
                 temp_rect.top() + int(temp_rect.height() * 0.69) + 2,
@@ -412,7 +450,7 @@ class WeatherRow(QWidget):
             return precip_rect, solar_rect
 
         solar_font = QFont("Times New Roman")
-        solar_font.setPointSize(10)
+        solar_font.setPointSize(15)
         solar_font.setBold(True)
         solar_metrics = QFontMetrics(solar_font)
         solar_width = min(
@@ -421,11 +459,12 @@ class WeatherRow(QWidget):
         )
 
         # Keep sunrise/sunset pinned to the far-right side.
+        solar_height = max(line_height, solar_metrics.height() + 2)
         solar_rect = QRect(
             available_right - solar_width,
-            max(0, bottom_y - solar_vertical_offset),
+            max(0, self.height() - solar_height - bottom_margin - 1),
             solar_width,
-            line_height,
+            solar_height,
         )
 
         if precip_text:
@@ -496,19 +535,38 @@ class WeatherRow(QWidget):
             return
 
         precip_rect, _solar_rect = self.detail_text_layout()
+        if "\n" in detail_text and precip_rect.isValid():
+            precip_rect = QRect(
+                precip_rect.left(),
+                max(0, precip_rect.top() - 18),
+                precip_rect.width(),
+                precip_rect.height() + 18,
+            )
 
         if not precip_rect.isValid():
             self.precipitation_detail_label.hide()
             self.precipitation_icon_label.hide()
             return
 
+        precip_rect.translate(
+            -2,
+            min(3, max(0, self.height() - precip_rect.bottom() - 1))
+        )
+        # Move the complete precipitation group together.
+        precip_rect.moveLeft(max(0, precip_rect.left() - 8))
+        precip_rect.moveTop(min(
+            max(0, self.height() - precip_rect.height() - 1),
+            precip_rect.top() + 4,
+        ))
+        # MORNINGUI_V11B_PRECIP_ICON_LEFT
+        precip_rect.moveLeft(max(0, precip_rect.left() - 7))
         text_rect = QRect(precip_rect)
         precipitation_icon = str(
             getattr(self, "precipitation_icon", "") or ""
         ).strip()
 
         if precipitation_icon:
-            icon_size = max(10, min(14, precip_rect.height() - 2))
+            icon_size = max(13, min(18, precip_rect.height() - 2))
             icon_y = precip_rect.top() + max(
                 0,
                 (precip_rect.height() - icon_size) // 2,
@@ -531,6 +589,12 @@ class WeatherRow(QWidget):
         else:
             self.precipitation_icon_label.hide()
 
+        # MORNINGUI_V11B_PRECIP_TEXT_POSITION
+        text_rect.moveLeft(max(0, text_rect.left() - 1))
+        text_rect.moveTop(min(
+            max(0, self.height() - text_rect.height()),
+            text_rect.top() + 5,
+        ))
         self.precipitation_detail_label.setGeometry(text_rect)
         self.precipitation_detail_label.show()
         self.precipitation_detail_label.raise_()
@@ -742,7 +806,7 @@ class WeatherRow(QWidget):
                 painter.save()
 
                 solar_font = QFont("Times New Roman")
-                solar_font.setPointSize(10)
+                solar_font.setPointSize(15)
                 solar_font.setBold(True)
                 painter.setFont(solar_font)
 
@@ -786,7 +850,7 @@ class WeatherRow(QWidget):
         solar_detail_text="",
         moon_datetime=None,
     ):
-        temp_text = f"{temperature}°"
+        temp_text = f"{str(temperature).strip().rstrip(chr(176))}°"  # MORNINGUI_VISUAL_V16
 
         # Force lightning storms to use lightning bolt icon everywhere.
         if condition == "storm":
@@ -1088,9 +1152,9 @@ class WeatherRow(QWidget):
         painter.drawRoundedRect(rect.adjusted(5, 5, -5, -5), 14, 14)
 
         # Brighter sun glow behind clouds for daytime partly-cloudy rows.
-        sun_x = rect.left() + int(w * 0.80)
+        sun_x = rect.left() + int(w * (0.80 if self.objectName() == "DateWeatherBackground" else 0.83))
         sun_y = rect.top() + int(h * 0.28)
-        sun_radius = max(9, min(w, h) * 0.13)
+        sun_radius = max(9, min(w, h) * (0.13 if self.objectName() == "DateWeatherBackground" else 0.15))
 
         painter.setOpacity(0.14)
         painter.setPen(Qt.NoPen)
@@ -1203,9 +1267,9 @@ class WeatherRow(QWidget):
         painter.drawRoundedRect(rect.adjusted(5, 5, -5, -5), 14, 14)
 
         # Fixed sun in the upper-right area
-        sun_x = rect.left() + int(w * 0.82)
+        sun_x = rect.left() + int(w * (0.82 if self.objectName() == "DateWeatherBackground" else 0.85))
         sun_y = rect.top() + int(h * 0.28)
-        sun_radius = max(9, min(w, h) * 0.13)
+        sun_radius = max(9, min(w, h) * (0.13 if self.objectName() == "DateWeatherBackground" else 0.15))
 
         # Sun glow
         for layer in range(4):
@@ -1736,12 +1800,15 @@ class WeatherRow(QWidget):
         # Keep the moon fully inside the upper-right of the hourly card.
         # The lower-right detail band remains reserved for precipitation and
         # sunrise/sunset text.
-        moon_x_ratio = getattr(self, "moon_x_ratio", 0.86)
+        moon_x_ratio = getattr(
+            self, "moon_x_ratio",
+            0.86 if self.objectName() == "DateWeatherBackground" else 0.89
+        )
         moon_y_ratio = getattr(self, "moon_y_ratio", 0.22)
 
         moon_x = rect.left() + int(w * moon_x_ratio)
         moon_y = rect.top() + int(h * moon_y_ratio)
-        moon_radius = max(6, min(w, h) * 0.075)
+        moon_radius = max(6, min(w, h) * (0.075 if self.objectName() == "DateWeatherBackground" else 0.100))
 
         # Do not draw a circular halo behind visible phases. The moon renderer
         # below paints only the illuminated phase shape, except at new moon.
@@ -2056,7 +2123,7 @@ class WeatherPanel(QWidget):
                         f'{precipitation_text}"'
                     )
                     precipitation_display_text = (
-                        f"{chance_text}\n{amount_text}"
+                        f"{chance_text}  {amount_text}"
                     )
                 else:
                     precipitation_display_text = precipitation_detail
@@ -2169,3 +2236,110 @@ def _morningui_oled_nav_sync():
             widget.update()
         except (RuntimeError, TypeError):
             pass
+
+# MORNINGUI_WEATHER_V13_START
+
+import re as _mw13_re
+from PySide6.QtGui import QFontMetrics as _MW13Metrics
+
+_mw13_old_update_weather = WeatherRow.update_weather
+_mw13_old_position = WeatherRow.position_precipitation_detail
+
+def _mw13_update_weather(self, *args, **kwargs):
+    if "precipitation_detail_text" in kwargs:
+        raw = str(
+            kwargs["precipitation_detail_text"] or ""
+        )
+
+        flattened = " ".join(
+            raw.replace("<br>", " ")
+               .replace("<br/>", " ")
+               .split()
+        )
+
+        chance = _mw13_re.search(
+            r"(?<!\d)(\d{1,3}%)(?!\w)",
+            flattened
+        )
+
+        amount = _mw13_re.search(
+            r'\(?([0-9]+(?:\.[0-9]+)?")\)?',
+            flattened
+        )
+
+        if chance is not None and amount is not None:
+            flattened = (
+                f"{chance.group(1)}  ({amount.group(1)})"
+            )
+        elif amount is not None:
+            flattened = f"({amount.group(1)})"
+
+        kwargs["precipitation_detail_text"] = flattened
+
+    return _mw13_old_update_weather(
+        self, *args, **kwargs
+    )
+
+def _mw13_position_precipitation(self):
+    _mw13_old_position(self)
+
+    label = getattr(
+        self, "precipitation_detail_label", None
+    )
+    icon = getattr(
+        self, "precipitation_icon_label", None
+    )
+
+    if label is None or not label.isVisible() or not label.text():
+        return
+
+    # Move icon and text together, preserving their height.
+    shift = min(
+        4,
+        max(
+            0,
+            icon.x()
+            if icon is not None and icon.isVisible()
+            else label.x()
+        )
+    )
+
+    if icon is not None and icon.isVisible():
+        icon.move(icon.x() - shift, icon.y())
+
+    label.move(
+        max(0, label.x() - shift),
+        label.y()
+    )
+
+    label.setWordWrap(False)
+
+    # Give percentage + parenthesized amount enough room.
+    metrics = _MW13Metrics(label.font())
+
+    required = (
+        metrics.horizontalAdvance(label.text()) + 5
+    )
+
+    available = max(
+        1,
+        self.width() - label.x() - 2
+    )
+
+    label.resize(
+        max(
+            1,
+            min(
+                available,
+                max(label.width(), required)
+            )
+        ),
+        label.height()
+    )
+
+WeatherRow.update_weather = _mw13_update_weather
+WeatherRow.position_precipitation_detail = (
+    _mw13_position_precipitation
+)
+
+# MORNINGUI_WEATHER_V13_END

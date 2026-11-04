@@ -287,7 +287,9 @@ class StocksPanel(QWidget):
         self.hide_button = QPushButton("Hide")
         self.hide_button.setObjectName("MarketTapeHideButton")
         self.hide_button.setCursor(Qt.PointingHandCursor)
-        self.hide_button.setFixedHeight(18)
+        self.hide_button.setMinimumHeight(21)
+        self.hide_button.setMinimumWidth(52)
+        self.hide_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
         self.hide_button.clicked.connect(self.hide_requested.emit)
         oled_style(self.hide_button, """
             QPushButton#MarketTapeHideButton {
@@ -297,7 +299,7 @@ class StocksPanel(QWidget):
                 border-radius: 5px;
                 padding: 1px 7px;
                 font-family: "Times New Roman";
-                font-size: 8px;
+                font-size: 11px;
                 font-weight: 900;
             }
 

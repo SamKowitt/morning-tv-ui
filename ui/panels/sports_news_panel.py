@@ -234,7 +234,7 @@ class SportsNewsPanel(QWidget):
 
         # Ordinary ESPN editorial leads keep the existing headline-only
         # presentation.
-        headline_font = QFont("Georgia", 22)
+        headline_font = QFont("Georgia", 30)
         headline_font.setBold(True)
 
         painter.setFont(headline_font)
@@ -1212,7 +1212,7 @@ class SportsNewsPanel(QWidget):
             option.setWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
 
             font = QFont("Georgia")
-            font.setPointSizeF(10.5)
+            font.setPointSizeF(15.0)
             font.setBold(True)
             font.setStretch(100)
 
