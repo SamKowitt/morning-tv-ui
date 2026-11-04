@@ -809,14 +809,14 @@ def _mw13_apply_text_color(self):
         label.setMinimumHeight(46)
 
         font = _MW13Font(label.font())
-        font.setPointSize(34)
+        font.setPointSize(32)
         font.setBold(True)
         label.setFont(font)
 
         _mw13_oled_style(
             label,
             f"color: {self.text_color}; "
-            "font-size: 34pt; "
+            "font-size: 32pt; "
             "font-weight: 700; "
             "background: transparent;"
         )
@@ -843,3 +843,30 @@ DateCard.apply_text_color = _mw13_apply_text_color
 DateCard.resizeEvent = _mw13_resize
 
 # MORNINGUI_WEATHER_V13_END
+
+
+# MORNINGUI_CURRENT_TEMP_36PT
+_mw36_original_apply_text_color = DateCard.apply_text_color
+
+def _mw36_apply_text_color(self):
+    _mw36_original_apply_text_color(self)
+
+    from PySide6.QtGui import QFont
+
+    label = self.current_weather_label
+    label.set_auto_fit_enabled(False)
+
+    font = QFont(label.font())
+    font.setPointSize(36)
+    font.setBold(True)
+    label.setFont(font)
+
+    label.setMinimumHeight(max(54, label.minimumHeight()))
+    label.setStyleSheet(
+        f"color: {self.text_color}; "
+        "background: transparent; "
+        "font-size: 36pt; "
+        "font-weight: 900;"
+    )
+
+DateCard.apply_text_color = _mw36_apply_text_color
