@@ -4,6 +4,7 @@ Item {
     id: root
     width: 480
     height: 78
+    property bool dateCardFullBleed: false
 
     property string condition: "clear"   // clear, partly, cloudy, fog, snow, heavysnow
     property string phase: "day"         // dawn, day, dusk, night
@@ -161,7 +162,7 @@ Item {
 
         Rectangle {
             anchors.fill: parent
-            radius: 14
+            radius: root.dateCardFullBleed ? 0 : 14
             gradient: Gradient {
                 GradientStop { position: 0; color: root.topColor() }
                 GradientStop { position: 1; color: root.bottomColor() }
@@ -183,10 +184,11 @@ Item {
         Item {
             visible: root.showSun() &&
                      (root.condition === "clear" || root.condition === "partly")
-            x: 384
+            x: 414
             y: -15
             width: 64
             height: 64
+            scale: 0.5
 
             Rectangle {
                 anchors.centerIn: parent

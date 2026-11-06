@@ -653,6 +653,11 @@ class WeatherRow(QWidget):
         oled_style(self.solar_detail_label, font_css)
 
     def should_draw_night_art(self):
+        # Match the V41 GPU sunrise/sunset phase for
+        # the underlying rounded hourly card border.
+        v41_phase = getattr(self, "_v41_visual_phase", None)
+        if v41_phase in ("day", "dawn", "dusk", "night"):
+            return v41_phase == "night"
         return bool(self.is_night)
 
     def paintEvent(self, event):

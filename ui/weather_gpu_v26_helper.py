@@ -130,6 +130,9 @@ class _WeatherGPUState(QObject):
             pass
 
         for row in self.panel.row_widgets:
+            if hasattr(row, "_v41_visual_phase"):
+                del row._v41_visual_phase
+                row.update()
             if not row.timer.isActive():
                 row.timer.start(50)
 
@@ -263,7 +266,7 @@ class _WeatherGPUState(QObject):
                     "rainy": condition in ("rain", "storm"),
                     "cloudy": condition in ("cloud", "fog"),
                     "mode": _v41_mode(row),
-                    "phase": _v41_phase(row),
+                    "phase": _v41_border_phase(row),
                 })
 
             if not cards:
@@ -686,7 +689,7 @@ def _v41_foreground_image(row, filename):
     painter = QPainter(img)
 
     dark = (
-        bool(getattr(row, "is_night", False))
+        _v41_phase(row) == "night"
         or str(getattr(row, "condition", "")).lower()
         in ("rain", "storm")
     )
@@ -887,20 +890,151 @@ def _v41_mode(row):
 
 
 def _v41_phase(row):
+    """Choose hourly artwork from forecast sunrise/sunset events."""
+    from datetime import datetime, timedelta
+    import re
+
     data = getattr(row, "weather_data", None)
 
-    solar = str(
-        getattr(data, "solar_event_label", "") or ""
-    ).lower()
+    def start_of(forecast):
+        raw = str(
+            getattr(forecast, "forecast_start", "") or ""
+        ).strip()
+        try:
+            return datetime.fromisoformat(
+                raw.replace("Z", "+00:00")
+            )
+        except (TypeError, ValueError):
+            return None
 
-    if solar == "sunrise":
-        return "dawn"
+    target = start_of(data)
+    owner = (
+        row.parentWidget()
+        if hasattr(row, "parentWidget") else None
+    )
 
-    if solar == "sunset":
-        return "dusk"
+    for _ in range(6):
+        if owner is None or hasattr(owner, "current_rows"):
+            break
+        owner = (
+            owner.parentWidget()
+            if hasattr(owner, "parentWidget") else None
+        )
 
+    forecasts = list(
+        getattr(owner, "current_rows", []) or []
+    )
+    if data is not None:
+        forecasts.append(data)
+
+    events = set()
+
+    for forecast in forecasts:
+        label = str(
+            getattr(forecast, "solar_event_label", "")
+            or ""
+        ).strip().lower()
+
+        if label not in ("sunrise", "sunset"):
+            continue
+
+        raw_time = str(
+            getattr(forecast, "solar_event_time", "")
+            or ""
+        ).strip().lower()
+
+        match = re.fullmatch(
+            r"(\d{1,2}):(\d{2})\s*([ap]m)?",
+            raw_time
+        )
+
+        hour_start = start_of(forecast)
+
+        if match is None or hour_start is None:
+            continue
+
+        hour = int(match.group(1))
+        minute = int(match.group(2))
+        meridiem = match.group(3)
+
+        if meridiem:
+            if not 1 <= hour <= 12:
+                continue
+            hour = hour % 12 + (
+                12 if meridiem == "pm" else 0
+            )
+
+        if not (
+            0 <= hour <= 23
+            and 0 <= minute <= 59
+        ):
+            continue
+
+        when = hour_start.replace(
+            hour=hour,
+            minute=minute,
+            second=0,
+            microsecond=0
+        )
+
+        events.add((when, label))
+
+    if target is not None and events:
+        ordered = sorted(events)
+        hour_end = target + timedelta(hours=1)
+
+        # Keep dawn/dusk for the event's hour.
+        within = [
+            (moment, kind)
+            for moment, kind in ordered
+            if target <= moment < hour_end
+        ]
+
+        if within:
+            return (
+                "dawn"
+                if within[0][1] == "sunrise"
+                else "dusk"
+            )
+
+        before = [
+            (moment, kind)
+            for moment, kind in ordered
+            if moment <= target
+        ]
+
+        if before:
+            return (
+                "day"
+                if before[-1][1] == "sunrise"
+                else "night"
+            )
+
+        after = [
+            (moment, kind)
+            for moment, kind in ordered
+            if moment > target
+        ]
+
+        if after:
+            return (
+                "night"
+                if after[0][1] == "sunrise"
+                else "day"
+            )
+
+    # Fallback only when solar-event data is unavailable.
     return (
         "night"
         if bool(getattr(row, "is_night", False))
         else "day"
     )
+
+
+# V41: use one phase for GPU artwork and QWidget border.
+def _v41_border_phase(row):
+    phase = _v41_phase(row)
+    if getattr(row, "_v41_visual_phase", None) != phase:
+        row._v41_visual_phase = phase
+        row.update()
+    return phase

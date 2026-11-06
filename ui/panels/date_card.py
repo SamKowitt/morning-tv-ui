@@ -426,6 +426,15 @@ class DateCard(QWidget):
             font.setBold(True)
             label.setFont(font)
 
+        # Keep the original font size. Allow the clock's
+        # full glyph height, including the 'p' descender.
+        self.current_time_label.setMinimumHeight(
+            max(
+                40,
+                self.current_time_label.fontMetrics().height() + 6
+            )
+        )
+
 
     def refresh_clock(self):
         self.update_date()
@@ -462,7 +471,7 @@ class DateCard(QWidget):
             self.background_weather_row
         )
 
-        self.weather_icon_overlay.set_icon(display_icon)
+        self.weather_icon_overlay.set_icon("")
         self.position_weather_icon_overlay()
 
         self.current_weather_label.setText(f"{row.temperature}°")

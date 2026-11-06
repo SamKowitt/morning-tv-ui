@@ -17,7 +17,7 @@ ASSETS = (
 
 SCENE = (
     Path(__file__).resolve().parent
-    / "weather_gpu_v26_data/contained_weather.qml"
+    / "weather_gpu_v26_data/v41_release/V41DateCardScene.qml"
 )
 
 FLAG = Path.home() / ".config/morningui/gpu_date_v27_enabled"
@@ -125,35 +125,39 @@ class _CurrentWeatherGPU(QObject):
             return
 
         try:
-            # Snapshot original artwork without the GPU layer.
-            self.view.hide()
-            QApplication.processEvents()
 
-            image = ASSETS / "v27_current_weather.png"
-            image.parent.mkdir(parents=True, exist_ok=True)
+            # V41 current-hour artwork.
+            # Reuse the approved nine-hour QML scene, but
+            # supply only one card at the DateCard's real size.
+            # No old WeatherRow screenshot or painted sky.
+            from ui.weather_gpu_v26_helper import (
+                _v41_mode, _v41_phase
+            )
 
-            if not self.row.grab().save(str(image), "PNG"):
-                raise RuntimeError(
-                    "Could not snapshot current weather artwork"
-                )
-
+            forecast_row = (
+                getattr(self, "source_row", None) or self.row
+            )
             w = self.row.width()
             h = self.row.height()
-            condition = str(self.row.condition).lower()
+
+            mode = _v41_mode(forecast_row)
+            phase = _v41_phase(forecast_row)
 
             self.view.rootObject().setProperty("cards", [{
                 "x": 0,
                 "y": 0,
                 "w": w,
                 "h": h,
-                "url": (
-                    image.as_uri()
-                    + "?v="
-                    + str(image.stat().st_mtime_ns)
-                ),
-                "rainy": condition in ("rain", "storm"),
-                "cloudy": condition in ("cloud", "fog"),
+                "url": "",
+                "mode": mode,
+                "phase": phase,
             }])
+
+            print(
+                "V41_DATECARD_SCENE",
+                mode, phase, w, h,
+                flush=True
+            )
 
             self.view.setGeometry(self.row.rect())
 
@@ -247,6 +251,7 @@ def install(cls):
         gpu = getattr(self, "_v27_current_gpu", None)
 
         if gpu is not None:
+            gpu.source_row = row
             gpu.schedule(300)
 
         return result
