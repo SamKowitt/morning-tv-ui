@@ -870,3 +870,7 @@ def _mw36_apply_text_color(self):
     )
 
 DateCard.apply_text_color = _mw36_apply_text_color
+
+# MORNINGUI_DATE_GPU_V27
+from ui.weather_date_gpu_v27 import install as _v27_install_current
+_v27_install_current(DateCard)

@@ -1,3 +1,4 @@
+from functools import lru_cache
 import math
 import random
 import sys
@@ -92,6 +93,7 @@ def weather_emoji_asset_path(icon):
     return asset_path if asset_path.is_file() else None
 
 
+@lru_cache(maxsize=32)
 def weather_emoji_pixmap(icon, width, height):
     asset_path = weather_emoji_asset_path(icon)
 
@@ -109,6 +111,24 @@ def weather_emoji_pixmap(icon, width, height):
         Qt.KeepAspectRatio,
         Qt.SmoothTransformation,
     )
+
+
+# MORNINGUI_OPT_V20: reusable raindrop paths.
+@lru_cache(maxsize=16)
+def _mw20_drop_shape(size):
+    path = QPainterPath()
+    path.moveTo(0, -size * 1.9)
+    path.cubicTo(
+        size * 0.85, -size * 0.7,
+        size * 0.85, size * 0.55,
+        0, size * 1.15,
+    )
+    path.cubicTo(
+        -size * 0.85, size * 0.55,
+        -size * 0.85, -size * 0.7,
+        0, -size * 1.9,
+    )
+    return path
 
 
 class WeatherRow(QWidget):
@@ -610,42 +630,10 @@ class WeatherRow(QWidget):
     def tick(self):
         # Smooth medium-speed rainfall
         self.phase += 1.5
-        self.position_precipitation_detail()
+        # MORNINGUI_OPT_V21: position on data/resize only.
         self.update()
 
-        # MORNINGUI_WAYLAND_DIRTY_REGION_BAND_V1
-        # Invalidate the shared backing-store region crossing the
-        # weather/news boundary. Do not paint any new pixels or
-        # modify widget geometry, styling, or navigation.
-
-        panel = self.parentWidget()
-        rows = (
-            getattr(panel, "row_widgets", ())
-            if panel is not None else ()
-        )
-
-        # Only the first hourly row requests this shared update.
-        # All other weather animations continue normally.
-        if rows and rows[0] is self:
-            window = self.window()
-            root = getattr(window, "root", None)
-            news = getattr(window, "fox_card", None)
-
-            if root is not None and news is not None:
-                panel_pos = panel.mapTo(root, QPoint(0, 0))
-                news_pos = news.mapTo(root, QPoint(0, 0))
-
-                left = panel_pos.x() + panel.width() - 3
-                right = max(left + 6, news_pos.x() + 3)
-
-                root.update(
-                    QRect(
-                        left,
-                        panel_pos.y() - 3,
-                        right - left + 1,
-                        panel.height() + 6
-                    )
-                )
+        # MORNINGUI_OPT_V20: integer DPR fixes old seam.
 
     def apply_text_colors(self):
         dark_weather_art = self.is_night or self.condition in {"rain", "storm"}
@@ -1434,28 +1422,8 @@ class WeatherRow(QWidget):
             int(y - size * 0.7),
         )
 
-        # Main teardrop shape
-        path = QPainterPath()
-        path.moveTo(x, y - size * 1.9)
-
-        path.cubicTo(
-            x + size * 0.85,
-            y - size * 0.7,
-            x + size * 0.85,
-            y + size * 0.55,
-            x,
-            y + size * 1.15,
-        )
-
-        path.cubicTo(
-            x - size * 0.85,
-            y + size * 0.55,
-            x - size * 0.85,
-            y - size * 0.7,
-            x,
-            y - size * 1.9,
-        )
-
+        # MORNINGUI_OPT_V20: reuse raindrop shape.
+        path = _mw20_drop_shape(size).translated(x, y)
         painter.setOpacity(opacity)
         painter.setPen(QPen(QColor(235, 250, 255, 165), 1))
         painter.setBrush(QBrush(QColor(195, 230, 250, 145)))
@@ -1909,6 +1877,73 @@ class WeatherRow(QWidget):
         painter.restore()
 
 
+
+# MORNINGUI_OPT_V21: reusable vector drawing recordings.
+from functools import lru_cache as _mw21_lru_cache
+from PySide6.QtGui import QPicture as _MW21Picture
+
+_mw21_original_raindrop = WeatherRow.draw_single_raindrop
+_mw21_original_moon = WeatherRow.draw_accurate_moon_phase
+
+@_mw21_lru_cache(maxsize=48)
+def _mw21_raindrop_picture(size, opacity):
+    picture = _MW21Picture()
+    painter = QPainter(picture)
+    painter.setRenderHint(QPainter.Antialiasing, True)
+    try:
+        _mw21_original_raindrop(
+            None, painter, 0, 0, size, opacity
+        )
+    finally:
+        painter.end()
+    return picture
+
+def _mw21_replay_raindrop(self, painter, x, y, size, opacity):
+    painter.drawPicture(
+        QPointF(float(x), float(y)),
+        _mw21_raindrop_picture(float(size), float(opacity)),
+    )
+
+class _MW21MoonArgs:
+    def __init__(self, moment):
+        self.moon_datetime = moment
+
+@_mw21_lru_cache(maxsize=48)
+def _mw21_moon_picture(radius, moment):
+    picture = _MW21Picture()
+    painter = QPainter(picture)
+    painter.setRenderHint(QPainter.Antialiasing, True)
+    try:
+        _mw21_original_moon(
+            _MW21MoonArgs(moment), painter,
+            0.0, 0.0, radius,
+        )
+    finally:
+        painter.end()
+    return picture
+
+def _mw21_replay_moon(self, painter, moon_x, moon_y, moon_radius):
+    moment = getattr(self, "moon_datetime", None)
+
+    if moment is None:
+        moment = datetime.now().astimezone().isoformat(
+            timespec="minutes"
+        )
+    else:
+        moment = str(moment)
+
+    painter.save()
+    try:
+        painter.drawPicture(
+            QPointF(float(moon_x), float(moon_y)),
+            _mw21_moon_picture(float(moon_radius), moment),
+        )
+    finally:
+        painter.restore()
+
+WeatherRow.draw_single_raindrop = _mw21_replay_raindrop
+WeatherRow.draw_accurate_moon_phase = _mw21_replay_moon
+
 class WeatherPanel(QWidget):
     hour_selected = Signal(object, int)
 
@@ -2343,3 +2378,8 @@ WeatherRow.position_precipitation_detail = (
 )
 
 # MORNINGUI_WEATHER_V13_END
+
+
+# MORNINGUI_GPU_WEATHER_V26 — contained GPU integration
+from ui.weather_gpu_v26_helper import install as _mw26_install
+_mw26_install(WeatherPanel)
