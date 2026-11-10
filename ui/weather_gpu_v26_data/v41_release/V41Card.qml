@@ -7,7 +7,8 @@ Item {
     property bool dateCardFullBleed: false
 
     property string condition: "clear"   // clear, partly, cloudy, fog, snow, heavysnow
-    property string phase: "day"         // dawn, day, dusk, night
+    property string phase: "day"
+    property real windMultiplier: 1.0 // MORNINGUI_WIND_CLOUD_BANDS_V1         // dawn, day, dusk, night
     property bool moving: true
     property real seconds: 0
     property double startedAt: Date.now()
@@ -110,7 +111,7 @@ Item {
 
     function smallX(i) {
         var speeds = [4.2, 5.2, 6.8, 8.0, 9.1];
-        return -80 + posmod(speeds[i] * seconds + i * 116, 700);
+        return -80 + posmod(speeds[i] * seconds * windMultiplier + i * 116, 700);
     }
 
     function smallY(i) {
@@ -120,7 +121,7 @@ Item {
     }
 
     function bigX(offset) {
-        return -root.bigWidth - 18 + posmod(2.6 * seconds + offset, 960);
+        return -root.bigWidth - 18 + posmod(2.6 * seconds * windMultiplier + offset, 960);
     }
 
     function snowCount() {

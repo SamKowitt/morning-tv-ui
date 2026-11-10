@@ -10,6 +10,7 @@ Item {
     property string condition: "clear_sky"
     property string phase: "day"
     property string phaseMode: phase
+    property real windMultiplier: 1.0 // MORNINGUI_WIND_CLOUD_BANDS_V1
     property bool nighttime: phaseMode === "night"
     // MORNINGUI_V5Y_DATE_ART_AT_NATIVE_WIDTH
     property bool dateCardPresentation: false
@@ -414,7 +415,7 @@ Item {
                         NumberAnimation on x {
                             from: 0
                             to: -smoothCloudRoot.width
-                            duration: 40000
+                            duration: Math.round(40000 / Math.max(0.5, root.windMultiplier))
                             easing.type: Easing.Linear
                             loops: Animation.Infinite
                             running: true
@@ -486,7 +487,7 @@ Item {
                         NumberAnimation on x {
                             from: 0
                             to: -sparseRoot.width
-                            duration: 40000
+                            duration: Math.round(40000 / Math.max(0.5, root.windMultiplier))
                             easing.type: Easing.Linear
                             loops: Animation.Infinite
                             running: true
@@ -506,6 +507,7 @@ Item {
                     }
                     MediaPlayer {
                         id: videoPlayer
+                        playbackRate: root.windMultiplier
                         source: root.grayFamily(entry.modelData.key)
                             ? Qt.resolvedUrl("assets/cloud_ref_" + root.phaseMode + "_200s.mp4")
                             : Qt.resolvedUrl("assets/cloud_" + entry.modelData.cloud + "_200s.mp4")

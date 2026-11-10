@@ -888,6 +888,7 @@ def fetch_weather_rows_from_open_meteo(max_rows=9, location=None):
         # here because DateCard and hourly weather rows must always show actual temp.
         "current": "temperature_2m,weather_code,is_day",
         "hourly": "temperature_2m,weather_code,precipitation_probability,is_day,wind_speed_10m",
+        "wind_speed_unit": "mph",  # MORNINGUI_WIND_CLOUD_BANDS_V1
         "temperature_unit": "fahrenheit",
         "timezone": location.timezone,
         "forecast_days": 2,

@@ -53,6 +53,7 @@ Item {
                     scale: fit
                     condition: tile.info.mode
                     phase: tile.info.phase
+                    windMultiplier: tile.info.windMultiplier === undefined ? 1.0 : tile.info.windMultiplier
                     seconds: root.v41Seconds
                     moving: true
                 }
@@ -72,6 +73,7 @@ Item {
                     scale: fit
                     condition: tile.info.v5w_mode
                     phase: tile.info.phase
+                    windMultiplier: tile.info.windMultiplier === undefined ? 1.0 : tile.info.windMultiplier
                 }
             }
 

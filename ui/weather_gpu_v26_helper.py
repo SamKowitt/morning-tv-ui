@@ -268,6 +268,7 @@ class _WeatherGPUState(QObject):
                     "mode": _v41_mode(row),
                     "v5w_mode": _v5w_mode(row),
                     "useV5W": V5W_FLAG.is_file(),
+                    "windMultiplier": _v6_cloud_speed_multiplier(getattr(row, "weather_data", None)),
                     "phase": _v41_border_phase(row),
                 })
 
@@ -1148,3 +1149,61 @@ def _v41_border_phase(row):
         row._v41_visual_phase = phase
         row.update()
     return phase
+
+
+# MORNINGUI_WIND_CLOUD_BANDS_V1
+# Cloud speed from the source forecast hour, not gust speed.
+def _v6_cloud_speed_multiplier(forecast):
+    import math
+    import re
+
+    raw = getattr(forecast, "wind_speed", None)
+
+    if raw is None or isinstance(raw, bool):
+        return 1.0
+
+    if isinstance(raw, (int, float)):
+        mph = float(raw)
+    else:
+        text = str(raw).strip().lower()
+
+        if text in ("calm", "calm winds"):
+            mph = 0.0
+        else:
+            text = re.split(
+                r"\bgust(?:s|ing)?\b", text, maxsplit=1
+            )[0]
+
+            numbers = re.findall(r"\d+(?:\.\d+)?", text)
+
+            if not numbers:
+                return 1.0
+
+            mph = float(numbers[0])
+
+            if len(numbers) >= 2 and re.search(r"\bto\b|[-–]", text):
+                mph = (mph + float(numbers[1])) / 2.0
+
+            if "km/h" in text or "kmh" in text:
+                mph /= 1.609344
+            elif "mph" not in text and not text.replace(
+                ".", "", 1
+            ).isdigit():
+                return 1.0
+
+    if not math.isfinite(mph) or mph < 0:
+        return 1.0
+
+    rounded = int(math.floor(mph + 0.5))
+
+    bands = (
+        (5, 0.50), (9, 0.75), (20, 1.00),
+        (25, 1.40), (30, 1.65), (36, 1.90),
+        (45, 2.15), (56, 2.35), (72, 2.60),
+    )
+
+    for upper, factor in bands:
+        if rounded <= upper:
+            return factor
+
+    return 3.00

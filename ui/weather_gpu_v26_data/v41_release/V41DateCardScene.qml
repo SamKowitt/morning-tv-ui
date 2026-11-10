@@ -50,6 +50,7 @@ Item {
 
         condition: root.weatherMode
         phase: root.weatherPhase
+        windMultiplier: root.info.windMultiplier === undefined ? 1.0 : root.info.windMultiplier
         seconds: root.seconds
         moving: true
 
@@ -79,6 +80,7 @@ Item {
 
                 condition: root.info.v5w_mode
                 phase: root.weatherPhase
+                windMultiplier: root.info.windMultiplier === undefined ? 1.0 : root.info.windMultiplier
             }
         }
     }
