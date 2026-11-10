@@ -69,24 +69,41 @@ Item {
 
         sourceComponent: Component {
             V5W.V5WCard {
-                width: 262
-                height: 78
-
-                readonly property real fit: Math.max(
-                    root.width / 262,
-                    root.height / 78
-                )
-
-                transformOrigin: Item.TopLeft
-                scale: fit
-
-                x: root.width - width * fit
-                y: (root.height - height * fit) / 2
+                objectName: "V5YDateArtwork"
+                x: 0
+                y: 0
+                width: root.width
+                height: root.height
+                dateCardPresentation: true
 
                 condition: root.info.v5w_mode
                 phase: root.weatherPhase
             }
         }
+    }
+
+    // MORNINGUI_V5X_FIXED_STARS_DATE_MOON
+    Image {
+        objectName: "V5XDateMoon"
+
+        visible: root.info.useV5W === true &&
+                 root.weatherPhase === "night" &&
+                 (root.info.v5w_mode === "clear_sky" ||
+                  root.info.v5w_mode === "mostly_clear" ||
+                  root.info.v5w_mode === "partly_cloudy")
+
+        source: Qt.resolvedUrl(
+            "../v5w_release/assets/moon_date_v5x.png"
+        )
+
+width: 32
+height: 32
+        x: root.width - width - 25
+        y: 12
+        z: 30
+
+        smooth: true
+        fillMode: Image.PreserveAspectFit
     }
 
 }

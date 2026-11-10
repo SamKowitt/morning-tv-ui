@@ -11,6 +11,36 @@ Item {
     property string phase: "day"
     property string phaseMode: phase
     property bool nighttime: phaseMode === "night"
+    // MORNINGUI_V5Y_DATE_ART_AT_NATIVE_WIDTH
+    property bool dateCardPresentation: false
+    property real v5yPrecipDurationFactor:
+        dateCardPresentation ? height / 78.0 : 1.0
+    // MORNINGUI_V5X_FIXED_STARS_DATE_MOON
+    // Shared irregular star field for all nighttime cards.
+    property var v5xStarPositions: [
+        [0.29917, 0.17410],
+        [0.83897, 0.72419],
+        [0.72738, 0.37314],
+        [0.18002, 0.32720],
+        [0.22868, 0.32789],
+        [0.54536, 0.53324],
+        [0.94696, 0.35193],
+        [0.59341, 0.72993],
+        [0.81253, 0.22283],
+        [0.20573, 0.95007],
+        [0.06623, 0.99644],
+        [0.93430, 0.05104],
+        [0.94134, 0.65256],
+        [0.47645, 0.90088],
+        [0.08844, 0.54608],
+        [0.46843, 0.08396],
+        [0.77723, 0.80267],
+        [0.03020, 0.27165],
+        [0.07143, 0.04896],
+        [0.89177, 0.59329],
+        [0.87809, 0.19654],
+        [0.24897, 0.63428]
+    ]
     property real cloudBandFraction: 0.65
     property int cardW: width
     property int cardH: height
@@ -288,8 +318,8 @@ Item {
                         id: star
                         property int starIndex: index
                         property real b: 0.9 + (index % 4) * 0.17
-                        x: 7 + (index * 97 + 19) % (card.width - 15)
-                        y: 5 + (index * 39 + 7) % (card.height * 0.51)
+                        x: 7 + root.v5xStarPositions[index][0] * (card.width - 15)
+                        y: 5 + root.v5xStarPositions[index][1] * (card.height * 0.51)
                         width: b; height: b; radius: b/2
                         color: index % 7 === 0 ? "#fff7e4" : "#f7f9ff"
                         opacity: 0.45
@@ -553,10 +583,12 @@ Item {
                 width: 116
                 height: 116
 
-                x: Math.round(
-                    card.width * 0.72 - width / 2
-                )
-                y: Math.round(22 - height / 2)
+                x: root.dateCardPresentation
+                                ? Math.round(card.width * 0.72 - 14 - width / 2)
+                                : Math.round(card.width - 28 - width / 2)
+                y: root.dateCardPresentation
+                                ? Math.round(45 - height / 2)
+                                : Math.round(14 - height / 2)
 
                 source: Qt.resolvedUrl(
                     "assets/sun_halo_v5l.png"
@@ -572,14 +604,18 @@ Item {
 
             Image {
                 id: heavenlyBody
+                            objectName: "V5ZCelestialBody"
                 visible: root.nighttime
-                    ? (entry.modelData.key === "clear_sky" || entry.modelData.key === "mostly_clear" || entry.modelData.key === "partly_cloudy")
+                    ? (!root.dateCardPresentation && (entry.modelData.key === "clear_sky" || entry.modelData.key === "mostly_clear" || entry.modelData.key === "partly_cloudy"))
                     : (root.phaseMode === "day" && entry.modelData.sun)
                 source: Qt.resolvedUrl(root.nighttime
                     ? "assets/moon_phase_current.png" : "assets/sun_glow.png")
-                width: 44; height: 44
-                x: Math.round(card.width * 0.72 - width / 2)
-                y: 1
+                width: root.dateCardPresentation ? 88 : 44
+                            height: width
+                x: root.dateCardPresentation
+                                ? Math.round(card.width * 0.72 - width / 2 - 14)
+                                : Math.round(card.width - width - 6)
+y: root.dateCardPresentation ? 1 : -8
                 smooth: true
                 opacity: entry.modelData.key === "partly_cloudy"
                     ? Math.max(0.12, 1.0 - entry.cloudCover * 0.88)
@@ -661,7 +697,7 @@ Item {
                     running: entry.hasRain
                     from: -card.height
                     to: 0
-                    duration: entry.modelData.key === "light_rain" ? 1000 : (entry.modelData.rain === "rain_light" ? 1500 : 890)
+                    duration: Math.round((entry.modelData.key === "light_rain" ? 1000 : (entry.modelData.rain === "rain_light" ? 1500 : 890)) * root.v5yPrecipDurationFactor)
                     loops: Animation.Infinite
                     easing.type: Easing.Linear
                 }
@@ -718,7 +754,7 @@ Item {
                     running: entry.hasSnow
                     from: -card.height
                     to: 0
-                    duration: 3050
+                    duration: Math.round((3050) * root.v5yPrecipDurationFactor)
                     loops: Animation.Infinite
                     easing.type: Easing.Linear
                 }
@@ -727,7 +763,7 @@ Item {
                     running: entry.hasSnow
                     from: -card.height
                     to: 0
-                    duration: 5950
+                    duration: Math.round((5950) * root.v5yPrecipDurationFactor)
                     loops: Animation.Infinite
                     easing.type: Easing.Linear
                 }
@@ -816,7 +852,7 @@ Item {
                     running: entry.isHail
                     from: -card.height
                     to: 0
-                    duration: 880
+                    duration: Math.round((880) * root.v5yPrecipDurationFactor)
                     loops: Animation.Infinite
                     easing.type: Easing.Linear
                 }
