@@ -18,6 +18,7 @@ class Shade(QWidget):
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setObjectName("MorningUIOLEDShade")
         self.level = 0
+        self.opacity = 0.0  # OLED_FOCUS_V6_STAGED_DIM
         self.hide()
 
     def paintEvent(self, event):
@@ -25,7 +26,7 @@ class Shade(QWidget):
         if self.level == 3:
             painter.fillRect(self.rect(), QColor(0, 0, 0, 255))
         elif self.level == 2:
-            painter.fillRect(self.rect(), QColor(0, 0, 0, 89))
+            painter.fillRect(self.rect(), QColor(0, 0, 0, round(255 * self.opacity)))
         painter.end()
 
 
@@ -89,13 +90,13 @@ class OLEDProtection(QObject):
         self.app = app
         self.main = main_window
 
+        # OLED_FOCUS_V6_STAGED_DIM
         test = os.environ.get("MORNINGUI_OLED_TEST") == "1"
-        if test:
-            self.shift_at, self.dark_at, self.black_at = 30, 60, 90
-            self.shift_interval = 5
-        else:
-            self.shift_at, self.dark_at, self.black_at = 1800, 3600, 5400
-            self.shift_interval = 300
+        unit = 1 if test else 60
+        self.dark_at, self.shift_at = 10 * unit, 15 * unit
+        self.dim_35_at, self.dim_50_at = 30 * unit, 45 * unit
+        self.black_at, self.shift_interval = 90 * unit, 5 * unit
+        self.dim_opacity = 0.0
 
         self.since = time.monotonic()
         self.level = 0
@@ -141,7 +142,7 @@ class OLEDProtection(QObject):
 
         print(
             "[OLED] enabled:",
-            "TEST 30/60/90 seconds" if test else "30/60/90 minutes",
+            "TEST 10/15/30/45/90 seconds" if test else "10/15/30/45/90 minutes",
             flush=True
         )
 
@@ -214,38 +215,59 @@ class OLEDProtection(QObject):
             self._restore_styles()
             self._shift_to((0, 0))
             self._update_shades()
+            self._v6_sync_weather_palette()
             print("[OLED] user input: normal display restored", flush=True)
 
     def _tick(self):
         elapsed = time.monotonic() - self.since
+        target, opacity = self._v6_stage(elapsed)
+        changed = self.level != target
+        dim_changed = self.dim_opacity != opacity
+        previous = self.level
 
-        if elapsed >= self.black_at:
-            target = 3
-        elif elapsed >= self.dark_at:
-            target = 2
-        elif elapsed >= self.shift_at:
-            target = 1
-        else:
-            target = 0
+        self.level, self.dim_opacity = target, opacity
 
-        if target != self.level:
-            self.level = target
-
-            if target >= 2:
+        if changed:
+            if previous == 0 and target >= 1:
                 self._apply_dark_styles()
-            else:
+            elif previous >= 1 and target == 0:
                 self._restore_styles()
 
+        if changed or dim_changed:
             self._update_shades()
-            print(
-                f"[OLED] stage={target} elapsed={elapsed:.0f}s",
-                flush=True
-            )
+            print(f"[OLED] stage={target} dim={opacity:.0%}", flush=True)
 
-        if self.level in (1, 2):
+        if target == 2:
             self._shift_to(self._shift_at_elapsed(elapsed))
-        elif self.level == 0 and self.shift != (0, 0):
+        elif target < 2 and self.shift != (0, 0):
             self._shift_to((0, 0))
+
+        self._v6_sync_weather_palette()
+
+    def _v6_stage(self, elapsed):
+        if elapsed >= self.black_at: return 3, 0.0
+        if elapsed >= self.dim_50_at: return 2, 0.50
+        if elapsed >= self.dim_35_at: return 2, 0.35
+        if elapsed >= self.shift_at: return 2, 0.20
+        if elapsed >= self.dark_at: return 1, 0.0
+        return 0, 0.0
+
+    def _v6_sync_weather_palette(self):
+        from PySide6.QtQuickWidgets import QQuickWidget
+        active = self.level >= 1
+
+        for view in self.main.findChildren(QQuickWidget):
+            if view.objectName() not in (
+                "MorningUIV26ContainedGPU",
+                "V27CurrentHourWeatherGPU"
+            ):
+                continue
+            try:
+                obj = view.rootObject()
+                if obj is not None and obj.property("oledWeatherPalette") != active:
+                    obj.setProperty("oledWeatherPalette", active)
+            except RuntimeError:
+                pass
 
     def _shift_at_elapsed(self, elapsed):
         # OLED_BOUNDED_SHIFT_V2
@@ -282,9 +304,15 @@ class OLEDProtection(QObject):
             self.shift = (0, 0)
             return
 
-        # No shifting while viewing Settings or any popup.
+        # MORNINGUI_OLED_SHIFT_OPEN_POPUPS_V1
+        # Approved popups move; unrelated dialogs still block shifting.
+        movable_dialog_types = (
+            "OpenNewspaperDialog", "WeatherRadarDialog",
+            "MLBBoxScoreDialog", "ESPNBoxScoreDialog"
+        )
         popups_open = any(
             isinstance(w, QDialog) and w.isVisible()
+            and type(w).__name__ not in movable_dialog_types
             for w in self.app.allWidgets()
         )
 
@@ -363,6 +391,29 @@ class OLEDProtection(QObject):
         # move() changes position, NEVER dimensions.
         if page.pos() != QPoint(*xy):
             page.move(*xy)
+
+        # Move approved popups by the same bounded dashboard offset.
+        # Keep the original position to prevent cumulative drift.
+        movable = [
+            w for w in self.app.allWidgets()
+            if isinstance(w, QDialog) and w.isVisible()
+            and type(w).__name__ in movable_dialog_types
+            and w.parentWidget() is self.main
+        ]
+
+        for stale in tuple(self._popup_origins):
+            if stale not in movable:
+                self._popup_origins.pop(stale, None)
+
+        for popup in movable:
+            if popup not in self._popup_origins:
+                self._popup_origins[popup] = QPoint(popup.pos())
+
+            base = self._popup_origins[popup]
+            position = QPoint(base.x() + xy[0], base.y() + xy[1])
+
+            if popup.pos() != position:
+                popup.move(position)
 
         if xy == self.shift:
             return
@@ -501,6 +552,7 @@ class OLEDProtection(QObject):
 
                 shade.setGeometry(owner.rect())
                 shade.level = self.level
+                shade.opacity = self.dim_opacity
 
                 if self.level == 2:
                     shade.show()

@@ -9,6 +9,7 @@ Item {
     clip: true
 
     property var cards: []
+    property bool oledWeatherPalette: false // OLED_FOCUS_V6_STAGED_DIM
     property real seconds: 0
 
     readonly property var info: cards.length ? cards[0] : ({})
@@ -106,4 +107,12 @@ height: 32
         fillMode: Image.PreserveAspectFit
     }
 
+    Gallery.OLEDWeatherPalette {
+        objectName: "OLEDWeatherPaletteDate"
+        anchors.fill: parent
+        z: 100
+        active: root.oledWeatherPalette
+        condition: root.info.v5w_mode || root.info.mode || "cloudy"
+        phase: root.weatherPhase
+    }
 }

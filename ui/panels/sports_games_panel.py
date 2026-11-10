@@ -163,7 +163,7 @@ class MLBBoxScoreDialog(QDialog):
     # MORNINGUI_BOXSCORE_REPAINT_V6
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.fillRect(self.rect(), oled_newspaper_color('#2d2419'))
+        painter.fillRect(self.rect(), QColor('#2d2419'))
         painter.end()
 
     def showEvent(self, event):
@@ -775,7 +775,7 @@ class ESPNBoxScoreDialog(QDialog):
     # MORNINGUI_BOXSCORE_REPAINT_V6
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.fillRect(self.rect(), oled_newspaper_color('#2d2419'))
+        painter.fillRect(self.rect(), QColor('#2d2419'))
         painter.end()
 
     def showEvent(self, event):

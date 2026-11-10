@@ -458,7 +458,7 @@ class WeatherRadarDialog(QDialog):
     # underlying 50 ms row repaint damage from mixing into popup backing store.
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.fillRect(self.rect(), oled_newspaper_color('#2d2419'))
+        painter.fillRect(self.rect(), QColor('#2d2419'))
         painter.end()
 
     def showEvent(self, event):

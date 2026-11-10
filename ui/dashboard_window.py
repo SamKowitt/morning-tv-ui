@@ -782,7 +782,7 @@ class DashboardWindow(QMainWindow):
         self.page_stack.addWidget(self.settings_page)
         self.page_stack.setCurrentWidget(self.dashboard_viewport)
 
-        self.settings_button = QPushButton("⚙", self.root)
+        self.settings_button = QPushButton("⚙", self.dashboard_page)
         self.settings_button.setObjectName("DashboardSettingsButton")
         self.settings_button.setCursor(Qt.PointingHandCursor)
 

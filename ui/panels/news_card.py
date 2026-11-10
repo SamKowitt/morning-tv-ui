@@ -545,7 +545,7 @@ class OpenNewspaperDialog(QDialog):
     # WeatherRow rectangle boundaries inside the newspaper.
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.fillRect(self.rect(), oled_newspaper_color('#2d2419'))
+        painter.fillRect(self.rect(), QColor('#2d2419'))
         painter.end()
 
     # MORNINGUI_NEWS_REPAINT_FIX_V4

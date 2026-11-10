@@ -576,6 +576,8 @@ Item {
             // MORNINGUI_V5L_FAIR_CLOUD_RAIN_HALO
             Image {
                 id: sunHaloV5K
+                // MORNINGUI_V5Z_DATE_SUN_ALIGN_MOON_V1 — current-hour DAY only
+                transform: Translate { x: root.dateCardPresentation && root.phaseMode === "day" ? 40 : 0 }
 
                 visible: root.phaseMode === "day"
                          && entry.modelData.sun
@@ -604,6 +606,8 @@ Item {
 
             Image {
                 id: heavenlyBody
+                // MORNINGUI_V5Z_DATE_SUN_ALIGN_MOON_V1 — current-hour DAY only
+                transform: Translate { x: root.dateCardPresentation && root.phaseMode === "day" ? 40 : 0 }
                             objectName: "V5ZCelestialBody"
                 visible: root.nighttime
                     ? (!root.dateCardPresentation && (entry.modelData.key === "clear_sky" || entry.modelData.key === "mostly_clear" || entry.modelData.key === "partly_cloudy"))

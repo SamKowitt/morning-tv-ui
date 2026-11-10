@@ -7,6 +7,7 @@ Item {
     width: 260
     height: 760
     property var cards: []
+    property bool oledWeatherPalette: false // OLED_FOCUS_V6_STAGED_DIM
     property int selectedIndex: -1 // MORNINGUI_GPU_FOCUS_V27
     property real v41Seconds: 0
     clip: true
@@ -72,6 +73,15 @@ Item {
                     condition: tile.info.v5w_mode
                     phase: tile.info.phase
                 }
+            }
+
+            Gallery.OLEDWeatherPalette {
+                objectName: "OLEDWeatherPaletteHourly"
+                anchors.fill: parent
+                z: 9
+                active: root.oledWeatherPalette
+                condition: tile.info.v5w_mode || tile.info.mode || "cloudy"
+                phase: tile.info.phase || "day"
             }
 
             // Existing real weather text, drawn transparently.
