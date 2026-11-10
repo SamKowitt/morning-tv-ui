@@ -266,6 +266,8 @@ class _WeatherGPUState(QObject):
                     "rainy": condition in ("rain", "storm"),
                     "cloudy": condition in ("cloud", "fog"),
                     "mode": _v41_mode(row),
+                    "v5w_mode": _v5w_mode(row),
+                    "useV5W": V5W_FLAG.is_file(),
                     "phase": _v41_border_phase(row),
                 })
 
@@ -888,6 +890,114 @@ def _v41_mode(row):
 
     return "cloudy" if basic == "cloud" else "clear"
 
+
+
+# MORNINGUI_V5W_CONDITION_ADAPTER
+V5W_FLAG = Path.home() / ".config/morningui/weather_v5w_enabled"
+
+def _v5w_mode(row):
+    import re
+
+    data = getattr(row, "weather_data", None)
+
+    desc = " ".join(
+        str(getattr(data, k, "") or "")
+        for k in (
+            "detailed_forecast",
+            "short_forecast",
+            "forecast_text",
+            "description"
+        )
+    ).lower()
+
+    basic = str(
+        getattr(row, "condition", "") or ""
+    ).lower()
+
+    try:
+        code = int(getattr(data, "weather_code", None))
+    except (ValueError, TypeError):
+        code = None
+
+    legacy = _v41_mode(row)
+
+    if (
+        basic == "cloud"
+        and getattr(
+            data, "precipitation_forecast_condition", ""
+        ) in ("rain", "snow", "storm")
+    ):
+        return "cloudy"
+
+    if (
+        code in (95, 96, 99)
+        or re.search(r"thunder|lightning|t[.-]?storms?", desc)
+        or basic == "storm"
+    ):
+        return "thunderstorms"
+
+    if re.search(r"\bhail\b", desc):
+        return "hail"
+
+    if (
+        code in (56, 57, 66, 67)
+        or re.search(
+            r"wintry mix|wintery mix|mixed precip|"
+            r"rain.{0,25}snow|snow.{0,25}rain|"
+            r"sleet|freezing rain|ice pellets",
+            desc
+        )
+    ):
+        return "wintry_mix"
+
+    if (
+        code in (75, 86)
+        or re.search(
+            r"heavy snow|blizzard|snow squall", desc
+        )
+    ):
+        return "heavy_snow"
+
+    if (
+        code in (71, 85)
+        or re.search(
+            r"flurr|light snow|snow flake|snow showers?",
+            desc
+        )
+    ):
+        return "flurries"
+
+    if code in (73, 77) or legacy == "snow":
+        return "snow"
+
+    if legacy == "fog":
+        return "fog"
+
+    if code in (65, 82) or legacy == "heavyrain":
+        return "heavy_rain"
+
+    if (
+        code in (51, 53, 55, 61, 80)
+        or legacy == "lightrain"
+    ):
+        return "light_rain"
+
+    if legacy == "rain":
+        return "rain"
+
+    if (
+        code == 1
+        or re.search(r"mostly clear|mainly clear", desc)
+    ):
+        return "mostly_clear"
+
+    if legacy == "partly":
+        return "partly_cloudy"
+
+    if legacy == "cloudy":
+        return "cloudy"
+
+    return "clear_sky"
 
 def _v41_phase(row):
     """Choose hourly artwork from forecast sunrise/sunset events."""

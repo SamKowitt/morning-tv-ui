@@ -1,5 +1,6 @@
 import QtQuick
 import "v41_release" as Gallery
+import "v5w_release" as V5W
 
 Item {
     id: root
@@ -30,27 +31,47 @@ Item {
             height: info.h
             clip: true
 
-            // Uniform scale. Crop the left side rather than
-            // stretching V41 artwork horizontally.
-            Gallery.V41Card {
-                id: art
-                property real fit: Math.max(
-                    tile.width / 480,
-                    tile.height / 78
-                )
+            // MORNINGUI_V5W_HOURLY_OPTIONAL
+            Loader {
+                anchors.fill: parent
+                sourceComponent: tile.info.useV5W === true
+                    ? v5wArtwork : v41Artwork
+            }
 
-                x: tile.width - width * fit
-                y: (tile.height - height * fit) / 2
+            Component {
+                id: v41Artwork
+                Gallery.V41Card {
+                    property real fit: Math.max(
+                        tile.width / 480, tile.height / 78
+                    )
+                    x: tile.width - width * fit
+                    y: (tile.height - height * fit) / 2
+                    width: 480
+                    height: 78
+                    transformOrigin: Item.TopLeft
+                    scale: fit
+                    condition: tile.info.mode
+                    phase: tile.info.phase
+                    seconds: root.v41Seconds
+                    moving: true
+                }
+            }
 
-                width: 480
-                height: 78
-                transformOrigin: Item.TopLeft
-                scale: fit
-
-                condition: tile.info.mode
-                phase: tile.info.phase
-                seconds: root.v41Seconds
-                moving: true
+            Component {
+                id: v5wArtwork
+                V5W.V5WCard {
+                    property real fit: Math.max(
+                        tile.width / 262, tile.height / 78
+                    )
+                    x: tile.width - width * fit
+                    y: (tile.height - height * fit) / 2
+                    width: 262
+                    height: 78
+                    transformOrigin: Item.TopLeft
+                    scale: fit
+                    condition: tile.info.v5w_mode
+                    phase: tile.info.phase
+                }
             }
 
             // Existing real weather text, drawn transparently.

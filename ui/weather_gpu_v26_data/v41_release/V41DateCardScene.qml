@@ -1,5 +1,6 @@
 import QtQuick
 import "." as Gallery
+import "../v5w_release" as V5W
 
 Item {
     id: root
@@ -23,6 +24,7 @@ Item {
 
     // Full-card background using the gallery's actual colors.
     Rectangle {
+        visible: root.info.useV5W !== true
         anchors.fill: parent
 
         gradient: Gradient {
@@ -39,6 +41,7 @@ Item {
 
     // One approved V41 scene with original proportions.
     Gallery.V41Card {
+        visible: root.info.useV5W !== true
         id: art
         dateCardFullBleed: true
         width: 480
@@ -59,4 +62,31 @@ Item {
         x: root.width - width * fit
         y: (root.height - height * fit) / 2
     }
+    // MORNINGUI_V5W_DATE_OPTIONAL
+    Loader {
+        anchors.fill: parent
+        active: root.info.useV5W === true
+
+        sourceComponent: Component {
+            V5W.V5WCard {
+                width: 262
+                height: 78
+
+                readonly property real fit: Math.max(
+                    root.width / 262,
+                    root.height / 78
+                )
+
+                transformOrigin: Item.TopLeft
+                scale: fit
+
+                x: root.width - width * fit
+                y: (root.height - height * fit) / 2
+
+                condition: root.info.v5w_mode
+                phase: root.weatherPhase
+            }
+        }
+    }
+
 }

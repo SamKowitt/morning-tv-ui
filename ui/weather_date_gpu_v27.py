@@ -131,7 +131,7 @@ class _CurrentWeatherGPU(QObject):
             # supply only one card at the DateCard's real size.
             # No old WeatherRow screenshot or painted sky.
             from ui.weather_gpu_v26_helper import (
-                _v41_mode, _v41_phase
+                _v41_mode, _v41_phase, _v5w_mode, V5W_FLAG
             )
 
             forecast_row = (
@@ -150,6 +150,8 @@ class _CurrentWeatherGPU(QObject):
                 "h": h,
                 "url": "",
                 "mode": mode,
+                "v5w_mode": _v5w_mode(forecast_row),
+                "useV5W": V5W_FLAG.is_file(),
                 "phase": phase,
             }])
 
