@@ -3172,7 +3172,7 @@ def get_cached_article_text_payload(url):
             return None
 
         if (time.time() - saved_at) > _cache_lifetime(payload):
-            cache.pop(key, None)
+            # MORNINGUI_ARTICLE_CACHE_V2: retain last good body.
             return None
 
         text = str(payload.get("text", "") or "")
@@ -3421,3 +3421,193 @@ def prefetch_article_text_payload(url):
         name="MorningTVArticlePreload",
         daemon=True,
     ).start()
+
+
+# MORNINGUI_ARTICLE_CACHE_V2
+import queue as _mui_v2_queue
+from collections import OrderedDict as _mui_v2_OrderedDict
+
+_mui_v2_jobs = _mui_v2_queue.Queue(maxsize=48)
+_mui_v2_lock = threading.Lock()
+_mui_v2_pending = set()
+_mui_v2_last_queued = {}
+_mui_v2_ready = _mui_v2_OrderedDict()
+_mui_v2_ready_bytes = 0
+_mui_v2_thread = None
+MAX_ARTICLE_IMAGE_MEMORY_ENTRIES = 3
+
+
+def _mui_v2_log(message):
+    try:
+        from datetime import datetime
+        path = Path.home() / '.cache/morningui_article_cache_v2.log'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open('a') as output:
+            output.write(
+                datetime.now().astimezone().isoformat()
+                + ' ' + message + '\n'
+            )
+    except OSError:
+        pass
+
+
+def get_prepared_article_text_payload(url):
+    """Instant lookup of a complete, image-hydrated article."""
+    key = _article_cache_key(url)
+    with _mui_v2_lock:
+        result = _mui_v2_ready.get(key)
+        if result is not None:
+            _mui_v2_ready.move_to_end(key)
+            return result[0]
+    return None
+
+
+def _mui_v2_prepare(url, payload):
+    if not cached_article_payload_is_usable(url, payload):
+        raise ValueError('Invalid article text or format')
+
+    original_blocks = payload.get('blocks') or []
+    expected_images = sum(
+        isinstance(block, dict)
+        and block.get('type') == 'image'
+        for block in original_blocks
+    )
+
+    result = hydrate_article_image_blocks(payload)
+
+    loaded_images = sum(
+        isinstance(block, dict)
+        and block.get('type') == 'image'
+        and bool(block.get('image_data'))
+        for block in (result.get('blocks') or [])
+    )
+
+    if loaded_images != expected_images:
+        raise ValueError('Incomplete images; retaining previous body')
+
+    size = (
+        len(str(result.get('text', '')))
+        + sum(
+            len(str(block.get('image_data', '')))
+            + len(str(block.get('text', '')))
+            for block in (result.get('blocks') or [])
+            if isinstance(block, dict)
+        )
+        + 1024
+    )
+
+    if size > 16 * 1024 * 1024:
+        raise ValueError('Article exceeds prepared-cache size limit')
+
+    return result, size
+
+
+def _mui_v2_publish(url, payload, size):
+    global _mui_v2_ready_bytes
+
+    key = _article_cache_key(url)
+
+    with _mui_v2_lock:
+        old = _mui_v2_ready.pop(key, None)
+        if old:
+            _mui_v2_ready_bytes -= old[1]
+
+        _mui_v2_ready[key] = (payload, size)
+        _mui_v2_ready_bytes += size
+
+        while (
+            len(_mui_v2_ready) > 28
+            or _mui_v2_ready_bytes > 48 * 1024 * 1024
+        ):
+            _, removed = _mui_v2_ready.popitem(last=False)
+            _mui_v2_ready_bytes -= removed[1]
+
+
+def _mui_v2_worker():
+    """Single background worker; never blocks headline publication."""
+    while True:
+        url = _mui_v2_jobs.get()
+
+        try:
+            # Prepare the previously cached body first if available.
+            if get_prepared_article_text_payload(url) is None:
+                with ARTICLE_TEXT_CACHE_LOCK:
+                    record = _load_article_text_cache().get(
+                        _article_cache_key(url)
+                    )
+                    old = (
+                        record.get('payload')
+                        if isinstance(record, dict)
+                        else None
+                    )
+
+                if old is not None:
+                    try:
+                        rendered, size = _mui_v2_prepare(url, old)
+                        _mui_v2_publish(url, rendered, size)
+                        _mui_v2_log(
+                            'READY_OLD url='
+                            + _article_cache_key(url)[:12]
+                        )
+                    except Exception:
+                        pass
+
+            # Always re-fetch, even if headline and URL are unchanged.
+            fresh = _fetch_article_text_payload_uncached(url)
+            rendered, size = _mui_v2_prepare(url, fresh)
+
+            # Publish only after the entire replacement is valid.
+            _store_cached_article_text_payload(url, fresh)
+            _mui_v2_publish(url, rendered, size)
+
+            _mui_v2_log(
+                'REFRESHED url=' + _article_cache_key(url)[:12]
+                + ' chars=' + str(len(fresh.get('text', '')))
+            )
+
+        except Exception as error:
+            _mui_v2_log(
+                'KEPT_OLD url=' + _article_cache_key(url)[:12]
+                + ' error=' + str(error)[:110]
+            )
+
+        finally:
+            with _mui_v2_lock:
+                _mui_v2_pending.discard(_article_cache_key(url))
+            _mui_v2_jobs.task_done()
+
+
+def prefetch_article_text_payload(url):
+    """Schedule refresh without spawning unbounded article workers."""
+    global _mui_v2_thread
+
+    url = str(url or '').strip()
+    if not url:
+        return
+
+    key = _article_cache_key(url)
+    now = time.monotonic()
+
+    with _mui_v2_lock:
+        if (
+            key in _mui_v2_pending
+            or now - _mui_v2_last_queued.get(key, -1e10) < 240
+        ):
+            return
+
+        try:
+            _mui_v2_jobs.put_nowait(url)
+        except _mui_v2_queue.Full:
+            _mui_v2_log('QUEUE_FULL url=' + key[:12])
+            return
+
+        _mui_v2_pending.add(key)
+        _mui_v2_last_queued[key] = now
+
+        if _mui_v2_thread is None or not _mui_v2_thread.is_alive():
+            _mui_v2_thread = threading.Thread(
+                target=_mui_v2_worker,
+                name='MorningUIArticleCacheV2',
+                daemon=True,
+            )
+            _mui_v2_thread.start()

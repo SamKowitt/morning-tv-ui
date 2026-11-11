@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QSizePolicy, QLabel, QVBoxLayout, QWidget, QHBoxLa
 
 from ui.auto_fit_label import AutoFitLabel
 from ui.newspaper_chrome import draw_stacked_newspaper_panel, oled_newspaper_color
-from services.article_text_fetcher import fetch_article_text_payload
+from services.article_text_fetcher import fetch_article_text_payload, get_prepared_article_text_payload
 
 
 class ResponsiveMiniHeadlineLabel(QLabel):
@@ -553,6 +553,11 @@ class OpenNewspaperDialog(QDialog):
     # Restarting the animation *before* the news widget is removed causes
     # rectangular Qt damage/repaint tiles to flash around rounded weather cards.
     def showEvent(self, event):
+        ready = getattr(self, '_mui_v2_ready', None)
+        if ready is not None:
+            self._mui_v2_ready = None
+            self.layout().activate()
+            self.set_article_payload(ready)
         super().showEvent(event)
         if getattr(self, '_paused_weather_timers_v2', None) is not None:
             return
@@ -960,8 +965,16 @@ class OpenNewspaperDialog(QDialog):
 
         root.addLayout(controls)
 
-        self.set_loading_state()
-        self.start_fetch()
+        # MORNINGUI_ARTICLE_CACHE_V2: original pagination at final size.
+        self._mui_v2_ready = get_prepared_article_text_payload(
+            self.article_url
+        )
+        if self._mui_v2_ready is None:
+            self.set_loading_state()
+            self.start_fetch()
+        else:
+            self.left_page.clear()
+            self.right_page.clear()
 
     def set_loading_state(self):
         self.left_page.setPlainText("Fetching article text...")

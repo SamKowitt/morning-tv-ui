@@ -636,12 +636,8 @@ class WeatherRow(QWidget):
         # MORNINGUI_OPT_V20: integer DPR fixes old seam.
 
     def apply_text_colors(self):
-        dark_weather_art = self.is_night or self.condition in {"rain", "storm"}
-
-        if dark_weather_art:
-            color = "#ffffff"
-        else:
-            color = "#22313b"
+        # MORNINGUI_WEATHER_ALWAYS_TAN_V1: identical text in every phase.
+        color = "#ead3a3"
 
         font_css = f"color: {color}; background: transparent;"
         icon_css = "background: transparent;"
@@ -803,12 +799,8 @@ class WeatherRow(QWidget):
                 solar_font.setBold(True)
                 painter.setFont(solar_font)
 
-                dark_bg = self.is_night or self.condition in {"rain", "storm"}
-                painter.setPen(
-                    QColor(255, 255, 255, 225)
-                    if dark_bg
-                    else QColor(31, 45, 54, 235)
-                )
+                # MORNINGUI_WEATHER_ALWAYS_TAN_V1: solar text.
+                painter.setPen(QColor("#ead3a3"))
 
                 oled_text_draw(painter, 
                     solar_rect,
@@ -917,16 +909,8 @@ class WeatherRow(QWidget):
         self.solar_detail_label.setText("")
         self.solar_detail_label.hide()
 
-        # Rain and thunderstorms use dark art even during daytime.
-        # Keep time and temperature white whenever that art is active.
-        dark_weather_art = is_night or condition in {"rain", "storm"}
-
-        if dark_weather_art:
-            text_color = "#ffffff"
-            muted_color = "rgba(255, 255, 255, 210)"
-        else:
-            text_color = "#263238"
-            muted_color = "rgba(38, 50, 56, 210)"
+        # MORNINGUI_WEATHER_ALWAYS_TAN_V1: keep every label tan.
+        text_color = muted_color = "#ead3a3"
 
         for label in labels:
             if label is icon_label:

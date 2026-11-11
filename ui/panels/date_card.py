@@ -55,7 +55,7 @@ class DateCard(QWidget):
         self.setObjectName("DateCard")
         self.setAttribute(Qt.WA_StyledBackground, True)
 
-        self.text_color = "#2f2a24"
+        self.text_color = "#ead3a3"  # MORNINGUI_WEATHER_ALWAYS_TAN_V1
 
         self.background_weather_row = self.create_weather_background()
 
@@ -675,11 +675,11 @@ class DateCard(QWidget):
             self.force_label_color(label, self.text_color)
 
     def set_night_text(self):
-        self.text_color = "#ffffff"
+        self.text_color = "#ead3a3"
         self.apply_text_color()
 
     def set_day_text(self):
-        self.text_color = "#2f2a24"
+        self.text_color = "#ead3a3"
         self.apply_text_color()
 # OLED_CONTRAST_V4
 from ui.oled_text import oled_text_draw, oled_style, oled_html, oled_layout_draw

@@ -54,6 +54,7 @@ from services.sports_games_fetcher import (
     fetch_current_sports_games,
     fetch_mlb_boxscore,
     fetch_espn_boxscore,
+    get_cached_boxscore,
 )
 from services.sports_news_fetcher import fetch_espn_sports_articles
 from services.stock_fetcher import (
@@ -338,7 +339,7 @@ class SportsBoxscorePrefetchWorker(QObject):
                 ).upper()
 
                 for game in getattr(league_data, "games", []) or []:
-                    if not bool(getattr(game, "is_clickable", False)):
+                    if not bool(getattr(game, "is_live", False)):
                         continue
 
                     game_id = str(
@@ -349,9 +350,9 @@ class SportsBoxscorePrefetchWorker(QObject):
                         continue
 
                     if league == "MLB":
-                        fetch_mlb_boxscore(game_id)
+                        fetch_mlb_boxscore(game_id, force_refresh=True)
                     elif league in {"NFL", "NBA"}:
-                        fetch_espn_boxscore(league, game_id)
+                        fetch_espn_boxscore(league, game_id, force_refresh=True)
                     else:
                         continue
 
@@ -661,6 +662,24 @@ class DashboardWindow(QMainWindow):
             self.start_mini_news_background_refresh
         )
 
+        # MORNINGUI_DATA_REFRESH_V1
+        # Network data timers only. No repaint or layout timers.
+        self.primary_news_refresh_timer = QTimer(self)
+        self.primary_news_refresh_timer.setInterval(5 * 60 * 1000)
+        self.primary_news_refresh_timer.timeout.connect(self.start_news_fetch)
+
+        self.espn_news_refresh_timer = QTimer(self)
+        self.espn_news_refresh_timer.setInterval(5 * 60 * 1000)
+        self.espn_news_refresh_timer.timeout.connect(
+            self.start_sports_news_fetch
+        )
+
+        self.weather_data_refresh_timer = QTimer(self)
+        self.weather_data_refresh_timer.setInterval(5 * 60 * 1000)
+        self.weather_data_refresh_timer.timeout.connect(
+            self.start_weather_fetch
+        )
+
         self.root = QWidget()
         self.root.setObjectName("RootWidget")
         self.setCentralWidget(self.root)
@@ -815,12 +834,14 @@ class DashboardWindow(QMainWindow):
         self.position_settings_button()
 
         self.start_news_fetch()
+        self.primary_news_refresh_timer.start()
 
         # Warm both hidden mini-news panels and their article text immediately.
         self.start_mini_news_background_refresh()
         self.mini_news_refresh_timer.start()
 
         self.start_sports_news_fetch()
+        self.espn_news_refresh_timer.start()
         self.start_sports_games_fetch()
         self.sports_games_refresh_timer.start()
 
@@ -830,6 +851,7 @@ class DashboardWindow(QMainWindow):
             self.start_stock_fetch()
 
         self.start_weather_fetch()
+        self.weather_data_refresh_timer.start()
 
         self.start_apple_calendar_fetch()
 
@@ -4365,6 +4387,14 @@ class DashboardWindow(QMainWindow):
         self.weather_radar_dialog.activateWindow()
 
     def start_weather_fetch(self):
+        try:
+            thread = getattr(self, "weather_thread", None)
+            if thread is not None and thread.isRunning():
+                self._morningui_refresh_note("SKIP overlap: weather_thread")
+                return
+        except RuntimeError:
+            pass
+
         self.weather_thread = QThread()
         self.weather_worker = WeatherFetchWorker(
             location=self.weather_location
@@ -4384,9 +4414,35 @@ class DashboardWindow(QMainWindow):
 
         self.weather_thread.start()
 
+    # MORNINGUI_ARTICLE_CACHE_V2: skip unnecessary visual updates.
+    def _mui_v2_changed(self, name, value):
+        history = getattr(self, '_mui_v2_last', None)
+        if history is None:
+            history = {}
+            self._mui_v2_last = history
+
+        signature = repr(value)
+
+        if history.get(name) == signature:
+            self._morningui_refresh_note(f'{name}_UI unchanged')
+            return False
+
+        history[name] = signature
+        return True
+
     def on_weather_loaded(self, rows):
         print("Weather data loaded into panel.")
+        self._morningui_refresh_note("WEATHER applied")
 
+        if not self._mui_v2_changed(
+            'WEATHER',
+            (
+                datetime.now().astimezone().strftime('%Y%m%d%H'),
+                self.weather_location,
+                list(rows or []),
+            ),
+        ):
+            return
         self.weather_rows = list(rows or [])
 
         self.weather_radar_location = self.weather_location
@@ -4412,26 +4468,7 @@ class DashboardWindow(QMainWindow):
         if not self.weather_rows or self.weather_radar_location is None:
             return
 
-        # Every radar-cache pass first warms the current active/final
-        # boxscores. This gives the Game Times popups priority over radar
-        # network work during launch and scheduled refreshes.
-        if not self.radar_preload_waiting_for_boxscores:
-            self.radar_preload_waiting_for_boxscores = True
-
-            if not self.sports_games_has_loaded:
-                print(
-                    "Deferring radar preload until Game Times "
-                    "and box-score cache warmup are ready."
-                )
-                return
-
-            self.start_sports_boxscore_prefetch(
-                self.latest_sports_leagues
-            )
-            return
-
-        self.radar_preload_waiting_for_boxscores = False
-
+        # Radar refresh no longer waits for boxscores.
         try:
             if (
                 self.radar_preload_thread
@@ -4557,12 +4594,29 @@ class DashboardWindow(QMainWindow):
             f"{ready_count}/{requested_count} ready, "
             f"{failed_count} failed."
         )
+        self._morningui_refresh_note(
+            f"RADAR ready={ready_count}/{requested_count} "
+            f"failed={failed_count}"
+        )
+
+        dialog = getattr(self, "weather_radar_dialog", None)
+        try:
+            if (
+                dialog is not None
+                and dialog.isVisible()
+                and getattr(dialog, "is_playing", False)
+            ):
+                dialog.start_fetch()
+        except RuntimeError:
+            pass
 
     def on_weather_radar_preload_failed(self, message):
+        self._morningui_refresh_note(f"RADAR failed: {message}")
         print(f"Radar preload failed: {message}")
 
     def on_weather_failed(self, message):
         print(f"Weather fetch failed: {message}")
+        self._morningui_refresh_note(f"WEATHER failed: {message}")
 
 
 
@@ -4629,9 +4683,10 @@ class DashboardWindow(QMainWindow):
             f"source={source_key}"
         )
 
-        self.more_news_card.top_source_label.setText(
-            get_news_source_display(source_key)
-        )
+        # MORNINGUI_SECONDARY_MASTHEAD_SYNC_V4
+        # Painter owns heading; leave the layout QLabel empty on every fetch.
+        if self.more_news_card.top_source_label.text():
+            self.more_news_card.top_source_label.clear()
         # Keep previously cached headlines visible while new data loads.
         # Do not switch the visible dashboard panel during background refresh.
         self.more_news_thread = QThread()
@@ -4676,10 +4731,10 @@ class DashboardWindow(QMainWindow):
             )
             return
 
-        self.more_news_card.update_article_list(
-            articles,
-            page_label="",
-        )
+        if self._mui_v2_changed('SECONDARY_LEFT', articles):
+            self.more_news_card.update_article_list(
+                articles, page_label=""
+            )
 
         print(
             f"Cached {len(articles)} extra headlines "
@@ -4943,9 +4998,10 @@ class DashboardWindow(QMainWindow):
             f"source={source_key}"
         )
 
-        self.market_news_card.top_source_label.setText(
-            get_news_source_display(source_key)
-        )
+        # MORNINGUI_SECONDARY_MASTHEAD_SYNC_V4
+        # Same protection for the optional secondary right news card.
+        if self.market_news_card.top_source_label.text():
+            self.market_news_card.top_source_label.clear()
         # Keep previously cached headlines visible while new data loads.
         # Do not switch the visible dashboard panel during background refresh.
         thread = QThread()
@@ -4998,10 +5054,10 @@ class DashboardWindow(QMainWindow):
             self.show_market_tape_panel()
             return
 
-        self.market_news_card.update_article_list(
-            articles,
-            page_label="MORE",
-        )
+        if self._mui_v2_changed('SECONDARY_RIGHT', articles):
+            self.market_news_card.update_article_list(
+                articles, page_label="MORE"
+            )
 
         print(
             f"Cached {len(articles)} Market Tape replacement headlines "
@@ -5115,7 +5171,28 @@ class DashboardWindow(QMainWindow):
     def on_stock_fetch_cancelled(self, request_id):
         print(f"Cancelled superseded Market Tape request {request_id}.")
 
+    def _morningui_refresh_note(self, message):
+        try:
+            from pathlib import Path
+            path = Path.home() / ".cache/morningui_data_refresh_v1.log"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as stream:
+                stream.write(
+                    f"{datetime.now().astimezone().isoformat()} "
+                    f"{message}\n"
+                )
+        except OSError:
+            pass
+
     def start_sports_news_fetch(self):
+        try:
+            thread = getattr(self, "sports_news_thread", None)
+            if thread is not None and thread.isRunning():
+                self._morningui_refresh_note("SKIP overlap: sports_news_thread")
+                return
+        except RuntimeError:
+            pass
+
         self.sports_news_thread = QThread()
         self.sports_news_worker = SportsNewsFetchWorker()
         self.sports_news_worker.moveToThread(self.sports_news_thread)
@@ -5134,10 +5211,21 @@ class DashboardWindow(QMainWindow):
         self.sports_news_thread.start()
 
     def on_sports_news_loaded(self, articles):
-        self.sports_news.update_articles(articles)
+        for article in list(articles or [])[:5]:
+            if not bool(getattr(article, 'is_game_lead', False)):
+                prefetch_article_text_payload(
+                    getattr(article, 'link', '')
+                )
+
+        if self._mui_v2_changed(
+            'SPORTS_HEADLINES', list(articles or [])[:5]
+        ):
+            self.sports_news.update_articles(articles)
+        self._morningui_refresh_note("ESPN_NEWS applied")
 
     def on_sports_news_failed(self, error_message):
         print(f"ESPN sports news fetch failed: {error_message}")
+        self._morningui_refresh_note(f"ESPN_NEWS failed: {error_message}")
 
     def start_sports_games_fetch(self):
         if self.sports_games_thread is not None:
@@ -5194,6 +5282,23 @@ class DashboardWindow(QMainWindow):
         self.latest_sports_leagues = list(leagues or [])
         self.sports_games_has_loaded = True
 
+        live_games = [
+            (str(getattr(league, "league", "") or "").upper(), game)
+            for league in self.latest_sports_leagues
+            for game in (getattr(league, "games", []) or [])
+            if bool(getattr(game, "is_live", False))
+        ]
+
+        desired_interval = 60 * 1000 if live_games else 5 * 60 * 1000
+
+        if self.sports_games_refresh_timer.interval() != desired_interval:
+            self.sports_games_refresh_timer.setInterval(desired_interval)
+
+        self._morningui_refresh_note(
+            f"GAMES applied, live={len(live_games)}, "
+            f"polling={desired_interval // 1000}s"
+        )
+
         # Start the cache warmup immediately, before the visible Game Times
         # panel is updated with clickable active/final games.
         self.start_sports_boxscore_prefetch(
@@ -5207,6 +5312,7 @@ class DashboardWindow(QMainWindow):
 
     def on_sports_games_failed(self, error_message):
         print(f"Sports games fetch failed: {error_message}")
+        self._morningui_refresh_note(f"GAMES failed: {error_message}")
 
         if (
             not self.sports_games_has_loaded
@@ -5217,6 +5323,13 @@ class DashboardWindow(QMainWindow):
             )
 
     def start_sports_boxscore_prefetch(self, leagues):
+        if not any(
+            bool(getattr(game, "is_live", False))
+            for league in (leagues or [])
+            for game in (getattr(league, "games", []) or [])
+        ):
+            return
+
         if self.sports_boxscore_prefetch_thread is not None:
             try:
                 if self.sports_boxscore_prefetch_thread.isRunning():
@@ -5241,6 +5354,7 @@ class DashboardWindow(QMainWindow):
                 f"Box-score preload complete: {warmed} game(s)."
             )
         )
+        worker.finished.connect(self._morningui_live_boxscores_ready)
         worker.failed.connect(
             lambda error: print(f"Box-score preload failed: {error}")
         )
@@ -5261,6 +5375,38 @@ class DashboardWindow(QMainWindow):
         print("Starting background box-score preload.")
         thread.start()
 
+    def _morningui_live_boxscores_ready(self, warmed):
+        self._morningui_refresh_note(f"LIVE_BOXSCORES refreshed={warmed}")
+
+        dialog = getattr(self.sports_games, "boxscore_dialog", None)
+        if dialog is None:
+            return
+
+        try:
+            if not dialog.isVisible():
+                return
+
+            league = str(
+                getattr(dialog, "league", "MLB") or "MLB"
+            ).upper()
+            game_id = str(getattr(dialog, "game_id", "") or "")
+
+            live = any(
+                str(getattr(group, "league", "") or "").upper() == league
+                and str(getattr(game, "game_id", "") or "") == game_id
+                and bool(getattr(game, "is_live", False))
+                for group in self.latest_sports_leagues
+                for game in (getattr(group, "games", []) or [])
+            )
+
+            if live:
+                payload = get_cached_boxscore(league, game_id)
+                if payload is not None:
+                    dialog.apply_boxscore(payload)
+
+        except RuntimeError:
+            pass
+
     def clear_sports_boxscore_prefetch_references(self, thread, worker):
         # Retain the completed wrappers through cleanup so PySide does not
         # destroy a shared QObject while setting these attributes to None.
@@ -5280,6 +5426,14 @@ class DashboardWindow(QMainWindow):
             )
 
     def start_news_fetch(self):
+        try:
+            thread = getattr(self, "news_thread", None)
+            if thread is not None and thread.isRunning():
+                self._morningui_refresh_note("SKIP overlap: news_thread")
+                return
+        except RuntimeError:
+            pass
+
         self.news_request_id += 1
         request_id = self.news_request_id
 
@@ -5332,12 +5486,18 @@ class DashboardWindow(QMainWindow):
             f"Applying news fetch request {request_id}: "
             f"left={left_source_key}, right={right_source_key}"
         )
+        self._morningui_primary_news_loaded = True
+        self._morningui_refresh_note("PRIMARY_NEWS applied")
 
         if self.article_matches_selected_source(left_article, left_source_key):
-            self.force_clear_news_card(self.fox_card, left_source_key)
-            self.fox_card.update_article(left_article)
+            if self._mui_v2_changed(
+                'PRIMARY_LEFT', (left_source_key, left_article)
+            ):
+                self.force_clear_news_card(self.fox_card, left_source_key)
+                self.fox_card.update_article(left_article)
             print(f"LEFT CARD NOW SET TO: {left_article.source} | {left_article.title}")
         else:
+            self._mui_v2_changed('PRIMARY_LEFT', None)
             self.reject_mismatched_news_card(self.fox_card, left_source_key)
 
         if isinstance(right_article, list):
@@ -5348,21 +5508,38 @@ class DashboardWindow(QMainWindow):
             ]
 
             if valid_right_articles:
-                self.force_clear_news_card(self.cnbc_card, right_source_key)
-                self.cnbc_card.update_article_list(valid_right_articles, page_label="PAGE 2")
+                if self._mui_v2_changed(
+                    'PRIMARY_RIGHT',
+                    (right_source_key, valid_right_articles),
+                ):
+                    self.force_clear_news_card(
+                        self.cnbc_card, right_source_key
+                    )
+                    self.cnbc_card.update_article_list(
+                        valid_right_articles, page_label="PAGE 2"
+                    )
                 print(
                     f"RIGHT CARD NOW SET TO PAGE 2: "
                     f"{len(valid_right_articles)} article(s) from {valid_right_articles[0].source}"
                 )
             else:
-                self.reject_mismatched_news_card(self.cnbc_card, right_source_key)
+                self._mui_v2_changed('PRIMARY_RIGHT', None)
+                self.reject_mismatched_news_card(
+                    self.cnbc_card, right_source_key
+                )
 
         elif self.article_matches_selected_source(right_article, right_source_key):
-            self.force_clear_news_card(self.cnbc_card, right_source_key)
-            self.cnbc_card.update_article(right_article)
+            if self._mui_v2_changed(
+                'PRIMARY_RIGHT', (right_source_key, right_article)
+            ):
+                self.force_clear_news_card(self.cnbc_card, right_source_key)
+                self.cnbc_card.update_article(right_article)
             print(f"RIGHT CARD NOW SET TO: {right_article.source} | {right_article.title}")
         else:
-            self.reject_mismatched_news_card(self.cnbc_card, right_source_key)
+            self._mui_v2_changed('PRIMARY_RIGHT', None)
+            self.reject_mismatched_news_card(
+                self.cnbc_card, right_source_key
+            )
 
     def on_news_failed(self, request_id, error_message):
         if request_id != self.news_request_id:
@@ -5373,6 +5550,11 @@ class DashboardWindow(QMainWindow):
             return
 
         print(f"News fetch failed: {error_message}")
+        self._morningui_refresh_note(
+            f"PRIMARY_NEWS failed: {error_message}"
+        )
+        if getattr(self, "_morningui_primary_news_loaded", False):
+            return
 
         left_label = get_news_source_display(self.left_news_source_key)
         right_label = get_news_source_display(self.right_news_source_key)
@@ -5389,6 +5571,9 @@ class DashboardWindow(QMainWindow):
         # warmup, never a reason to hold the app open.
         for timer_name in (
             "weather_radar_refresh_timer",
+            "primary_news_refresh_timer",
+            "espn_news_refresh_timer",
+            "weather_data_refresh_timer",
             "sports_games_refresh_timer",
             "mini_news_refresh_timer",
             "weather_address_debounce_timer",

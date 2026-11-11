@@ -101,14 +101,17 @@ class _WeatherGPUState(QObject):
             self.schedule(100)
 
     def schedule(self, delay=200):
-        if (
-            self.failed
-            or not ENABLED.is_file()
-            or self.pending
-            or self.awaiting_verify
-        ):
+        # MORNINGUI_HOURLY_VERIFY_REPLAY_V5B
+        if self.failed or not ENABLED.is_file():
             return
-
+        if self.awaiting_verify:
+            # A completed real-weather update must not be lost while
+            # the GPU verifies the previous card set.
+            self._mw26_deferred_weather_rebuild = True
+            print("V26_GPU_WEATHER_REFRESH_QUEUED", flush=True)
+            return
+        if self.pending:
+            return
         self.pending = True
         QTimer.singleShot(delay, self.rebuild)
 
@@ -186,6 +189,10 @@ class _WeatherGPUState(QObject):
                 f"{self._last_card_count} cards, {api}",
                 flush=True,
             )
+            if getattr(self, "_mw26_deferred_weather_rebuild", False):
+                self._mw26_deferred_weather_rebuild = False
+                print("V26_GPU_WEATHER_REFRESH_REPLAYING", flush=True)
+                self.schedule(0)
 
         except Exception as exc:
             self.failed = True
@@ -211,6 +218,20 @@ class _WeatherGPUState(QObject):
         ):
             return
 
+        # MORNINGUI_HOURLY_NO_PLACEHOLDER_GPU_V5B
+        # current_rows begins empty; the constructor creates dummy 10am
+        # cards. Build the GPU only after the panel has selected real,
+        # timestamped future hours from WeatherPanel.update_weather_rows().
+        if not (
+            getattr(self.panel, "current_rows", None)
+            and getattr(self.panel, "visible_rows", None)
+        ):
+            if not getattr(self, "_mw26_wait_logged", False):
+                print("V26_GPU_WAITING_FOR_REAL_FORECAST", flush=True)
+                self._mw26_wait_logged = True
+            return
+        self._mw26_wait_logged = False
+
         try:
             rows = list(self.panel.row_widgets)
 
@@ -224,10 +245,10 @@ class _WeatherGPUState(QObject):
                 exist_ok=True,
             )
 
-            # Temporarily hide the GPU layer while capturing
-            # the underlying original WeatherRow artwork.
-            self.view.hide()
-            QApplication.processEvents()
+            # MORNINGUI_GPU_NO_LEGACY_EXPOSURE_V4
+            # The V41 helper paints transparent label glyphs offscreen.
+            # Keep the approved GPU visible; never expose old WeatherRow art.
+            # No QApplication.processEvents() or GPU early-return added.
 
             cards = []
 
@@ -289,6 +310,15 @@ class _WeatherGPUState(QObject):
 
             self.view.rootObject().setProperty(
                 "cards", cards
+            )
+            # Exact visible widget labels provided to Qt Quick.
+            first_label = rows[0].hour_label.text()
+            first_temp = rows[0].temp_label.text()
+            print(
+                f"V26_GPU_HOURLY_COMMITTED: "
+                f"first={first_label} temp={first_temp} "
+                f"count={len(cards)}",
+                flush=True,
             )
 
             self.view.setGeometry(
@@ -735,14 +765,8 @@ def _v41_foreground_image(row, filename, oled_tan=False):  # MORNINGUI_OLED_WEAT
             painter.save()
             painter.setFont(QFont(label.font()))
 
-            if oled_tan and name in ("hour_label", "temp_label"):
-                color = QColor("#ead3a3")
-            elif dark:
-                color = QColor(255, 255, 255, 255)
-            elif name == "hour_label":
-                color = QColor(38, 50, 56, 210)
-            else:
-                color = QColor(38, 50, 56, 255)
+            # MORNINGUI_WEATHER_ALWAYS_TAN_V1: every GPU text label.
+            color = QColor("#ead3a3")
 
             painter.setPen(color)
 
@@ -775,11 +799,8 @@ def _v41_foreground_image(row, filename, oled_tan=False):  # MORNINGUI_OLED_WEAT
                 font.setBold(True)
                 painter.setFont(font)
 
-                painter.setPen(
-                    QColor(255, 255, 255, 225)
-                    if dark
-                    else QColor(31, 45, 54, 235)
-                )
+                # MORNINGUI_WEATHER_ALWAYS_TAN_V1: solar overlay.
+                painter.setPen(QColor("#ead3a3"))
 
                 painter.drawText(
                     rect,

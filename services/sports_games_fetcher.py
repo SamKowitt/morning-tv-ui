@@ -114,6 +114,7 @@ class SportsGame:
     league: str = ""
     game_id: str = ""
     is_clickable: bool = False
+    is_live: bool = False  # MORNINGUI_LIVE_STATUS_V1
 
 
 @dataclass
@@ -516,8 +517,8 @@ def is_mlb_boxscore_clickable(game):
     )
 
 
-def fetch_mlb_boxscore(game_pk):
-    cached = get_cached_boxscore("MLB", game_pk)
+def fetch_mlb_boxscore(game_pk, force_refresh=False):
+    cached = None if force_refresh else get_cached_boxscore("MLB", game_pk)
 
     if cached is not None:
         print(f"Using cached MLB box score: {game_pk}")
@@ -534,7 +535,7 @@ def fetch_mlb_boxscore(game_pk):
     return _store_cached_boxscore("MLB", game_pk, fetch_json(url))
 
 
-def fetch_espn_boxscore(league, event_id):
+def fetch_espn_boxscore(league, event_id, force_refresh=False):
     league = str(league or "").upper()
     event_id = str(event_id or "").strip()
 
@@ -544,7 +545,7 @@ def fetch_espn_boxscore(league, event_id):
     if not event_id:
         raise ValueError("Missing ESPN event ID.")
 
-    cached = get_cached_boxscore(league, event_id)
+    cached = None if force_refresh else get_cached_boxscore(league, event_id)
 
     if cached is not None:
         print(f"Using cached {league} box score: {event_id}")
@@ -652,6 +653,7 @@ def fetch_mlb_games(max_games_per_league=3, favorite_teams=None):
                 league="MLB",
                 game_id=str(game.get("gamePk", "") or ""),
                 is_clickable=is_mlb_boxscore_clickable(game),
+                is_live=any(word in get_mlb_game_status(game).lower() for word in ("in progress", "live")),
             )
         )
 
@@ -979,6 +981,7 @@ def fetch_espn_games(league, max_games_per_league=3, favorite_teams=None):
                 league=league,
                 game_id=str(event.get("id", "") or ""),
                 is_clickable=is_espn_boxscore_clickable(event),
+                is_live=get_espn_status_name(event) in {"STATUS_IN_PROGRESS", "STATUS_HALFTIME"},
             )
         )
 
