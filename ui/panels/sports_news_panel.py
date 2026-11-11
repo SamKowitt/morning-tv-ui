@@ -101,7 +101,8 @@ class SportsNewsPanel(QWidget):
         footer_rule_y = inner.bottom() - 15
 
         self.draw_rule(painter, inner.left(), top_rule_y, inner.right())
-        self.draw_rule(painter, inner.left(), footer_rule_y, inner.right())
+        # MORNINGUI_SPORTS_FOOTER_BORDER_RESTORED_V1
+        self.draw_rule(painter, inner.left(), footer_rule_y + 2, inner.right())  # MORNINGUI_DIVIDER_ONLY_DOWN_2PX_V1
 
         footer_font = QFont("Times New Roman", 7)
         footer_font.setBold(True)
@@ -1207,7 +1208,7 @@ class SportsNewsPanel(QWidget):
             # MORNINGUI_ESPN_FOUR_LINES_V3
             # Reclaim 3px of unused bottom headline space.
             # No change to font, spacing, columns, or page labels.
-            headline_rect = padded.adjusted(0, 0, 0, -6)
+            headline_rect = padded.adjusted(0, 0, 0, -3)  # MORNINGUI_SPORTS_FOOTER_LOWER_V1
             width = max(1.0, headline_rect.width() - 2)
             height = max(1.0, headline_rect.height() - 1)
 
@@ -1329,7 +1330,7 @@ class SportsNewsPanel(QWidget):
             oled_text_draw(painter, 
                 QRectF(
                     padded.left(),
-                    padded.bottom() - 9,
+                    padded.bottom() - 6,  # MORNINGUI_SPORTS_PAGE_LABEL_LOWER_V1
                     padded.width(),
                     9,
                 ),

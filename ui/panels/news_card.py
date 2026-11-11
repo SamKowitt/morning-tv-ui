@@ -2094,6 +2094,17 @@ class NewsCard(QWidget):
         self.page_label = QLabel("PAGE 1")
         self.page_label.setObjectName("OldNewsPageNumber")
         self.page_label.setAlignment(Qt.AlignRight)
+        # MORNINGUI_PRIMARY_PAGE1_LEFT_4PX_V1
+        # MORNINGUI_PRIMARY_PAGE1_LEFT6_DOWN2_V1
+        self.page_label.setIndent(
+            6 if self.variant in ("fox", "cnbc") else 0
+        )
+        self.page_label.setContentsMargins(
+            0,
+            2 if self.variant in ("fox", "cnbc") else 0,
+            0,
+            -2 if self.variant in ("fox", "cnbc") else 0,
+        )
 
         bottom_row.addWidget(self.read_label, 1)
         bottom_row.addWidget(self.page_label)
@@ -2334,6 +2345,18 @@ class NewsCard(QWidget):
             self.kicker_label.setText("LATEST")
             self.page_label.setText("PAGE 1")
 
+        # Preserve 4px PAGE 1 adjustment on article refresh.
+        # MORNINGUI_PRIMARY_PAGE1_LEFT6_DOWN2_V1
+        self.page_label.setIndent(
+            6 if self.variant in ("fox", "cnbc") else 0
+        )
+        self.page_label.setContentsMargins(
+            0,
+            2 if self.variant in ("fox", "cnbc") else 0,
+            0,
+            -2 if self.variant in ("fox", "cnbc") else 0,
+        )
+
         if self.article_url:
             self.read_label.setText("")
             self.setCursor(Qt.PointingHandCursor)
@@ -2423,6 +2446,8 @@ class NewsCard(QWidget):
 
         self.kicker_label.setText("MORE HEADLINES")
         self.page_label.setText(page_label)
+        self.page_label.setIndent(0)
+        self.page_label.setContentsMargins(0, 0, 0, 0)
         self.read_label.setText("")
 
         self.setCursor(Qt.ArrowCursor)

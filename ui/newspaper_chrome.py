@@ -268,7 +268,10 @@ def draw_stacked_newspaper_panel(painter: QPainter, rect, seed: int = 1):
         int(sheet.bottom() - 18),
     )
 
-    _draw_bottom_fold_full_width(painter, sheet)
+    # MORNINGUI_REMOVE_BOTTOM_FOLD_V1
+    # Remove the decorative bottom newspaper fold.
+    # Keep all other newspaper chrome unchanged.
+    pass
 
     # NEWSPAPER_RIGHT_CONTACT_EDGE_V6
     #
