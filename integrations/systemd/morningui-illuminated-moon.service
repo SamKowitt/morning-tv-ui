@@ -1,0 +1,5 @@
+[Unit]
+Description=Realistic illuminated-only lunar texture for MorningUI
+[Service]
+Type=oneshot
+ExecStart=/home/mrkowitt/morning-tv-ui/.venv3/bin/python /home/mrkowitt/.local/share/morningui-illuminated-moon/moon.py refresh

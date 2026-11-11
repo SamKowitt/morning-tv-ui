@@ -15,6 +15,14 @@ Item {
     readonly property var info: cards.length ? cards[0] : ({})
     readonly property string weatherMode: info.mode || "clear"
     readonly property string weatherPhase: info.phase || "day"
+    // MORNINGUI_MOON_ONLY_V1: update the current-hour Moon image only.
+    property int moonRevision: 0
+    Timer {
+        interval: 600000
+        repeat: true
+        running: root.visible
+        onTriggered: root.moonRevision += 1
+    }
 
     Timer {
         interval: 67
@@ -96,7 +104,7 @@ Item {
                   root.info.v5w_mode === "partly_cloudy")
 
         source: Qt.resolvedUrl(
-            "../v5w_release/assets/moon_date_v5x.png"
+            "../v5w_release/assets/moon_date_v5x.png?rev=" + root.moonRevision
         )
 
 width: 32

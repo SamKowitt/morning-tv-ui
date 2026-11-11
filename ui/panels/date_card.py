@@ -647,6 +647,11 @@ class DateCard(QWidget):
         self.set_low_high(min(temperatures), max(temperatures))
 
     def force_label_color(self, label, color):
+        # MORNINGUI_OLED_WEATHER_TAN_TEXT_V1
+        if label is getattr(self, "current_weather_label", None):
+            from ui.oled_text import oled_is_dark
+            if oled_is_dark():
+                color = "#ead3a3"
         oled_style(label, f"color: {color};")
 
         palette = label.palette()
@@ -871,7 +876,10 @@ def _mw36_apply_text_color(self):
     label.setFont(font)
 
     label.setMinimumHeight(max(54, label.minimumHeight()))
-    label.setStyleSheet(
+    # MORNINGUI_OLED_WEATHER_TAN_TEXT_V1
+    from ui.oled_text import oled_style as _mw36_oled_style
+    _mw36_oled_style(
+        label,
         f"color: {self.text_color}; "
         "background: transparent; "
         "font-size: 36pt; "

@@ -236,6 +236,15 @@ def apply_open_meteo_hourly_display_details(rows, location):
     except Exception as error:
         print(f"Open-Meteo hourly display details unavailable: {error}")
 
+    # MORNINGUI_SOLAR_ROW_PHASE_V2
+    # Daily solar events apply to every forecast hour.
+    event_hours_by_date = {}
+
+    for event_hour, (event_time, event_kind) in solar_event_by_hour.items():
+        event_hours_by_date.setdefault(
+            event_hour.date(), {}
+        )[event_kind] = event_hour
+
     for row_index, row in enumerate(rows):
         hour_key = local_hour_key(
             getattr(row, "forecast_start", ""),
@@ -265,6 +274,27 @@ def apply_open_meteo_hourly_display_details(rows, location):
             else:
                 row.solar_event_time = ""
                 row.solar_event_label = ""
+
+            # Synchronize artwork and existing nighttime text.
+            today = event_hours_by_date.get(
+                hour_key.date(), {}
+            )
+
+            sunrise_hour = today.get("sunrise")
+            sunset_hour = today.get("sunset")
+
+            if sunrise_hour is not None and sunset_hour is not None:
+                if hour_key == sunrise_hour:
+                    phase = "dawn"
+                elif hour_key == sunset_hour:
+                    phase = "dusk"
+                elif hour_key < sunrise_hour or hour_key > sunset_hour:
+                    phase = "night"
+                else:
+                    phase = "day"
+
+                row._v41_solar_phase = phase
+                row.is_night = phase == "night"
 
         apply_precipitation_visual_threshold(
             row,

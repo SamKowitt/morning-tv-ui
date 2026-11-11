@@ -10,6 +10,14 @@ Item {
     property string condition: "clear_sky"
     property string phase: "day"
     property string phaseMode: phase
+    // MORNINGUI_MOON_ONLY_V1: update Moon asset without changing other animations.
+    property int moonRevision: 0
+    Timer {
+        interval: 600000
+        repeat: true
+        running: root.visible
+        onTriggered: root.moonRevision += 1
+    }
     property real windMultiplier: 1.0 // MORNINGUI_WIND_CLOUD_BANDS_V1
     property bool nighttime: phaseMode === "night"
     // MORNINGUI_V5Y_DATE_ART_AT_NATIVE_WIDTH
@@ -318,6 +326,9 @@ Item {
                     delegate: Rectangle {
                         id: star
                         property int starIndex: index
+                        // MORNINGUI_HOURLY_RIGHT_STAR_CLEANUP_V1
+                        // Keep DateCard stars; clear hourly Moon corner.
+                        visible: root.dateCardPresentation || root.v5xStarPositions[index][0] < 0.83
                         property real b: 0.9 + (index % 4) * 0.17
                         x: 7 + root.v5xStarPositions[index][0] * (card.width - 15)
                         y: 5 + root.v5xStarPositions[index][1] * (card.height * 0.51)
@@ -607,6 +618,7 @@ Item {
             }
 
             Image {
+                // MORNINGUI_HOURLY_MOON_SMALL_V1
                 id: heavenlyBody
                 // MORNINGUI_V5Z_DATE_SUN_ALIGN_MOON_V1 — current-hour DAY only
                 transform: Translate { x: root.dateCardPresentation && root.phaseMode === "day" ? 40 : 0 }
@@ -614,14 +626,15 @@ Item {
                 visible: root.nighttime
                     ? (!root.dateCardPresentation && (entry.modelData.key === "clear_sky" || entry.modelData.key === "mostly_clear" || entry.modelData.key === "partly_cloudy"))
                     : (root.phaseMode === "day" && entry.modelData.sun)
-                source: Qt.resolvedUrl(root.nighttime
-                    ? "assets/moon_phase_current.png" : "assets/sun_glow.png")
-                width: root.dateCardPresentation ? 88 : 44
+                source: root.nighttime
+                    ? Qt.resolvedUrl("assets/moon_phase_current.png?rev=" + root.moonRevision)
+                    : Qt.resolvedUrl("assets/sun_glow.png")
+                width: root.dateCardPresentation ? 88 : (root.nighttime ? 18 : 44)
                             height: width
                 x: root.dateCardPresentation
                                 ? Math.round(card.width * 0.72 - width / 2 - 14)
-                                : Math.round(card.width - width - 6)
-y: root.dateCardPresentation ? 1 : -8
+                                : Math.round(card.width - width - (root.nighttime ? 16 : 6))
+y: root.dateCardPresentation ? 1 : (root.nighttime ? 8 : -8)
                 smooth: true
                 opacity: entry.modelData.key === "partly_cloudy"
                     ? Math.max(0.12, 1.0 - entry.cloudCover * 0.88)

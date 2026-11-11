@@ -245,6 +245,12 @@ class _WeatherGPUState(QObject):
                     raise RuntimeError(
                         "Cannot save " + str(image)
                     )
+                # MORNINGUI_OLED_WEATHER_TAN_TEXT_V1
+                oled_image = BASE / "assets" / f"card_{i}_oled_tan.png"
+                if not _v41_foreground_image(row, oled_image, oled_tan=True):
+                    raise RuntimeError(
+                        "Cannot save OLED text " + str(oled_image)
+                    )
 
                 pos = row.mapTo(
                     self.panel,
@@ -262,6 +268,10 @@ class _WeatherGPUState(QObject):
                         image.as_uri()
                         + "?v="
                         + str(image.stat().st_mtime_ns)
+                    ),
+                    "oledUrl": (
+                        oled_image.as_uri() + "?v="
+                        + str(oled_image.stat().st_mtime_ns)
                     ),
                     "rainy": condition in ("rain", "storm"),
                     "cloudy": condition in ("cloud", "fog"),
@@ -672,7 +682,7 @@ _WeatherGPUState.rebuild = _v29_weather_rebuild
 
 # MORNINGUI_V41_HOURLY_GPU_RELEASE
 # Transparent foreground capture; no old painted sky.
-def _v41_foreground_image(row, filename):
+def _v41_foreground_image(row, filename, oled_tan=False):  # MORNINGUI_OLED_WEATHER_TAN_TEXT_V1
     """Draw only foreground text onto an alpha-transparent image."""
     from PySide6.QtCore import QPoint, Qt
     from PySide6.QtGui import QImage, QPainter, QFont, QColor
@@ -725,7 +735,9 @@ def _v41_foreground_image(row, filename):
             painter.save()
             painter.setFont(QFont(label.font()))
 
-            if dark:
+            if oled_tan and name in ("hour_label", "temp_label"):
+                color = QColor("#ead3a3")
+            elif dark:
                 color = QColor(255, 255, 255, 255)
             elif name == "hour_label":
                 color = QColor(38, 50, 56, 210)
@@ -1004,6 +1016,21 @@ def _v41_phase(row):
     """Choose hourly artwork from forecast sunrise/sunset events."""
     from datetime import datetime, timedelta
     import re
+
+    # MORNINGUI_SOLAR_ROW_PHASE_V2
+    # Direct forecast: current DateCard.
+    # Wrapped forecast: hourly WeatherRow.
+    forecast = getattr(row, "weather_data", None)
+
+    if forecast is None:
+        forecast = row
+
+    saved_phase = getattr(
+        forecast, "_v41_solar_phase", None
+    )
+
+    if saved_phase in ("dawn", "day", "dusk", "night"):
+        return saved_phase
 
     data = getattr(row, "weather_data", None)
 

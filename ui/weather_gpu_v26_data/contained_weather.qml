@@ -90,7 +90,9 @@ Item {
             Image {
                 z: 10
                 anchors.fill: parent
-                source: tile.info.url
+                // MORNINGUI_OLED_WEATHER_TAN_TEXT_V1
+                source: root.oledWeatherPalette && tile.info.oledUrl
+                    ? tile.info.oledUrl : tile.info.url
                 fillMode: Image.Stretch
                 cache: false
                 asynchronous: false

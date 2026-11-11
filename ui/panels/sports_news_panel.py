@@ -1157,7 +1157,7 @@ class SportsNewsPanel(QWidget):
         # Preserve all article and panel dimensions.
 
         from PySide6.QtCore import QPointF
-        from PySide6.QtGui import QTextLayout, QTextOption
+        from PySide6.QtGui import QTextLayout, QTextOption, QFontMetricsF
 
         count = 4
         column_width = rect.width() / count
@@ -1204,7 +1204,10 @@ class SportsNewsPanel(QWidget):
 
             # MORNINGUI_ESPN_SECONDARY_FIXED_10_5_V2
             # Fixed font size; shorten text instead of shrinking.
-            headline_rect = padded.adjusted(0, 0, 0, -9)
+            # MORNINGUI_ESPN_FOUR_LINES_V3
+            # Reclaim 3px of unused bottom headline space.
+            # No change to font, spacing, columns, or page labels.
+            headline_rect = padded.adjusted(0, 0, 0, -6)
             width = max(1.0, headline_rect.width() - 2)
             height = max(1.0, headline_rect.height() - 1)
 
@@ -1233,7 +1236,50 @@ class SportsNewsPanel(QWidget):
                     y += line.height()
 
                 candidate_layout.endLayout()
-                return candidate_layout, y <= height
+
+                # MORNINGUI_ESPN_FOUR_INK_FIT_V2
+                # Preserve original font, spacing, box, and footer.
+                count_lines = candidate_layout.lineCount()
+                if count_lines > 4:
+                    return candidate_layout, False
+                if count_lines < 4:
+                    return candidate_layout, y <= height
+
+                metrics = QFontMetricsF(font, painter.device())
+
+                def ink_bounds(line):
+                    a = line.textStart()
+                    b = a + line.textLength()
+                    ink = metrics.tightBoundingRect(text[a:b])
+                    return (
+                        line.position().y() + line.ascent() + ink.top(),
+                        line.position().y() + line.ascent() + ink.bottom(),
+                    )
+
+                first = candidate_layout.lineAt(0)
+                fourth = candidate_layout.lineAt(3)
+                visible_top, _ = ink_bounds(first)
+                _, visible_bottom = ink_bounds(fourth)
+
+                # Use the actual existing clipping rectangle, not
+                # the former extra 1px safety reduction.
+                limit = headline_rect.height() - 0.20
+                shift = max(0.0, visible_bottom - limit)
+
+                # Reclaim unused blank space above the first line.
+                # Never clip its visible lettering or touch the footer.
+                if visible_top - shift < 0:
+                    return candidate_layout, False
+
+                if shift:
+                    for row in range(4):
+                        line = candidate_layout.lineAt(row)
+                        pos = line.position()
+                        line.setPosition(
+                            QPointF(pos.x(), pos.y() - shift)
+                        )
+
+                return candidate_layout, True
 
             chosen_layout, fits = layout_for(full_title)
 
