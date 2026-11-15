@@ -41,11 +41,122 @@ class NativeHourly(QObject):
         self.tick.setInterval(130)
         self.tick.timeout.connect(self.sync)
         self.tick.start()
+        # MUI_QML_NEWSPAPER_V1: native QML draws newspaper above weather.
+        self._qml_news_enabled = (ROOT / "qml_news_enabled").is_file()
+        self._qml_news_target = None
+        self._qml_news_document = {"show": False}
+        self._qml_news_focus_id = ""
+        self._qml_news_revision = 0
         QApplication.instance().installEventFilter(self)
         QApplication.instance().aboutToQuit.connect(self.shutdown)
         QTimer.singleShot(0, self.sync)
 
+    def _qml_news_prepare(self, dialog, defer_content=False):
+        if not (self._qml_news_enabled and self.ready and not self.stopping
+                and len(self.cards) == 9):
+            return False
+        if self._qml_news_target not in (None, dialog):
+            return False
+        self._qml_news_target = dialog
+        if defer_content:
+            # Wait for cached article pagination.
+            # Never publish a temporary Fetching placeholder.
+            self._qml_news_document = {"show": False}
+            self._qml_news_revision += 1
+            self._publish(force=True)
+        else:
+            self._qml_news_refresh(dialog)
+        print("MUI_QML_NEWS_OPEN", flush=True)
+        return True
+
+    def _qml_news_focus(self):
+        dialog = self._qml_news_target
+        if dialog is None:
+            return
+        nav = getattr(self.panel.window(), "_lg_dpad_navigation", None)
+        identity = getattr(nav, "selected_identity", None)
+        focus = (
+            str(identity[2]) if isinstance(identity, tuple)
+            and len(identity) >= 3 and identity[:2] == ("popup", id(dialog))
+            else ""
+        )
+        if focus != self._qml_news_focus_id:
+            self._qml_news_focus_id = focus
+            self._qml_news_document["focus"] = focus
+            self._qml_news_revision += 1
+            self._publish(force=True)
+
+    def _qml_news_refresh(self, dialog):
+        if self._qml_news_target is not dialog or self.stopping:
+            return
+        from PySide6.QtCore import QPoint
+        origin = dialog.mapToGlobal(QPoint(0, 0))
+        controls = []
+        for key, name, label in (
+            ("top", "back_to_top_button", "BACK TO TOP"),
+            ("prev", "prev_button", "‹"),
+            ("next", "next_button", "TURN PAGE  ›"),
+            ("close", "close_button", "CLOSE"),
+        ):
+            button = getattr(dialog, name, None)
+            if button is None or button.isHidden():
+                continue
+            pt = button.mapTo(dialog, QPoint(0, 0))
+            controls.append({"id": key, "text": label,
+                             "x": pt.x(), "y": pt.y(),
+                             "w": button.width(), "h": button.height(),
+                             "enabled": button.isEnabled()})
+
+        left_index = dialog.spread_index * 2
+        pages = dialog.pages
+        # Keep existing Python pagination. The pixels and typography of
+        # the newspaper itself are rendered by Qt Quick, not a PNG mirror.
+        left = pages[left_index] if left_index < len(pages) else ""
+        right = pages[left_index + 1] if left_index + 1 < len(pages) else ""
+        if not pages:
+            left = "<p>Fetching article text...</p>"
+        for n, (name, image) in enumerate(
+                getattr(dialog, "article_image_resources", {}).items()):
+            png = ROOT / ("qml_news_%d_%d.png" % (id(dialog), n))
+            if not png.is_file():
+                image.save(str(png), "PNG")
+            left = left.replace(name, png.as_uri())
+            right = right.replace(name, png.as_uri())
+        current = min(left_index + 2, max(1, len(pages)))
+        counter = ("Pages %d-%d of %d" %
+                   (left_index + 1, current, len(pages))) if pages else "Loading article..."
+        self._qml_news_document = {
+            "show": True, "x": origin.x(), "y": origin.y(),
+            "w": dialog.width(), "h": dialog.height(),
+            "source": str(dialog.source), "headline": str(dialog.headline),
+            "counter": counter,
+            "left_html": left, "right_html": right,
+            "buttons": controls, "focus": self._qml_news_focus_id,
+            "dark": bool(dialog.spread_surface.property("morningui_oled_dark")),
+        }
+        self._qml_news_revision += 1
+        self._publish(force=True)
+        print("MUI_QML_NEWS_SPREAD", dialog.spread_index, len(pages), flush=True)
+
     def eventFilter(self, obj, event):
+        # Newspaper is genuinely drawn in this layer. Do not add it to
+        # popup-hide policy, and do not schedule a weather reveal on close.
+        if (type(obj).__name__ == "OpenNewspaperDialog"
+                and getattr(obj, "_mui_qml_native", False)
+                and self._qml_news_target is obj):
+            if event.type() == QEvent.Type.Show:
+                if not getattr(obj, "_mui_cached_qml_pending", False):
+                    QTimer.singleShot(0, lambda d=obj: self._qml_news_refresh(d)
+                                      if self._qml_news_target is d else None)
+            elif event.type() in (QEvent.Type.Hide, QEvent.Type.Destroy):
+                self._qml_news_target = None
+                self._qml_news_document = {"show": False}
+                self._qml_news_focus_id = ""
+                self._qml_news_revision += 1
+                self._publish(force=True)
+                print("MUI_QML_NEWS_CLOSED", flush=True)
+            return False
+
         # Hide weather on popup Show. Reveal immediately after actual Hide.
         # Do not wait for a dashboard Paint event or arbitrary timeout.
         if isinstance(obj, QWidget) and obj is not self.panel.window() and (isinstance(obj, QDialog) or obj.isWindow()):
@@ -328,6 +439,15 @@ class NativeHourly(QObject):
                     "version": self.version, "show": show, "selected": selected,
                     "x": left, "y": top, "w": right - left, "h": bottom - top,
                     "cards": [{**c, "x": c["x"] - left, "y": c["y"] - top} for c in self.cards]}
+        screen = QApplication.primaryScreen()
+        geometry = (screen.geometry() if screen is not None
+                    else self.panel.window().geometry())
+        document["display_x"] = geometry.x()
+        document["display_y"] = geometry.y()
+        document["display_w"] = geometry.width()
+        document["display_h"] = geometry.height()
+        document["newspaper"] = self._qml_news_document
+        document["newspaper_revision"] = self._qml_news_revision
         temp = ROOT / "state.tmp"
         temp.write_text(json.dumps(document, separators=(",", ":")))
         temp.replace(ROOT / "state.json")
@@ -400,6 +520,7 @@ class NativeHourly(QObject):
             self._fallback()
             return
         if self.ready:
+            self._qml_news_focus()
             self._publish()
 
     def _fallback(self):

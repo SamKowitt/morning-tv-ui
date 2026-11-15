@@ -10,13 +10,13 @@ Window {
     visible: true // transparent surface stays alive so policy polling runs during popups
     color: "transparent"
     flags: Qt.FramelessWindowHint | Qt.WindowTransparentForInput
-    width: root.windowW
-    height: root.windowH
+    width: root.displayW
+    height: root.displayH
 
     LayerShell.Window.layer: LayerShell.Window.LayerOverlay
     LayerShell.Window.anchors: LayerShell.Window.AnchorTop | LayerShell.Window.AnchorLeft
-    LayerShell.Window.margins.left: root.screenX
-    LayerShell.Window.margins.top: root.screenY
+    LayerShell.Window.margins.left: root.displayX
+    LayerShell.Window.margins.top: root.displayY
     LayerShell.Window.margins.right: 0
     LayerShell.Window.margins.bottom: 0
     LayerShell.Window.exclusionZone: -1
@@ -27,6 +27,12 @@ Window {
     property int screenY: 254
     property int windowW: 262
     property int windowH: 808
+    property int displayX: 0
+    property int displayY: 0
+    property int displayW: 1920
+    property int displayH: 1080
+    property var newspaper: ({"show": false})
+    property int newspaperRevision: -1
     property var cards: []
     property int version: -1
     property int selected: -1
@@ -54,6 +60,14 @@ Window {
                 if (version !== Number(data.version)) {
                     cards = data.cards
                     version = Number(data.version)
+                }
+                if (data.display_x !== undefined) displayX = data.display_x
+                if (data.display_y !== undefined) displayY = data.display_y
+                if (data.display_w !== undefined) displayW = data.display_w
+                if (data.display_h !== undefined) displayH = data.display_h
+                if (newspaperRevision !== Number(data.newspaper_revision || 0)) {
+                    newspaper = data.newspaper || ({"show": false})
+                    newspaperRevision = Number(data.newspaper_revision || 0)
                 }
                 if (screenX !== data.x) screenX = data.x
                 if (screenY !== data.y) screenY = data.y
@@ -92,8 +106,8 @@ Window {
             property var info: root.cards.length === 9 ? root.cards[index] : ({})
             visible: info.w > 0
             opacity: root.showWeather ? 1.0 : 0.0
-            x: info.x || 0
-            y: info.y || 0
+            x: (info.x || 0) + root.screenX - root.displayX
+            y: (info.y || 0) + root.screenY - root.displayY
             width: info.w || 262
             height: info.h || 78
 
@@ -149,5 +163,12 @@ Window {
                 visible: root.selected === index
             }
         }
+    }
+    // Native QML newspaper above native weather, no screenshot mirroring.
+    NewsPopup {
+        z: 1000
+        popupData: root.newspaper
+        globalX: root.displayX
+        globalY: root.displayY
     }
 }

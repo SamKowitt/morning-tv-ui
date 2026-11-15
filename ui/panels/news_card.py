@@ -554,13 +554,80 @@ class OpenNewspaperDialog(QDialog):
     # rectangular Qt damage/repaint tiles to flash around rounded weather cards.
     # MUI_NEWS_PREPARE_BEFORE_SHOW_V1
     # Prepare cached article content before Qt dispatches Show.
+    # MUI_QML_NEWSPAPER_GEOMETRY_V2
+    # Cached articles paginate after final QWidget geometry is available.
     def show(self):
         ready = getattr(self, '_mui_v2_ready', None)
         if ready is not None:
             self._mui_v2_ready = None
             self.layout().activate()
+
+        native = getattr(
+            getattr(self.parentWidget(), 'weather_panel', None),
+            '_native_hourly_v1', None
+        )
+
+        self._mui_qml_native = False
+        self._mui_qml_native_controller = None
+        self._mui_cached_qml_pending = False
+
+        prepared = bool(
+            native is not None and native._qml_news_prepare(
+                self, defer_content=ready is not None
+            )
+        )
+
+        if prepared:
+            self._mui_qml_native = True
+            self._mui_qml_native_controller = native
+            self._mui_cached_qml_pending = ready is not None
+
+            # The QWidget remains for navigation, not for rendering.
+            # Prevent a second newspaper appearing beneath native QML.
+            from PySide6.QtWidgets import QGraphicsOpacityEffect
+            effect = QGraphicsOpacityEffect(self)
+            effect.setOpacity(0.0)
+            self.setGraphicsEffect(effect)
+
+        elif ready is not None:
+            # Original QWidget fallback if the QML layer is unavailable.
             self.set_article_payload(ready)
+
         super().show()
+
+        if prepared and ready is not None:
+            def finish_cached_layout():
+                try:
+                    if not self.isVisible() or not self._mui_qml_native:
+                        self._mui_cached_qml_pending = False
+                        return
+
+                    self.layout().activate()
+                    self.spread_surface.layout().activate()
+
+                    self._mui_cached_qml_pending = False
+                    self.set_article_payload(ready)
+
+                    print(
+                        'MUI_QML_NEWS_CACHED_LAYOUT',
+                        'viewport=%dx%d' % (
+                            self.left_page.viewport().width(),
+                            self.left_page.viewport().height()
+                        ),
+                        'pages=%d' % len(self.pages),
+                        flush=True
+                    )
+
+                except RuntimeError as exc:
+                    print(
+                        'MUI_QML_NEWS_LAYOUT_ERROR',
+                        repr(exc),
+                        flush=True
+                    )
+
+            # Next event-loop turn for finalized Qt layout.
+            # No weather visibility delay is introduced.
+            QTimer.singleShot(0, finish_cached_layout)
 
     def showEvent(self, event):
         ready = getattr(self, '_mui_v2_ready', None)
@@ -569,6 +636,9 @@ class OpenNewspaperDialog(QDialog):
             self.layout().activate()
             self.set_article_payload(ready)
         super().showEvent(event)
+        if getattr(self, "_mui_qml_native", False):
+            # Never stop the weather timers or disable dashboard updates.
+            return
         if getattr(self, '_paused_weather_timers_v2', None) is not None:
             return
         # The article is embedded directly in DashboardWindow; prefer its
@@ -1845,6 +1915,10 @@ class OpenNewspaperDialog(QDialog):
             self.prev_button.setText("")
 
         self.next_button.setText("TURN PAGE  ›")
+        if getattr(self, "_mui_qml_native", False):
+            controller = getattr(self, "_mui_qml_native_controller", None)
+            if controller is not None:
+                controller._qml_news_refresh(self)
 
 
     def next_spread(self):
