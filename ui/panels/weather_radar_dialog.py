@@ -13,6 +13,7 @@ from PySide6.QtGui import (
     QPixmap,
 )
 from PySide6.QtWidgets import (
+    QApplication,
     QDialog,
     QFrame,
     QHBoxLayout,
@@ -491,10 +492,10 @@ class WeatherRadarDialog(QDialog):
             if parent_window is not None:
                 root = getattr(parent_window, 'root', parent_window)
                 if root.isVisible():
-                    root.repaint()
+                    root.update()
                 panel = getattr(parent_window, 'weather_panel', None)
                 if panel is not None and panel.isVisible():
-                    panel.repaint()
+                    panel.update()
             for timer, interval in paused:
                 try:
                     timer.start(interval)
@@ -1168,11 +1169,17 @@ class WeatherRadarDialog(QDialog):
         self.radar_spinner_timer.stop()
         self.radar_fetch_timeout_timer.stop()
 
-        try:
-            if self.worker and self.worker.isRunning():
-                self.worker.wait(1500)
-        except RuntimeError:
-            pass
+        # Let any in-flight radar fetch finish without blocking Close.
+        worker = self.worker
+        self.worker = None
+        if worker is not None:
+            try:
+                if worker.isRunning():
+                    worker.setParent(QApplication.instance())
+                    worker.finished.connect(worker.deleteLater)
+                    worker.requestInterruption()
+            except RuntimeError:
+                pass
 
         super().closeEvent(event)
 

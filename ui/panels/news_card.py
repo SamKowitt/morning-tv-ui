@@ -5,7 +5,7 @@ import random
 from urllib.parse import unquote
 from PySide6.QtCore import Qt, QRectF, QUrl, QSize, QEvent, QPointF, Signal, QThread, QTimer
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QFontDatabase, QFontMetrics, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QPolygonF, QImage, QTextDocument
-from PySide6.QtWidgets import QSizePolicy, QLabel, QVBoxLayout, QWidget, QHBoxLayout, QFrame, QDialog, QTextEdit, QTextBrowser, QPushButton
+from PySide6.QtWidgets import QSizePolicy, QLabel, QVBoxLayout, QWidget, QHBoxLayout, QFrame, QDialog, QTextEdit, QTextBrowser, QPushButton, QApplication
 
 from ui.auto_fit_label import AutoFitLabel
 from ui.newspaper_chrome import draw_stacked_newspaper_panel, oled_newspaper_color
@@ -552,6 +552,16 @@ class OpenNewspaperDialog(QDialog):
     # News and radar must have the same weather timer / backing-store lifecycle.
     # Restarting the animation *before* the news widget is removed causes
     # rectangular Qt damage/repaint tiles to flash around rounded weather cards.
+    # MUI_NEWS_PREPARE_BEFORE_SHOW_V1
+    # Prepare cached article content before Qt dispatches Show.
+    def show(self):
+        ready = getattr(self, '_mui_v2_ready', None)
+        if ready is not None:
+            self._mui_v2_ready = None
+            self.layout().activate()
+            self.set_article_payload(ready)
+        super().show()
+
     def showEvent(self, event):
         ready = getattr(self, '_mui_v2_ready', None)
         if ready is not None:
@@ -600,26 +610,32 @@ class OpenNewspaperDialog(QDialog):
             return
 
         def restore_dashboard():
+            from time import monotonic_ns as _mui_ns
+            _mui_start = _mui_ns()
+            print("MUI_LAT RESTORE_BEGIN", flush=True)
             # Invalidate dashboard + weather cards while their animation timers
             # are still paused, exactly as radar V3 does on close.
             try:
                 if dashboard_state is not None:
                     dashboard, enabled = dashboard_state
+                    _mui_enable_start = _mui_ns()
                     dashboard.setUpdatesEnabled(enabled)
+                    print("MUI_LAT SET_UPDATES elapsed_ms=%.2f" % (
+                        (_mui_ns()-_mui_enable_start)/1e6), flush=True)
                     if enabled and dashboard.isVisible():
-                        dashboard.repaint()
+                        dashboard.update()
                 if parent_window is not None and parent_window.isVisible():
                     root = getattr(parent_window, 'root', parent_window)
                     if root is not None and root.isVisible():
-                        root.repaint()
+                        root.update()
                     panel = getattr(parent_window, 'weather_panel', None)
                     if panel is not None and panel.isVisible():
-                        panel.repaint()
+                        panel.update()
                         # These are independent animated widgets; explicitly
                         # flush their card surfaces before timers resume.
                         for row in getattr(panel, 'row_widgets', ()):
                             if row.isVisible():
-                                row.repaint()
+                                row.update()
             except RuntimeError:
                 # Parent may have been destroyed while the popup closed.
                 pass
@@ -633,6 +649,8 @@ class OpenNewspaperDialog(QDialog):
                     except RuntimeError:
                         pass
 
+            print("MUI_LAT RESTORE_END elapsed_ms=%.2f" % (
+                (_mui_ns()-_mui_start)/1e6), flush=True)
         QTimer.singleShot(0, restore_dashboard)
 
     def __init__(self, source, headline, article_url, parent=None):
@@ -1847,11 +1865,23 @@ class OpenNewspaperDialog(QDialog):
             self.render_spread()
 
     def closeEvent(self, event):
-        if self.worker:
-            self.worker.quit()
-            self.worker.wait()
-            self.worker = None
-
+        # Never wait for an article download on the GUI thread.
+        worker = self.worker
+        self.worker = None
+        if worker is not None:
+            if worker.isRunning():
+                for signal, slot in ((worker.finished_payload, self.set_article_payload),
+                                     (worker.failed, self.set_error)):
+                    try:
+                        signal.disconnect(slot)
+                    except (RuntimeError, TypeError):
+                        pass
+                worker.setParent(QApplication.instance())
+                worker.finished.connect(worker.deleteLater)
+                worker.requestInterruption()
+                worker.quit()
+            else:
+                worker.deleteLater()
         super().closeEvent(event)
 
 

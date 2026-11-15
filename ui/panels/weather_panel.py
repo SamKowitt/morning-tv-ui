@@ -744,9 +744,12 @@ class WeatherRow(QWidget):
                 # Night and rain retain their original art.
                 border = QColor("#526977")
 
+        # Native-only: retain the original condition-aware border.
         painter.setPen(QPen(border, 2))
-        painter.setBrush(gradient)
+        painter.setBrush(Qt.NoBrush)
         painter.drawRoundedRect(rect, 16, 16)
+        painter.end()
+        return
 
         # Clip every animated weather layer to the SAME visible rounded
         # card, preventing stale/repainted square-corner pixels at 4K.
@@ -2370,5 +2373,5 @@ WeatherRow.position_precipitation_detail = (
 
 
 # MORNINGUI_GPU_WEATHER_V26 — contained GPU integration
-from ui.weather_gpu_v26_helper import install as _mw26_install
-_mw26_install(WeatherPanel)
+from ui.native_hourly_v1 import install as _native_hourly_install
+_native_hourly_install(WeatherPanel)

@@ -1188,9 +1188,10 @@ class ESPNBoxScoreDialog(QDialog):
 
     def closeEvent(self, event):
         if self.thread and self.thread.isRunning():
+            # Keep this dialog alive until its worker finishes, but hide now.
+            self.setAttribute(Qt.WA_DeleteOnClose, False)
+            self.thread.finished.connect(self.deleteLater)
             self.thread.quit()
-            self.thread.wait(500)
-
         super().closeEvent(event)
 
 

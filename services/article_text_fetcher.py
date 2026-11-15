@@ -3434,6 +3434,7 @@ _mui_v2_last_queued = {}
 _mui_v2_ready = _mui_v2_OrderedDict()
 _mui_v2_ready_bytes = 0
 _mui_v2_thread = None
+_mui_v2_pause_network = Path.home() / '.cache/morningui_article_v2_pause_network.flag'
 MAX_ARTICLE_IMAGE_MEMORY_ENTRIES = 3
 
 
@@ -3551,6 +3552,12 @@ def _mui_v2_worker():
                         )
                     except Exception:
                         pass
+
+            # MORNINGUI_ARTICLE_V2_NETWORK_AB_V1: reversible file-controlled A/B.
+            # Keep old prepared cache available, but skip remote re-fetch.
+            if _mui_v2_pause_network.is_file():
+                _mui_v2_log('AB_SKIP_NETWORK url=' + _article_cache_key(url)[:12])
+                continue
 
             # Always re-fetch, even if headline and URL are unchanged.
             fresh = _fetch_article_text_payload_uncached(url)
