@@ -3,6 +3,7 @@ import os
 import re
 import socket
 import time
+from random import SystemRandom
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QEvent, QSocketNotifier, Qt, QTimer
@@ -93,10 +94,16 @@ class OLEDProtection(QObject):
         # OLED_FOCUS_V6_STAGED_DIM
         test = os.environ.get("MORNINGUI_OLED_TEST") == "1"
         unit = 1 if test else 60
-        self.dark_at, self.shift_at = 10 * unit, 15 * unit
-        self.dim_35_at, self.dim_50_at = 30 * unit, 45 * unit
-        self.black_at, self.shift_interval = 90 * unit, 5 * unit
+        # MUI_OLED_MICRO_V6: no 90-minute blackout.
+        self.dark_at = self.shift_at = 5 * unit
+        self.dim_20_at, self.dim_35_at = 10 * unit, 20 * unit
+        self.dim_50_at, self.dim_65_at = 30 * unit, 45 * unit
+        self.dim_70_at = 60 * unit
+        self.shift_interval = 0.5 * unit
         self.dim_opacity = 0.0
+        self._micro_rng = SystemRandom()
+        self._micro_slot = -1
+        self._micro_target = (0, 0)
 
         self.since = time.monotonic()
         self.level = 0
@@ -142,7 +149,8 @@ class OLEDProtection(QObject):
 
         print(
             "[OLED] enabled:",
-            "TEST 10/15/30/45/90 seconds" if test else "10/15/30/45/90 minutes",
+            "TEST 5/10/20/30/45/60 seconds; shifts 0.5s" if test
+            else "5/10/20/30/45/60 minutes; shifts 30s; no blackout",
             flush=True
         )
 
@@ -212,6 +220,9 @@ class OLEDProtection(QObject):
 
         if self.level or self.shift != (0, 0):
             self.level = 0
+            self.dim_opacity = 0.0
+            self._micro_slot = -1
+            self._micro_target = (0, 0)
             self._restore_styles()
             self._shift_to((0, 0))
             self._update_shades()
@@ -245,11 +256,13 @@ class OLEDProtection(QObject):
         self._v6_sync_weather_palette()
 
     def _v6_stage(self, elapsed):
-        if elapsed >= self.black_at: return 3, 0.0
+        # Level 2 shades Qt and QML; level 3 is never scheduled.
+        if elapsed >= self.dim_70_at: return 2, 0.70
+        if elapsed >= self.dim_65_at: return 2, 0.65
         if elapsed >= self.dim_50_at: return 2, 0.50
         if elapsed >= self.dim_35_at: return 2, 0.35
-        if elapsed >= self.shift_at: return 2, 0.20
-        if elapsed >= self.dark_at: return 1, 0.0
+        if elapsed >= self.dim_20_at: return 2, 0.20
+        if elapsed >= self.dark_at: return 2, 0.10
         return 0, 0.0
 
     def _v6_sync_weather_palette(self):
@@ -269,24 +282,100 @@ class OLEDProtection(QObject):
             except RuntimeError:
                 pass
 
+    def _micro_shift_bounds(self):
+        # Match _shift_to's viewport/section bounding box.
+        # _shift_to remains the independent safety clamp.
+        from PySide6.QtCore import QPoint
+
+        viewport = getattr(self.main, "dashboard_viewport", None)
+        page = getattr(self.main, "dashboard_page", None)
+
+        if viewport is None or page is None:
+            return None
+
+        sections = [
+            getattr(self.main, name, None)
+            for name in (
+                "date_card_container",
+                "weather_panel",
+                "top_row_widget",
+                "middle_row_widget",
+                "bottom_row_widget",
+            )
+        ]
+
+        if not all(
+            isinstance(w, QWidget) and w.width() > 0
+            and w.height() > 0 for w in sections
+        ):
+            return None
+
+        try:
+            bounds = []
+            for w in sections:
+                v = w.mapTo(page, QPoint(0, 0))
+                bounds.append((
+                    v.x(), v.y(),
+                    v.x() + w.width(),
+                    v.y() + w.height(),
+                ))
+
+            left = min(b[0] for b in bounds)
+            top = min(b[1] for b in bounds)
+            right = max(b[2] for b in bounds)
+            bottom = max(b[3] for b in bounds)
+
+            if (
+                left < 0 or top < 0
+                or right > viewport.width()
+                or bottom > viewport.height()
+            ):
+                return None
+
+            return (
+                -max(0, left - 2),
+                max(0, viewport.width() - right - 2),
+                -max(0, top - 2),
+                max(0, viewport.height() - bottom - 2),
+            )
+
+        except RuntimeError:
+            return None
+
     def _shift_at_elapsed(self, elapsed):
-        # OLED_BOUNDED_SHIFT_V2
-        # One discrete position every shift_interval.
-        step = max(
+        # Random walk: no repeating table or fixed cycle.
+        slot = max(
             0, int(
                 (elapsed - self.shift_at) //
                 self.shift_interval
             )
         )
-        positions = (
-            (12, 0),
-            (-12, 0),
-            (0, 0),
-            (12, -4),
-            (-12, -4),
-            (0, 0),
-        )
-        return positions[step % len(positions)]
+
+        if slot != self._micro_slot:
+            self._micro_slot = slot
+            limits = self._micro_shift_bounds()
+
+            if limits is None:
+                self._micro_target = (0, 0)
+            else:
+                xlo, xhi, ylo, yhi = limits
+                x, y = self.shift
+
+                moves = [
+                    (x + dx, y + dy)
+                    for dx in (-2, -1, 0, 1, 2)
+                    for dy in (-2, -1, 0, 1, 2)
+                    if (dx or dy)
+                    and xlo <= x + dx <= xhi
+                    and ylo <= y + dy <= yhi
+                ]
+
+                self._micro_target = (
+                    self._micro_rng.choice(moves)
+                    if moves else (x, y)
+                )
+
+        return self._micro_target
 
     def _shift_to(self, xy):
         # Move the complete fixed-size dashboard.
@@ -583,3 +672,52 @@ def _v11_restore(self, *args, **kwargs):
 
 OLEDProtection._apply_dark_styles = _v11_apply_dark
 OLEDProtection._restore_styles = _v11_restore
+
+# MUI_OLED_DARK_ATOMIC_V61
+# Apply the complete OLED palette without intermediate Qt repaints.
+# The independent native QML weather layer remains untouched.
+
+_mui_v61_previous_dark = OLEDProtection._apply_dark_styles
+_mui_v61_previous_wake = OLEDProtection._restore_styles
+
+def _mui_v61_atomic(self, callback, label):
+    owner = self.main
+    was_enabled = owner.updatesEnabled()
+
+    if was_enabled:
+        owner.setUpdatesEnabled(False)
+
+    try:
+        return callback(self)
+    finally:
+        if was_enabled:
+            owner.setUpdatesEnabled(True)
+            owner.update()
+
+        print(
+            "MUI_OLED_DARK_ATOMIC_V61",
+            label,
+            "complete",
+            flush=True
+        )
+
+def _mui_v61_dark(self, *args, **kwargs):
+    return _mui_v61_atomic(
+        self,
+        lambda obj: _mui_v61_previous_dark(
+            obj, *args, **kwargs
+        ),
+        "dark"
+    )
+
+def _mui_v61_wake(self, *args, **kwargs):
+    return _mui_v61_atomic(
+        self,
+        lambda obj: _mui_v61_previous_wake(
+            obj, *args, **kwargs
+        ),
+        "wake"
+    )
+
+OLEDProtection._apply_dark_styles = _mui_v61_dark
+OLEDProtection._restore_styles = _mui_v61_wake

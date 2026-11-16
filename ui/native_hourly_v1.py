@@ -31,6 +31,9 @@ class NativeHourly(QObject):
         self.signature = None
         self.version = 0
         self.last_policy = None
+        # MUI_NATIVE_OLED_FOCUS_V5: OLED Focus is owned by the dashboard.
+        # The native weather surface must follow its actual applied state.
+        self._oled_last_state = None
         self.line_buffer = ""
         self._popup_early = set()
         self._popup_generation = {}
@@ -549,6 +552,68 @@ class NativeHourly(QObject):
         self._popup_early.discard(key)
         self._publish(force=True)
 
+    # MUI_NATIVE_OLED_FOCUS_V5
+    def _oled_focus_state(self):
+        """Actual bounded shift and dim values from the existing OLED manager.
+
+        Never calculate these from time or duplicate OLEDProtection's rules:
+        its shift can be bounded, suppressed by a popup, or reset on input.
+        """
+        focus = getattr(self.panel.window(), "_oled_protection", None)
+        if focus is None:
+            return (0, 0.0, 0, 0)
+        try:
+            level = max(0, min(3, int(focus.level)))
+            opacity = (max(0.0, min(1.0, float(focus.dim_opacity)))
+                       if level == 2 else 0.0)
+            x, y = focus.shift
+            return (level, opacity, int(x), int(y))
+        except (AttributeError, TypeError, ValueError):
+            return (0, 0.0, 0, 0)
+
+    def _sync_oled_focus(self):
+        """Reposition existing native cards without re-rendering nine PNGs."""
+        state = self._oled_focus_state()
+        old = self._oled_last_state
+        if state == old:
+            return
+        self._oled_last_state = state
+        shift_changed = old is not None and state[2:] != old[2:]
+        # The very first sync can occur after OLED Focus has already shifted.
+        if old is None:
+            shift_changed = True
+
+        if shift_changed and len(self.cards) == 9:
+            from PySide6.QtCore import QPoint
+            moved = False
+            for i, row in enumerate(self.panel.row_widgets):
+                if i >= len(self.cards):
+                    break
+                pos = row.mapToGlobal(QPoint(0, 0))
+                if (self.cards[i]["x"], self.cards[i]["y"]) != (pos.x(), pos.y()):
+                    self.cards[i] = {**self.cards[i], "x": pos.x(), "y": pos.y()}
+                    moved = True
+            if moved:
+                self.version += 1
+
+            # CurrentHourBridge captures actual DateCard geometry. Force its
+            # next refresh on a shift; do not add the shift twice in QML.
+            if self._current_native is not None:
+                self._current_native.next_check = 0.0
+                self._current_native.update()
+
+        # The OLED palette changes Qt text and popup paper styling at level 1.
+        # Refresh the QML popup state from those authoritative Qt widgets.
+        if old is None or state[0] != old[0]:
+            if self._qml_news_target is not None:
+                self._qml_news_refresh(self._qml_news_target)
+            if self._qml_radar_target is not None:
+                self._qml_radar_refresh(self._qml_radar_target)
+
+        self._publish(force=True)
+        print("NATIVE_OLED_FOCUS level=%d dim=%.2f shift=(%d,%d)" % state,
+              flush=True)
+
     def _visible(self, closing_popup=None):
         if self._popup_early:
             return False
@@ -559,12 +624,9 @@ class NativeHourly(QObject):
         if hasattr(dashboard, "page_stack") and hasattr(dashboard, "dashboard_viewport"):
             if dashboard.page_stack.currentWidget() is not dashboard.dashboard_viewport:
                 return False
-        try:
-            from ui import oled_palette_targets
-            if getattr(oled_palette_targets, "_ACTIVE", False):
-                return False
-        except ImportError:
-            pass
+        # OLED Focus changes palette, shift, shade and blackout; it must
+        # never be treated as a reason to hide the independent weather layer.
+        # Stage 3 is handled by an opaque QML blackout, not showWeather=False.
         app = QApplication.instance()
         modal = app.activeModalWidget()
         popup = app.activePopupWidget()
@@ -654,7 +716,8 @@ class NativeHourly(QObject):
             show and self._current_native is not None
             and getattr(navigation, "selected_identity", None) == ("date", "current")
         )
-        policy = (show, selected, date_selected)
+        oled_state = self._oled_focus_state()
+        policy = (show, selected, date_selected, oled_state)
         now = time.monotonic()
         if not force and policy == self.last_policy and now - self.last_write < 0.65:
             return
@@ -675,6 +738,10 @@ class NativeHourly(QObject):
         document["display_y"] = geometry.y()
         document["display_w"] = geometry.width()
         document["display_h"] = geometry.height()
+        document["oled_focus"] = {
+            "level": oled_state[0], "dim": oled_state[1],
+            "shift_x": oled_state[2], "shift_y": oled_state[3],
+        }
         document["radar"] = self._qml_radar_document
         document["radar_revision"] = self._qml_radar_revision
         document["newspaper"] = self._qml_news_document
@@ -760,6 +827,8 @@ class NativeHourly(QObject):
             return
         if not self.cards:
             self.update_cards()
+        if self.cards:
+            self._sync_oled_focus()
         if self.cards and self.process is None:
             self._publish(force=True)
             self._launch()
