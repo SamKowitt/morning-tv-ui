@@ -571,9 +571,12 @@ class OpenNewspaperDialog(QDialog):
         self._mui_qml_native_controller = None
         self._mui_cached_qml_pending = False
 
+        # MUI_QML_NEWS_PRE_SHOW_GUARD_V3
+        # Do not render the first QML frame before Qt Show completes.
+        # Cached articles keep their existing deferred pagination.
         prepared = bool(
             native is not None and native._qml_news_prepare(
-                self, defer_content=ready is not None
+                self, defer_content=True
             )
         )
 

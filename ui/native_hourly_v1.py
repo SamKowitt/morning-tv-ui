@@ -47,9 +47,217 @@ class NativeHourly(QObject):
         self._qml_news_document = {"show": False}
         self._qml_news_focus_id = ""
         self._qml_news_revision = 0
+        # MUI_NATIVE_RADAR_V2: the radar is drawn in the SAME layer as
+        # weather/newspaper, never through screenshot mirroring.
+        self._qml_radar_target = None
+        self._qml_radar_document = {"show": False}
+        self._qml_radar_revision = 0
+        self._qml_radar_signature = None
+        # MUI_NATIVE_CURRENT_HOUR_V1: one DateCard in the same QML layer.
+        self._current_native = None
+        self._current_native_qml_ready = False
+        if (ROOT / "current_hour_enabled").is_file():
+            from ui.native_current_hour_v1 import CurrentHourBridge
+            self._current_native = CurrentHourBridge(self)
         QApplication.instance().installEventFilter(self)
         QApplication.instance().aboutToQuit.connect(self.shutdown)
         QTimer.singleShot(0, self.sync)
+
+    # MUI_NATIVE_RADAR_V2 — only radar's DATA is borrowed from QWidget.
+    # The QML radar is a native visual layer; the original Qt dialog remains
+    # responsible for fetches, timer, zoom, control clicks, and remote focus.
+    def _qml_radar_refresh(self, dialog):
+        # MUI_RADAR_DIRECT_V4: NEVER call dialog.grab(), render(), or
+        # QPixmap.save() on a whole QWidget. All input, timeline and radar
+        # data remain in the original WeatherRadarDialog; the visual is QML.
+        if (self.stopping or self._qml_radar_target is not dialog
+                or not dialog.isVisible() or not self.ready):
+            return
+        try:
+            import hashlib
+            from PySide6.QtCore import QPoint
+            from PySide6.QtWidgets import QLabel, QFrame, QPushButton
+            from ui.newspaper_chrome import oled_newspaper_color
+            from ui import oled_text
+
+            if dialog.width() < 400 or dialog.height() < 300:
+                return
+            view = dialog.radar_view
+            def geom(widget):
+                pt = widget.mapTo(dialog, QPoint(0, 0))
+                return {"x": pt.x(), "y": pt.y(),
+                        "w": widget.width(), "h": widget.height()}
+
+            # Match the ORIGINAL Qt widget positions, never guessed sizes.
+            controls = []
+            for key, widget in (
+                ("prev", dialog.previous_button),
+                ("pause", dialog.play_button),
+                ("next", dialog.next_button),
+                ("close", dialog.findChild(QPushButton,"RadarCloseButton")),
+                ("zoom_in", dialog.zoom_in_button),
+                ("zoom_out", dialog.zoom_out_button),
+            ):
+                if widget is None:
+                    continue
+                controls.append({"id": key, "text": widget.text(),
+                                 "enabled": widget.isEnabled(),
+                                 "zoom": key.startswith("zoom_"), **geom(widget)})
+
+            details = [{"text": lab.text(), **geom(lab)}
+                       for lab in dialog.findChildren(QLabel, "RadarDetail")
+                       if lab.isVisible()]
+            rules = [geom(rule) for rule in dialog.findChildren(QFrame)
+                     if rule.frameShape() == QFrame.Shape.HLine and rule.isVisible()]
+            masthead = dialog.findChild(QLabel, "RadarMasthead")
+            page_title = dialog.findChild(QLabel, "RadarPageTitle")
+            paper = next((w for w in dialog.findChildren(QWidget)
+                          if type(w).__name__ == "RadarPaperSurface"), None)
+            nav = getattr(self.panel.window(), "_lg_dpad_navigation", None)
+            identity = getattr(nav, "selected_identity", None)
+            focus = (str(identity[2]) if isinstance(identity, tuple)
+                     and len(identity) > 2 and
+                     identity[:2] == ("popup", id(dialog)) else "")
+
+            times = [{"text": t.strftime("%-I:%M"),
+                      "predicted": kind == "PREDICTED RADAR"}
+                     for t,kind in zip(dialog.radar_timeline.frame_times,
+                                       dialog.radar_timeline.frame_types)]
+
+            # Radar uses ALREADY DECODED/CACHED image_bytes: store the original
+            # compressed bytes directly, once per unique image. No repaint,
+            # full-dialog capture, rescale, PNG encoding or GPU readback.
+            image_url = ""
+            image_key = None
+            frame = None
+            if dialog.frames and dialog.pixmaps and not view.pixmap.isNull():
+                i = dialog.frame_index % len(dialog.pixmaps)
+                frame = dialog.frames[i]
+                frame_key = (id(dialog.frames), i, dialog.map_zoom)
+                if frame_key == getattr(self, "_qml_radar_frame_key", None):
+                    image_url = getattr(self, "_qml_radar_frame_url", "")
+                else:
+                    blob = frame.get("image_bytes") or b""
+                    if isinstance(blob, bytearray):
+                        blob = bytes(blob)
+                    if isinstance(blob, bytes) and blob:
+                        if blob.startswith(b"\x89PNG\r\n\x1a\n"):
+                            ext = ".png"
+                        elif blob.startswith(b"\xff\xd8\xff"):
+                            ext = ".jpg"
+                        elif blob.startswith(b"RIFF") and b"WEBP" in blob[:16]:
+                            ext = ".webp"
+                        else:
+                            ext = None
+                        if ext:
+                            digest = hashlib.blake2s(blob, digest_size=12).hexdigest()
+                            final = ROOT / ("radar_direct_" + digest + ext)
+                            if not final.exists():
+                                tmp = final.with_suffix(final.suffix + ".tmp")
+                                tmp.write_bytes(blob)
+                                tmp.replace(final)
+                            image_url = final.as_uri()
+                        else:
+                            print("NATIVE_RADAR_UNRECOGNIZED_FRAME_TYPE",
+                                  blob[:12].hex(), flush=True)
+                    self._qml_radar_frame_key = frame_key
+                    self._qml_radar_frame_url = image_url
+                    if image_url:
+                        print("NATIVE_RADAR_DIRECT_FRAME", i, flush=True)
+
+            width = max(1, view.pixmap.width())
+            height = max(1, view.pixmap.height())
+            loc = frame.get("location_pixel", {}) if frame else {}
+            loc = loc or {}
+            try:
+                pin_x = float(loc.get("x", width / 2))
+                pin_y = float(loc.get("y", height / 2))
+            except (TypeError, ValueError):
+                pin_x, pin_y = width / 2, height / 2
+
+            position = dialog.mapToGlobal(QPoint(0, 0))
+            document = {
+                "show": True, "dark": bool(getattr(oled_text, "_DARK", False)),
+                "x": position.x(), "y": position.y(),
+                "w": dialog.width(), "h": dialog.height(),
+                "image": image_url, "image_w": width, "image_h": height,
+                "pin_x": pin_x, "pin_y": pin_y,
+                "message": view.message, "spinner": bool(view.spinner_active),
+                "status": dialog.status_label.text(),
+                "frame_index": dialog.frame_index,
+                "times": times, "controls": controls, "focus": focus,
+                "details": details, "rules": rules,
+                "legend": dialog.radar_legend_label.text(),
+                "masthead": geom(masthead) if masthead else {},
+                "page_title": geom(page_title) if page_title else {},
+                "paper": geom(paper) if paper else {},
+                "status_geom": geom(dialog.status_label),
+                **{("map_" + k): v for k,v in geom(view).items()},
+                **{("timeline_" + k): v for k,v in geom(dialog.radar_timeline).items()},
+                **{("legend_" + k): v for k,v in geom(dialog.radar_legend_label).items()},
+                "paper_top": oled_newspaper_color("#fff1d3").name(),
+                "paper_middle": oled_newspaper_color("#f6e4bd").name(),
+                "paper_fold": oled_newspaper_color("#ead4a8").name(),
+                "paper_bottom": oled_newspaper_color("#fff0d0").name(),
+            }
+            signature = json.dumps(document, sort_keys=True, separators=(",", ":"))
+            if signature == self._qml_radar_signature:
+                return
+            self._qml_radar_signature = signature
+            self._qml_radar_document = document
+            self._qml_radar_revision += 1
+            self._publish(force=True)
+        except RuntimeError as exc:
+            # A Qt QObject can be deleted while asynchronous close signals
+            # are pending; the QML view is hidden by Hide/Destroy callbacks.
+            print("NATIVE_RADAR_CLOSING", repr(exc), flush=True)
+        except Exception as exc:
+            print("NATIVE_RADAR_DIRECT_ERROR", repr(exc), flush=True)
+
+    def _qml_radar_open(self, dialog):
+        if (self.stopping or not self.ready or self._qml_radar_target
+                or len(self.cards) != 9):
+            return False
+        try:
+            # This dialog stays as the original Qt visual/data source and
+            # input handler. It is behind the native QML window. Do NOT use
+            # QGraphicsOpacityEffect on a QDialog: it can invalidate the
+            # grab and introduce another native Qt compositing path.
+            dialog._morningui_paused_weather_v3 = []
+            dialog._mui_qml_radar_native = True
+            self._qml_radar_target = dialog
+            self._qml_radar_document = {"show": False}
+            self._qml_radar_signature = None
+            self._qml_radar_frame_key = None
+            self._qml_radar_frame_url = ""
+            # The QML layer now draws the entire radar presentation.
+            # Suppress unnecessary Qt repaints in the hidden source dialog;
+            # do NOT alter the widget's layout, signals, state, or timers.
+            dialog.setUpdatesEnabled(False)
+            # The next event-loop turn gives the existing Qt layout time
+            # to set its dimensions before we collect button coordinates.
+            QTimer.singleShot(0, lambda d=dialog: self._qml_radar_refresh(d)
+                              if self._qml_radar_target is d else None)
+            print("NATIVE_RADAR_OPEN", flush=True)
+            return True
+        except Exception as exc:
+            print("NATIVE_RADAR_PREPARE_ERROR", repr(exc), flush=True)
+            return False
+
+    def _qml_radar_close(self, dialog):
+        if self._qml_radar_target is not dialog:
+            return
+        # Existing hideEvent sees None and skips the legacy dashboard
+        # repaint/timer-restoration callback (no timers were paused).
+        dialog._morningui_paused_weather_v3 = None
+        self._qml_radar_target = None
+        self._qml_radar_document = {"show":False}
+        self._qml_radar_signature = None
+        self._qml_radar_frame_key = None
+        self._qml_radar_frame_url = ""
+        self._qml_radar_revision += 1
+        self._publish(force=True)
+        print("NATIVE_RADAR_CLOSED", flush=True)
 
     def _qml_news_prepare(self, dialog, defer_content=False):
         if not (self._qml_news_enabled and self.ready and not self.stopping
@@ -139,6 +347,21 @@ class NativeHourly(QObject):
         print("MUI_QML_NEWS_SPREAD", dialog.spread_index, len(pages), flush=True)
 
     def eventFilter(self, obj, event):
+        # Radar's visual popup belongs to the QML layer. Its real QWidget
+        # stays invisible but handles all native remote/button behavior.
+        if type(obj).__name__ == "WeatherRadarDialog":
+            if event.type() == QEvent.Type.Show:
+                if self._qml_radar_open(obj):
+                    return False
+            elif (self._qml_radar_target is obj
+                  and event.type() in (QEvent.Type.Hide, QEvent.Type.Destroy)):
+                self._qml_radar_close(obj)
+                return False
+            elif self._qml_radar_target is obj:
+                # Suppress old native-weather hide/reveal policy, including
+                # its earlier Close and delayed Hide callbacks.
+                return False
+
         # Newspaper is genuinely drawn in this layer. Do not add it to
         # popup-hide policy, and do not schedule a weather reveal on close.
         if (type(obj).__name__ == "OpenNewspaperDialog"
@@ -345,11 +568,12 @@ class NativeHourly(QObject):
         app = QApplication.instance()
         modal = app.activeModalWidget()
         popup = app.activePopupWidget()
-        if (modal is not None and modal is not closing_popup) or (
-                popup is not None and popup is not closing_popup):
+        radar = self._qml_radar_target
+        if (modal is not None and modal is not closing_popup and modal is not radar) or (
+                popup is not None and popup is not closing_popup and popup is not radar):
             return False
         for w in app.topLevelWidgets():
-            if w is dashboard or w is closing_popup or not w.isVisible():
+            if w is dashboard or w is closing_popup or w is self._qml_radar_target or not w.isVisible():
                 continue
             # Newspaper, radar, scoreboards, color picker, and any other app dialog.
             if w.isWindow() and (isinstance(w, QDialog) or
@@ -425,7 +649,12 @@ class NativeHourly(QObject):
                 len(self._popup_early), bool(_mui_app.activeModalWidget()),
                 bool(_mui_app.activePopupWidget())), flush=True)
         selected = self._selected() if show else -1
-        policy = (show, selected)
+        navigation = getattr(self.panel.window(), "_lg_dpad_navigation", None)
+        date_selected = bool(
+            show and self._current_native is not None
+            and getattr(navigation, "selected_identity", None) == ("date", "current")
+        )
+        policy = (show, selected, date_selected)
         now = time.monotonic()
         if not force and policy == self.last_policy and now - self.last_write < 0.65:
             return
@@ -446,8 +675,18 @@ class NativeHourly(QObject):
         document["display_y"] = geometry.y()
         document["display_w"] = geometry.width()
         document["display_h"] = geometry.height()
+        document["radar"] = self._qml_radar_document
+        document["radar_revision"] = self._qml_radar_revision
         document["newspaper"] = self._qml_news_document
         document["newspaper_revision"] = self._qml_news_revision
+        document["current_hour"] = (
+            self._current_native.document if self._current_native is not None
+            else {"show": False}
+        )
+        document["current_hour_revision"] = (
+            self._current_native.version if self._current_native is not None else 0
+        )
+        document["current_selected"] = date_selected
         temp = ROOT / "state.tmp"
         temp.write_text(json.dumps(document, separators=(",", ":")))
         temp.replace(ROOT / "state.json")
@@ -504,6 +743,15 @@ class NativeHourly(QObject):
                     row.timer.stop()  # Old Python animation is now truly off.
                 (ROOT / "ready").write_text(str(time.time()))
                 print("NATIVE_HOURLY_ACTIVE: 9 independent Qt cards; old timers stopped", flush=True)
+                if self._current_native is not None and self._current_native_qml_ready:
+                    QTimer.singleShot(200, self._current_native.suspend_gpu)
+            elif "NATIVE_CURRENT_HOUR_READY" in line:
+                self._current_native_qml_ready = True
+                if self._current_native is not None and self.ready:
+                    QTimer.singleShot(200, self._current_native.suspend_gpu)
+            elif "NATIVE_CURRENT_HOUR_ANIMATING" in line:
+                # Proof the exact copied DateCard scene advanced its clock.
+                print("NATIVE_HOURLY_QML:", line[-500:], flush=True)
             elif "error" in line.lower() or "failed" in line.lower():
                 print("NATIVE_HOURLY_QML:", line[-500:], flush=True)
 
@@ -519,7 +767,11 @@ class NativeHourly(QObject):
             print("NATIVE_HOURLY_TIMEOUT: native renderer never became ready", flush=True)
             self._fallback()
             return
+        if self._current_native is not None and self._current_native.update():
+            self._publish(force=True)
         if self.ready:
+            if self._qml_radar_target is not None:
+                self._qml_radar_refresh(self._qml_radar_target)
             self._qml_news_focus()
             self._publish()
 
@@ -528,6 +780,8 @@ class NativeHourly(QObject):
             return
         self.failed = True
         self.ready = False
+        if self._current_native is not None:
+            self._current_native.restore_gpu()
         (ROOT / "ready").unlink(missing_ok=True)
         # Native-only: do not restart old weather timers.
         self.tick.stop()

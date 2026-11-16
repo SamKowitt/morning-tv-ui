@@ -90,6 +90,8 @@ class _CurrentWeatherGPU(QObject):
         return False
 
     def schedule(self, delay=200):
+        if getattr(self, "_mui_native_current_suspended", False):
+            return
         if self.failed or not FLAG.is_file() or self.pending:
             return
 
@@ -105,6 +107,8 @@ class _CurrentWeatherGPU(QObject):
             self.row.timer.start(50)
 
     def check(self):
+        if getattr(self, "_mui_native_current_suspended", False):
+            return
         if self.failed or not FLAG.is_file():
             self.disable()
         elif not self.active:
@@ -112,6 +116,8 @@ class _CurrentWeatherGPU(QObject):
 
     def rebuild(self):
         self.pending = False
+        if getattr(self, "_mui_native_current_suspended", False):
+            return
 
         if self.failed or not FLAG.is_file():
             self.disable()

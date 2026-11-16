@@ -31,6 +31,12 @@ Window {
     property int displayY: 0
     property int displayW: 1920
     property int displayH: 1080
+    // MUI_NATIVE_CURRENT_HOUR_V1 — actual current-hour scene, not a PNG popup.
+    property var currentHour: ({"show": false})
+    property int currentHourRevision: -1
+    property bool currentSelected: false
+    property var radar: ({"show": false})
+    property int radarRevision: -1
     property var newspaper: ({"show": false})
     property int newspaperRevision: -1
     property var cards: []
@@ -65,6 +71,15 @@ Window {
                 if (data.display_y !== undefined) displayY = data.display_y
                 if (data.display_w !== undefined) displayW = data.display_w
                 if (data.display_h !== undefined) displayH = data.display_h
+                if (currentHourRevision !== Number(data.current_hour_revision || 0)) {
+                    currentHour = data.current_hour || ({"show": false})
+                    currentHourRevision = Number(data.current_hour_revision || 0)
+                }
+                currentSelected = data.current_selected === true
+                if (radarRevision !== Number(data.radar_revision || 0)) {
+                    radar = data.radar || ({"show": false})
+                    radarRevision = Number(data.radar_revision || 0)
+                }
                 if (newspaperRevision !== Number(data.newspaper_revision || 0)) {
                     newspaper = data.newspaper || ({"show": false})
                     newspaperRevision = Number(data.newspaper_revision || 0)
@@ -164,10 +179,100 @@ Window {
             }
         }
     }
-    // Native QML newspaper above native weather, no screenshot mirroring.
+    // MUI_CURRENT_HOUR_V4: render exactly like the proven nine hourly
+    // GPU cards, using the SAME V5WCard and its larger dateCardPresentation.
+    // The original DateCard Qt foreground supplies the live clock and text.
+    Item {
+        id: nativeCurrent
+        z: 10
+        property var info: root.currentHour
+        property bool reported: false
+        visible: info.show === true && root.showWeather
+        x: Number(info.x || 0) - root.displayX
+        y: Number(info.y || 0) - root.displayY
+        width: Number(info.w || 0)
+        height: Number(info.h || 0)
+        onVisibleChanged: { if (!visible) reported = false }
+        Timer {
+            interval: 900
+            repeat: true
+            running: nativeCurrent.visible && !nativeCurrent.reported
+            onTriggered: {
+                if (foreground.status === Image.Ready && nativeCurrent.width > 100
+                        && nativeCurrent.height > 80 && nativeSky.width > 100) {
+                    nativeCurrent.reported = true
+                    console.log("NATIVE_CURRENT_HOUR_READY V5W_DIRECT")
+                }
+            }
+        }
+        Item {
+            id: currentContent
+            anchors.fill: parent
+            visible: false
+            layer.enabled: true
+            // Identical offscreen-layer technique used by the nine hourly
+            // cards. Native V5W animations keep advancing behind popups.
+            Weather.V5WCard {
+                id: nativeSky
+                anchors.fill: parent
+                condition: nativeCurrent.info.condition || "clear_sky"
+                phase: nativeCurrent.info.phase || "day"
+                windMultiplier: Number(nativeCurrent.info.wind || 1.0)
+                dateCardPresentation: true
+            }
+            Image {
+                id: foreground
+                anchors.fill: parent
+                source: nativeCurrent.info.url || ""
+                fillMode: Image.Stretch
+                asynchronous: false
+                cache: false
+                smooth: true
+            }
+        }
+        Item {
+            id: currentMask
+            anchors.fill: parent
+            visible: false
+            layer.enabled: true
+            Rectangle {
+                anchors.fill: parent
+                anchors.margins: 2
+                radius: 14
+                color: "white"
+            }
+        }
+        MultiEffect {
+            anchors.fill: parent
+            source: currentContent
+            maskEnabled: true
+            maskSource: currentMask
+            autoPaddingEnabled: false
+        }
+        Rectangle {
+            anchors.fill: parent
+            anchors.margins: 1
+            color: "transparent"
+            radius: 20
+            border.width: 2.3
+            border.color: "#FFE12E"
+            visible: root.currentSelected
+        }
+    }
+
+    // Native QML newspaper above all weather elements.
     NewsPopup {
         z: 1000
         popupData: root.newspaper
+        globalX: root.displayX
+        globalY: root.displayY
+    }
+
+    // The radar popup is a native QML item in the SAME window,
+    // above weather and newspaper. No weather hide/reveal is required.
+    RadarPopup {
+        z: 2000
+        popupData: root.radar
         globalX: root.displayX
         globalY: root.displayY
     }
