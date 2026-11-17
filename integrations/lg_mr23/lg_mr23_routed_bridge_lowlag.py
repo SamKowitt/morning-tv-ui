@@ -36,6 +36,7 @@ BUTTONS = {
     "804300": "SETTINGS",
     "805600": "REMINDERS HIDE",  # MUI_LG_HIDE_V35
     "805c00": "MARKET TAPE HIDE",
+    "80ab00": "YOUTUBE APP",  # MUI_LG_YOUTUBE_V38
 }
 
 KEYS = {
@@ -61,6 +62,7 @@ TV_KEYS = {
     "MUTE": "MUTE",
     "VOLUME UP": "VOLUMEUP",
     "VOLUME DOWN": "VOLUMEDOWN",
+    "YOUTUBE APP": "youtube.leanback.ytv.v1",
 }
 
 state_lock = threading.Lock()
@@ -134,10 +136,81 @@ def tv_worker():
             continue
 
         try:
-            result = webos("button", button, timeout=12)
+            # MUI_LG_YOUTUBE_V39
+            # Use the exact command confirmed working from HDMI1.
+            youtube_launch = (
+                name == "YOUTUBE APP"
+                or button == "youtube.leanback.ytv.v1"
+            )
+            youtube_active = False
 
-            if result.returncode == 0:
-                print("TV COMMAND SENT:", name, flush=True)
+            if youtube_launch:
+                app_id = "youtube.leanback.ytv.v1"
+                print(
+                    "MUI_LG_YOUTUBE_V39_DISPATCH",
+                    "name=" + repr(name),
+                    "button=" + repr(button),
+                    "pid=" + str(os.getpid()),
+                    flush=True
+                )
+
+                for attempt in (1, 2):
+                    result = webos(
+                        "launch_app", app_id, timeout=20
+                    )
+
+                    print(
+                        "MUI_LG_YOUTUBE_V39_LAUNCH",
+                        "attempt=" + str(attempt),
+                        "rc=" + str(result.returncode),
+                        "response=" + repr(result.stdout.strip()[:300]),
+                        "error=" + repr(result.stderr.strip()[:200]),
+                        flush=True
+                    )
+
+                    if result.returncode != 0:
+                        break
+
+                    time.sleep(2)
+
+                    check = webos(
+                        "get_current_app", timeout=12
+                    )
+                    active = (check.stdout or "").strip()
+
+                    print(
+                        "MUI_LG_YOUTUBE_V39_ACTIVE",
+                        "attempt=" + str(attempt),
+                        "rc=" + str(check.returncode),
+                        "app=" + repr(active),
+                        flush=True
+                    )
+
+                    if check.returncode == 0 and active == app_id:
+                        youtube_active = True
+                        break
+
+                    if attempt == 1:
+                        print(
+                            "MUI_LG_YOUTUBE_V39_RETRY",
+                            flush=True
+                        )
+            else:
+                result = webos("button", button, timeout=12)
+
+            if result.returncode == 0 and (
+                not youtube_launch or youtube_active
+            ):
+                print(
+                    "TV COMMAND SENT:",
+                    "YOUTUBE APP" if youtube_launch else name,
+                    flush=True
+                )
+            elif youtube_launch and result.returncode == 0:
+                print(
+                    "TV ERROR: YouTube launch was not confirmed active",
+                    flush=True
+                )
             else:
                 print(
                     "TV ERROR:",
@@ -151,7 +224,97 @@ def tv_worker():
             jobs.task_done()
 
 
+# MUI_LG_YOUTUBE_V40
+# Launch directly, bypassing the secondary TV button worker.
+_mui_youtube_v40_lock = threading.Lock()
+
+
+def _mui_youtube_v40_launch():
+    app_id = "youtube.leanback.ytv.v1"
+
+    try:
+        print(
+            "MUI_LG_YOUTUBE_V40_START",
+            flush=True
+        )
+
+        result = webos(
+            "launch_app",
+            app_id,
+            timeout=20
+        )
+
+        print(
+            "MUI_LG_YOUTUBE_V40_LAUNCH",
+            "rc=" + str(result.returncode),
+            "response=" + repr((result.stdout or "").strip()[:300]),
+            "error=" + repr((result.stderr or "").strip()[:200]),
+            flush=True
+        )
+
+        if result.returncode != 0:
+            return
+
+        for seconds in (2, 3):
+            time.sleep(seconds)
+
+            check = webos(
+                "get_current_app",
+                timeout=12
+            )
+
+            output = check.stdout or ""
+            confirmed = (
+                check.returncode == 0
+                and app_id in [
+                    line.strip()
+                    for line in output.splitlines()
+                ]
+            )
+
+            print(
+                "MUI_LG_YOUTUBE_V40_ACTIVE",
+                "rc=" + str(check.returncode),
+                "app=" + repr(output.strip()[:200]),
+                "confirmed=" + str(confirmed),
+                flush=True
+            )
+
+            if confirmed:
+                break
+
+    except Exception as exc:
+        print(
+            "MUI_LG_YOUTUBE_V40_ERROR",
+            repr(exc),
+            flush=True
+        )
+
+    finally:
+        _mui_youtube_v40_lock.release()
+
+
 def send_tv(name):
+    # MUI_LG_YOUTUBE_V40_DIRECT_DISPATCH
+    if name == "YOUTUBE APP":
+        if not _mui_youtube_v40_lock.acquire(blocking=False):
+            print(
+                "MUI_LG_YOUTUBE_V40_ALREADY_RUNNING",
+                flush=True
+            )
+            return
+
+        try:
+            threading.Thread(
+                target=_mui_youtube_v40_launch,
+                name="mui-youtube-v40",
+                daemon=True
+            ).start()
+        except Exception:
+            _mui_youtube_v40_lock.release()
+            raise
+
+        return
     try:
         jobs.put_nowait((name, TV_KEYS[name]))
     except queue.Full:
@@ -389,6 +552,7 @@ last_code = "000000"
 last_lift = {"BLUE": -1e9, "RED": -1e9}
 last_green = -1e9
 last_hub = -1e9
+last_youtube = -1e9
 
 print("\nBluetooth monitoring active.")
 print("D-pad routing follows the active TV application.")
@@ -558,6 +722,17 @@ try:
                             stderr=subprocess.DEVNULL,
                             start_new_session=True
                         )
+
+                elif name == "YOUTUBE APP":
+                    # MUI_LG_YOUTUBE_V38
+                    now = time.monotonic()
+                    if now - last_youtube >= 1.0:
+                        last_youtube = now
+                        print(
+                            "MUI_LG_YOUTUBE_V38_REQUEST",
+                            flush=True
+                        )
+                        send_tv("YOUTUBE APP")
 
                 elif name == "HUB":
                     now = time.monotonic()
