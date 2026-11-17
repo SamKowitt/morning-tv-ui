@@ -198,7 +198,7 @@ Window {
                 color: "transparent"
                 radius: 16
                 border.width: 3.2
-                border.color: "#FFEC89"
+                border.color: root.oledLevel >= 1 ? "black" : "#FFEC89" // V34
                 visible: root.selected === index
             }
             // Qt's Shade is below this separate layer-shell window.
@@ -338,7 +338,7 @@ Window {
             color: "transparent"
             radius: 14
             border.width: 2.3
-            border.color: "#FFE12E"
+            border.color: root.oledLevel >= 1 ? "black" : "#FFE12E" // V34
             visible: root.currentSelected
         }
         Rectangle {

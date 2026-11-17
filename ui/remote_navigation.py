@@ -193,7 +193,7 @@ class RemoteNavigation(QObject):
             if dialog.is_playing:
                 dialog.toggle_playback()
             if dialog.pixmaps:
-                (dialog.next_frame if down else dialog.previous_frame)()
+                (dialog.previous_frame if down else dialog.next_frame)()
         elif kind in ('MLBBoxScoreDialog', 'ESPNBoxScoreDialog'):
             # Scroll the two team panes separately, regardless of focus.
             for side in ('left_page', 'right_page'):
@@ -205,7 +205,7 @@ class RemoteNavigation(QObject):
                     bar.setValue(max(bar.minimum(), min(bar.maximum(),
                                      bar.value() + direction * stride)))
         elif kind == 'OpenNewspaperDialog':
-            (dialog.next_spread if down else dialog.previous_spread)()
+            (dialog.previous_spread if down else dialog.next_spread)()
         elif dialog is None:
             # Retain the original wheel UP/DOWN dashboard behavior.
             if QApplication.activeModalWidget() is not None:

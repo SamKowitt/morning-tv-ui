@@ -51,7 +51,7 @@ class PopupWheelRouterV16(QObject):
                     if dialog.is_playing:
                         dialog.toggle_playback()
                     if dialog.pixmaps:
-                        (dialog.next_frame if direction > 0
+                        (dialog.next_frame if direction < 0
                          else dialog.previous_frame)()
                 elif kind in ("MLBBoxScoreDialog", "ESPNBoxScoreDialog"):
                     for side in ("left_page", "right_page"):
@@ -65,7 +65,7 @@ class PopupWheelRouterV16(QObject):
                             bar.setValue(max(bar.minimum(), min(bar.maximum(),
                                                  bar.value() + direction * step)))
                 else:
-                    (dialog.next_spread if direction > 0
+                    (dialog.next_spread if direction < 0
                      else dialog.previous_spread)()
             print("MUI_WHEEL_V16_STEP", "popup=" + kind,
                   "direction=" + ("DOWN" if direction > 0 else "UP"),

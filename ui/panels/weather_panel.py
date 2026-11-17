@@ -524,19 +524,24 @@ class WeatherRow(QWidget):
                 latest_same_line_x,
             )
 
+            # MUI_HOURLY_SOLAR_BASELINE_V28:
+            # Match the normal precipitation-only vertical baseline.
+            normal_precip_y = max(
+                0,
+                min(bottom_y, temp_rect.top() + int(temp_rect.height() * 0.69) + 2),
+            )
+
             if same_line_x >= available_left:
-                # During the sunrise/sunset hour, align the precipitation
-                # chance with the raised solar-event text baseline.
                 precip_rect = QRect(
                     same_line_x,
-                    solar_rect.top(),
+                    normal_precip_y,
                     precip_width,
                     line_height,
                 )
             else:
                 precip_rect = QRect(
                     available_left,
-                    max(0, bottom_y - line_height - 2),
+                    normal_precip_y,
                     min(precip_width, available_width),
                     line_height,
                 )
@@ -2106,6 +2111,13 @@ class WeatherPanel(QWidget):
                 or condition
             ).strip().lower()
 
+            # MUI_HOURLY_DETAIL_V23: retain distinct precipitation emojis.
+            precip_kind = precipitation_condition.replace(" ", "_")
+            precip_kind = {
+                "thunderstorm": "storm", "thunderstorms": "storm",
+                "wintery_mix": "wintry_mix", "sleet": "wintry_mix",
+                "rain_and_snow": "wintry_mix", "freezing_rain": "wintry_mix",
+            }.get(precip_kind, precip_kind)
             precipitation_detail_parts = []
 
             try:
@@ -2122,7 +2134,7 @@ class WeatherPanel(QWidget):
                 precipitation_detail_parts.append(f'{precipitation_text}"')
 
             if (
-                precipitation_condition in {"rain", "snow", "storm"}
+                precip_kind in {"rain", "snow", "storm", "hail", "wintry_mix"}
                 and precipitation_probability is not None
             ):
                 precipitation_detail_parts.append(
@@ -2136,7 +2148,9 @@ class WeatherPanel(QWidget):
                     "rain": "💧",
                     "snow": "❄️",
                     "storm": "⚡️",
-                }.get(precipitation_condition, "💧")
+                    "hail": "⚾️",
+                    "wintry_mix": "💧❄️",
+                }.get(precip_kind, "💧")
 
                 if (
                     not bool(getattr(row, "is_night", False))

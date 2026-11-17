@@ -773,6 +773,14 @@ def _v41_foreground_image(row, filename, oled_tan=False):  # MORNINGUI_OLED_WEAT
             # Existing widget geometry and alignment.
             point = label.mapTo(row, QPoint(0, 0))
             rect = label.contentsRect().translated(point)
+            if name == "precipitation_detail_label":
+                # MUI_HOURLY_GLOBAL_PRECIP_SHIFT_V29
+                # Apply the final approved 15 px left shift in all hours.
+                # V30: align precipitation-only hours with solar hours.
+                has_solar = bool(str(
+                    getattr(row, "solar_detail_text", "") or ""
+                ).strip())
+                rect.translate(-15 - (0 if has_solar else 10), 0)
 
             # This paints glyphs ONLY; it cannot paint
             # the old QLabel background rectangles.
@@ -782,6 +790,38 @@ def _v41_foreground_image(row, filename, oled_tan=False):  # MORNINGUI_OLED_WEAT
                 value
             )
             painter.restore()
+
+        # MUI_HOURLY_DETAIL_V23: include precipitation emojis in native PNG.
+        symbol = str(getattr(row, "precipitation_icon", "") or "").replace(chr(0xfe0f), "")
+        label = getattr(row, "precipitation_detail_label", None)
+        if symbol and label is not None and label.isVisibleTo(row) and label.text():
+            from PySide6.QtCore import QRect
+            from ui.panels.weather_panel import weather_emoji_pixmap
+            rect = label.contentsRect().translated(label.mapTo(row, QPoint(0, 0)))
+            # MUI_HOURLY_GLOBAL_PRECIP_SHIFT_V29: keep emoji aligned
+            # with the globally shifted precipitation text.
+            # V30: match the text's additional non-solar shift.
+            has_solar = bool(str(
+                getattr(row, "solar_detail_text", "") or ""
+            ).strip())
+            x = max(
+                0, rect.left() - 6 - 17 * len(symbol) - 10
+                - (0 if has_solar else 10)
+            )
+            y = rect.top() + max(0, (rect.height() - 16) // 2)
+            for glyph in symbol:
+                pix = weather_emoji_pixmap(glyph, 16, 16)
+                if not pix.isNull():
+                    painter.drawPixmap(x, y, pix)
+                else:
+                    painter.save()
+                    emoji_font = QFont("Noto Color Emoji")
+                    emoji_font.setPointSize(12)
+                    painter.setFont(emoji_font)
+                    painter.setPen(QColor("#ead3a3"))
+                    painter.drawText(QRect(x, y, 16, 16), Qt.AlignmentFlag.AlignCenter, glyph)
+                    painter.restore()
+                x += 17
 
         # Sunrise/sunset is drawn directly by WeatherRow.
         solar = str(
@@ -795,12 +835,12 @@ def _v41_foreground_image(row, filename, oled_tan=False):  # MORNINGUI_OLED_WEAT
                 painter.save()
 
                 font = QFont("Times New Roman")
-                font.setPointSize(10)
+                font.setPointSize(14)  # MUI_HOURLY_DETAIL_V23
                 font.setBold(True)
                 painter.setFont(font)
 
-                # MORNINGUI_WEATHER_ALWAYS_TAN_V1: solar overlay.
-                painter.setPen(QColor("#ead3a3"))
+                # MUI_SOLAR_TEXT_BRONZE_V33
+                painter.setPen(QColor("#704821"))  # MUI_SOLAR_DARK_V34
 
                 painter.drawText(
                     rect,
