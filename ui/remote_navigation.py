@@ -174,6 +174,65 @@ class RemoteNavigation(QObject):
             except OSError as exc:
                 print('MUI_LG_WHEEL_V17_RECV_ERROR', repr(exc), flush=True)
                 break
+            # MUI_LG_HIDE_V35: original Reminders/Market Hide buttons.
+            if data in (b'R', b'M'):
+                kind = 'reminders' if data == b'R' else 'market'
+                panel_attr = (
+                    'reminders' if data == b'R'
+                    else 'stocks_panel'
+                )
+                try:
+                    panel = getattr(self.root, panel_attr, None)
+                    button = getattr(panel, 'hide_button', None)
+
+                    if (
+                        isinstance(button, QAbstractButton)
+                        and button.isVisible()
+                        and button.isEnabled()
+                    ):
+                        button.click()
+                        print(
+                            'MUI_LG_HIDE_V35_CLICKED',
+                            kind, flush=True
+                        )
+                    else:
+                        # MUI_LG_HIDE_TOGGLE_V37
+                        # A hidden section exposes its secondary-news card.
+                        # Trigger that card's existing Show signal, preserving
+                        # DashboardWindow's original stack-switching logic.
+                        card_attr, signal_name = (
+                            ('more_news_card', 'reminders_requested')
+                            if data == b'R'
+                            else ('market_news_card', 'market_tape_requested')
+                        )
+
+                        card = getattr(self.root, card_attr, None)
+                        signal = getattr(card, signal_name, None)
+
+                        if (
+                            card is not None
+                            and card.isVisible()
+                            and card.isEnabled()
+                            and callable(getattr(signal, 'emit', None))
+                        ):
+                            signal.emit()
+                            print(
+                                'MUI_LG_HIDE_TOGGLE_V37_SHOWN',
+                                kind, flush=True
+                            )
+                        else:
+                            print(
+                                'MUI_LG_HIDE_TOGGLE_V37_UNAVAILABLE',
+                                kind, flush=True
+                            )
+                except Exception:
+                    print(
+                        'MUI_LG_HIDE_V35_ERROR',
+                        traceback.format_exc(),
+                        flush=True
+                    )
+                continue
+
             if data not in (b'U', b'D'):
                 continue
             try:
