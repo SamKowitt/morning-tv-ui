@@ -34,6 +34,8 @@ BUTTONS = {
     "800200": "VOLUME UP",
     "800300": "VOLUME DOWN",
     "804300": "SETTINGS",
+    "805600": "REMINDERS HIDE",  # MUI_LG_HIDE_V35
+    "805c00": "MARKET TAPE HIDE",
 }
 
 KEYS = {
@@ -62,7 +64,10 @@ TV_KEYS = {
 }
 
 state_lock = threading.Lock()
-state = {"app": None, "menu": None}
+state = {"app": None, "menu": None, "webos_ready": False, "confirmed_at": 0.0, "worker_activity": 0.0}
+_route_checks = {}
+_route_checks_lock = threading.Lock()
+_last_nav_time = 0.0
 stopping = threading.Event()
 jobs = queue.Queue(maxsize=24)
 
@@ -167,14 +172,39 @@ def send_lift(name):
 
 
 def get_route():
+    # Never route to an unverified or stale application.
     with state_lock:
+        if not state["webos_ready"] or time.monotonic() - state["confirmed_at"] > 8:
+            return "UNKNOWN"
         app = state["app"]
         menu = state["menu"]
+    if app in (None, "TV_OFFLINE", "UNKNOWN"):
+        return "UNKNOWN"
+    return "TV" if menu or app != MORNINGUI_APP else "MORNINGUI"
 
-    if menu or app != MORNINGUI_APP:
-        return "TV"
 
-    return "MORNINGUI"
+def checked_route():
+    global _last_nav_time
+    now = time.monotonic()
+    if now - _last_nav_time > 15:
+        token = str(time.monotonic_ns())
+        event = threading.Event()
+        with _route_checks_lock:
+            _route_checks[token] = event
+        try:
+            jobs.put_nowait(("ROUTE_CHECK", "__CHECK_APP__ " + token))
+        except queue.Full:
+            with _route_checks_lock:
+                _route_checks.pop(token, None)
+            return "UNKNOWN"
+        received = event.wait(4.5)
+        with _route_checks_lock:
+            _route_checks.pop(token, None)
+        if not received:
+            print("WEBOS ROUTE CHECK TIMED OUT; navigation withheld", flush=True)
+            return "UNKNOWN"
+    _last_nav_time = time.monotonic()
+    return get_route()
 
 
 
@@ -194,35 +224,49 @@ def _mr23_webos_worker_once():
         bufsize=1
     )
 
+    with state_lock:
+        state["worker_activity"] = time.monotonic()
+
     def reader():
         for line in proc.stdout:
+            with state_lock:
+                state["worker_activity"] = time.monotonic()
             message = line.strip()
 
-            if message.startswith("APP "):
-                app = message[4:]
-
+            if message.startswith(("APP ", "STATE ")):
+                app = message.split(" ", 1)[1]
                 with state_lock:
                     previous = state["app"]
+                    state["app"] = app
+                    state["confirmed_at"] = time.monotonic()
                     if app != previous:
-                        state["app"] = app
                         state["menu"] = None
-
                 if app != previous:
-                    route = (
-                        "MORNINGUI"
-                        if app == MORNINGUI_APP
-                        else "LG TV"
-                    )
-                    print(
-                        f"ACTIVE APP: {app} -> {route}",
-                        flush=True
-                    )
+                    route = "MORNINGUI" if app == MORNINGUI_APP else "LG TV"
+                    print(f"ACTIVE APP: {app} -> {route}", flush=True)
 
             elif message == "READY":
-                print(
-                    "Persistent webOS connection ready.",
-                    flush=True
-                )
+                with state_lock:
+                    state["webos_ready"] = True
+                print("Persistent webOS connection ready.", flush=True)
+
+            elif message == "OFFLINE":
+                with state_lock:
+                    state["webos_ready"] = False
+                    state["app"] = "TV_OFFLINE"
+                    state["menu"] = None
+                    state["confirmed_at"] = 0.0
+                print("WEBOS OFFLINE - automatic reconnect active", flush=True)
+
+            elif message.startswith("CHECK_OK "):
+                token = message.split(" ", 1)[1]
+                with _route_checks_lock:
+                    event = _route_checks.get(token)
+                if event is not None:
+                    event.set()
+
+            elif message.startswith("CHECK_FAIL "):
+                print("WEBOS route verification failed", flush=True)
 
             elif message.startswith("SENT "):
                 print(
@@ -233,6 +277,11 @@ def _mr23_webos_worker_once():
 
             elif message:
                 print("WEBOS:", message, flush=True)
+
+        # Any worker exit invalidates all cached routing information.
+        with state_lock:
+            state["webos_ready"] = False
+            state["confirmed_at"] = 0.0
 
     threading.Thread(
         target=reader,
@@ -246,6 +295,12 @@ def _mr23_webos_worker_once():
                     "WEBOS WORKER EXITED. TV commands unavailable.",
                     flush=True
                 )
+                return
+
+            with state_lock:
+                silent_for = time.monotonic() - state["worker_activity"]
+            if silent_for > 45:
+                print("WEBOS WORKER SILENT >45s - RESTARTING", flush=True)
                 return
 
             try:
@@ -402,19 +457,28 @@ try:
                     )
 
                     direction = "UP" if steps > 0 else "DOWN"
-                    route = get_route()
+                    route = checked_route()
 
                     for _ in range(abs(steps)):
                         if route == "TV":
                             send_tv(direction)
-                        else:
-                            key = KEYS[direction]
-
-                            keyboard.write(e.EV_KEY, key, 1)
-                            keyboard.syn()
-
-                            keyboard.write(e.EV_KEY, key, 0)
-                            keyboard.syn()
+                        elif route == "MORNINGUI":
+                            # MUI_LG_WHEEL_V17: distinguish wheel from D-pad.
+                            # Use a dedicated user-owned UNIX datagram socket.
+                            # If UI is not listening, preserve legacy arrows.
+                            try:
+                                with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as wheel_socket:
+                                    wheel_socket.sendto(
+                                        b"U" if direction == "UP" else b"D",
+                                        f"/home/{OWNER}/.cache/morningui-lg-wheel-v17.sock"
+                                    )
+                            except OSError as wheel_error:
+                                print("MUI_LG_WHEEL_V17_FALLBACK", wheel_error, flush=True)
+                                key = KEYS[direction]
+                                keyboard.write(e.EV_KEY, key, 1)
+                                keyboard.syn()
+                                keyboard.write(e.EV_KEY, key, 0)
+                                keyboard.syn()
 
                     print(
                         f"WHEEL {direction} x{abs(steps)} -> {route}",
@@ -435,10 +499,47 @@ try:
                 if name is None:
                     continue
 
-                route = get_route()
+                route = (
+                    checked_route()
+                    if name in KEYS or name in (
+                        "REMINDERS HIDE", "MARKET TAPE HIDE"
+                    )
+                    else get_route()
+                )
                 print(f"{name} DETECTED -> {route}", flush=True)
 
-                if name in ("BLUE", "RED"):
+                # MUI_LG_HIDE_V35: route only when MorningUI is active.
+                if name in ("REMINDERS HIDE", "MARKET TAPE HIDE"):
+                    if route == "MORNINGUI":
+                        token = (
+                            b"R" if name == "REMINDERS HIDE"
+                            else b"M"
+                        )
+                        try:
+                            with socket.socket(
+                                socket.AF_UNIX, socket.SOCK_DGRAM
+                            ) as hide_socket:
+                                hide_socket.sendto(
+                                    token,
+                                    f"/home/{OWNER}/.cache/morningui-lg-wheel-v17.sock"
+                                )
+                            print(
+                                "MUI_LG_HIDE_V35_SENT",
+                                name, flush=True
+                            )
+                        except OSError as exc:
+                            print(
+                                "MUI_LG_HIDE_V35_SEND_ERROR",
+                                name, repr(exc), flush=True
+                            )
+                    else:
+                        print(
+                            "MUI_LG_HIDE_V35_IGNORED",
+                            name, "route=" + str(route),
+                            flush=True
+                        )
+
+                elif name in ("BLUE", "RED"):
                     now = time.monotonic()
                     if now - last_lift[name] >= 2.0:
                         last_lift[name] = now
@@ -487,7 +588,7 @@ try:
                 elif name in KEYS:
                     if route == "TV":
                         send_tv(name)
-                    else:
+                    elif route == "MORNINGUI":
                         key = KEYS[name]
                         keyboard.write(e.EV_KEY, key, 1)
                         keyboard.syn()
