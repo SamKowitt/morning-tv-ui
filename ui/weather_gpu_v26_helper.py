@@ -817,6 +817,8 @@ def _v41_foreground_image(row, filename, oled_tan=False):  # MORNINGUI_OLED_WEAT
 
 def _v41_mode(row):
     data = getattr(row, "weather_data", None)
+    if data is None:
+        data = row  # V22: raw forecast fallback
 
     fields = (
         "detailed_forecast",
@@ -933,6 +935,8 @@ def _v5w_mode(row):
     import re
 
     data = getattr(row, "weather_data", None)
+    if data is None:
+        data = row  # V22: raw forecast fallback
 
     desc = " ".join(
         str(getattr(data, k, "") or "")

@@ -226,11 +226,13 @@ Window {
         // Keep original V27 visible until native cloud motion starts.
         property real firstCloudPosition: -1
         visible: info.show === true && root.showWeather && root.oledLevel < 3
-        opacity: reported ? 1.0 : 0.0
+        // MUI_CURRENT_FIRST_PAINT_V18: V27 is disabled; no 4px wait.
+        opacity: (foreground.status === Image.Ready && nativeSky.width > 100
+                  && width > 100 && height > 80) ? 1.0 : 0.0
         x: Number(info.x || 0) - root.displayX
         y: Number(info.y || 0) - root.displayY
-        width: Number(info.w || 0)
-        height: Number(info.h || 0)
+        width: Number(info.w || 262)
+        height: Number(info.h || 223)
         onVisibleChanged: {
             if (!visible && info.show !== true) {
                 reported = false
@@ -266,7 +268,7 @@ Window {
                                   * nativeSky.width / range
 
                     // Require at least four pixels of animation travel.
-                    if (movedPx < 4.0) return
+                    if (movedPx < 0.1) return  // MUI_CURRENT_MOTION_CONFIRM_V18
 
                     console.log("NATIVE_CURRENT_HOUR_ANIMATING V7 pixels="
                                 + movedPx.toFixed(2))

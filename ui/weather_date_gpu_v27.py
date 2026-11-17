@@ -261,13 +261,13 @@ class _NativeCurrentHourSource(QObject):
         self.view.hide()
         self.poll = QTimer(self)       # not started / no timeout connection
         self.row.timer.stop()
-        self.row.hide()                # never display the legacy painted sky
+        self.row.show()  # MUI_CURRENT_BORDER_ONLY_V18: border only; old animation disabled
         print("MUI_NATIVE_CURRENT_ONLY_V16_DATA_READY", flush=True)
 
     def schedule(self, delay=200):
         # update_current_weather continues to supply new forecast data.
         self.row.timer.stop()
-        self.row.hide()
+        self.row.show()  # MUI_CURRENT_BORDER_ONLY_V18: border only; old animation disabled
 
 
 def install(cls):
