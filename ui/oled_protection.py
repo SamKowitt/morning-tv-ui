@@ -363,9 +363,9 @@ class OLEDProtection(QObject):
 
                 moves = [
                     (x + dx, y + dy)
-                    for dx in (-2, -1, 0, 1, 2)
-                    for dy in (-2, -1, 0, 1, 2)
-                    if (dx or dy)
+                    for dx in (-4, -3, -2, -1, 0, 1, 2, 3, 4)
+                    for dy in (-4, -3, -2, -1, 0, 1, 2, 3, 4)
+                    if 4 <= dx * dx + dy * dy <= 16  # MUI_OLED_SHIFT_V13
                     and xlo <= x + dx <= xhi
                     and ylo <= y + dy <= yhi
                 ]

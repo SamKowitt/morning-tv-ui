@@ -78,6 +78,12 @@ class RemoteNavigation(QObject):
         if app is None:
             raise RuntimeError('QApplication required before remote navigation')
         app.installEventFilter(self)
+        # MUI_POPUP_WHEEL_V16: independent Qt event filter, not monkey-patching.
+        from ui.popup_wheel_v16 import PopupWheelRouterV16
+        self._popup_wheel_v16 = PopupWheelRouterV16(self)
+        app.installEventFilter(self._popup_wheel_v16)
+        # MUI_LG_WHEEL_V17: separate wheel ticks from D-pad input.
+        self._mui_lg_wheel_v17_start()
 
         # Keep the V3 Hide-to-restore behavior. Connected after the app slots.
         for panel_attr, kind in (('reminders', 'reminders'),
@@ -104,6 +110,118 @@ class RemoteNavigation(QObject):
         # MORNINGUI_STARTUP_CURRENT_WEATHER_V11
         self._initial_weather_retries_v11 = 0
         QTimer.singleShot(0, self._focus_initial_current_weather_v11)
+
+    # MUI_LG_WHEEL_V17: a real Qt event-loop listener for the MR23 bridge.
+    # No QEvent.Wheel or synthetic UP/DOWN keys are involved.
+    def _mui_lg_wheel_v17_start(self):
+        import os
+        import socket
+        import stat
+        from pathlib import Path
+        from PySide6.QtCore import QSocketNotifier
+
+        path = Path.home() / '.cache/morningui-lg-wheel-v17.sock'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists() or path.is_symlink():
+            st = os.lstat(path)
+            if not stat.S_ISSOCK(st.st_mode) or st.st_uid != os.getuid():
+                raise RuntimeError('Unsafe LG wheel socket path: ' + str(path))
+            path.unlink()  # stale from last service process
+
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        try:
+            sock.setblocking(False)
+            sock.bind(str(path))
+            os.chmod(path, 0o600)
+        except BaseException:
+            sock.close()
+            raise
+        self._mui_lg_wheel_v17_path = path
+        self._mui_lg_wheel_v17_socket = sock
+        self._mui_lg_wheel_v17_notifier = QSocketNotifier(
+            sock.fileno(), QSocketNotifier.Type.Read, self)
+        self._mui_lg_wheel_v17_notifier.activated.connect(
+            lambda *_: self._mui_lg_wheel_v17_drain())
+        QApplication.instance().aboutToQuit.connect(self._mui_lg_wheel_v17_close)
+        print('MUI_LG_WHEEL_V17_LISTENING', str(path), flush=True)
+
+    def _mui_lg_wheel_v17_close(self):
+        import os
+        notifier = getattr(self, '_mui_lg_wheel_v17_notifier', None)
+        if notifier is not None:
+            notifier.setEnabled(False)
+        sock = getattr(self, '_mui_lg_wheel_v17_socket', None)
+        if sock is not None:
+            sock.close()
+            self._mui_lg_wheel_v17_socket = None
+        path = getattr(self, '_mui_lg_wheel_v17_path', None)
+        if path is not None:
+            try:
+                os.unlink(path)
+            except FileNotFoundError:
+                pass
+
+    def _mui_lg_wheel_v17_drain(self):
+        import traceback
+        sock = self._mui_lg_wheel_v17_socket
+        if sock is None:
+            return
+        for _ in range(128):
+            try:
+                data = sock.recv(16)
+            except BlockingIOError:
+                break
+            except OSError as exc:
+                print('MUI_LG_WHEEL_V17_RECV_ERROR', repr(exc), flush=True)
+                break
+            if data not in (b'U', b'D'):
+                continue
+            try:
+                self._mui_lg_wheel_v17_step(data == b'D')
+            except Exception:
+                print('MUI_LG_WHEEL_V17_HANDLER_ERROR', traceback.format_exc(), flush=True)
+
+    def _mui_lg_wheel_v17_step(self, down):
+        # D means wheel DOWN (newer); U means wheel UP (older).
+        direction = 1 if down else -1
+        dialog = self._article_popup()
+        kind = type(dialog).__name__ if dialog is not None else 'dashboard'
+        print('MUI_LG_WHEEL_V17_RX', 'direction=' + ('DOWN' if down else 'UP'),
+              'popup=' + kind, flush=True)
+
+        if kind == 'WeatherRadarDialog':
+            if dialog.is_playing:
+                dialog.toggle_playback()
+            if dialog.pixmaps:
+                (dialog.next_frame if down else dialog.previous_frame)()
+        elif kind in ('MLBBoxScoreDialog', 'ESPNBoxScoreDialog'):
+            # Scroll the two team panes separately, regardless of focus.
+            for side in ('left_page', 'right_page'):
+                page = getattr(dialog, side, None)
+                body = page if isinstance(page, QTextEdit) else getattr(page, 'body', None)
+                bar = _bs_scrollbar(body)
+                if bar is not None:
+                    stride = max(24, int(bar.pageStep() * 0.20))
+                    bar.setValue(max(bar.minimum(), min(bar.maximum(),
+                                     bar.value() + direction * stride)))
+        elif kind == 'OpenNewspaperDialog':
+            (dialog.next_spread if down else dialog.previous_spread)()
+        elif dialog is None:
+            # Retain the original wheel UP/DOWN dashboard behavior.
+            if QApplication.activeModalWidget() is not None:
+                return
+            active = QApplication.activeWindow()
+            if active is not None and active is not self.root:
+                return
+            focus = QApplication.focusWidget()
+            if isinstance(focus, (QLineEdit, QAbstractSpinBox,
+                                  QTextEdit, QPlainTextEdit)):
+                return
+            self.move(Qt.Key.Key_Down if down else Qt.Key.Key_Up)
+        else:
+            return
+        print('MUI_LG_WHEEL_V17_STEP', 'popup=' + kind,
+              'direction=' + ('DOWN' if down else 'UP'), flush=True)
 
     def _focus_initial_current_weather_v11(self):
         # Select the current-hour weather card automatically at startup.
@@ -441,10 +559,14 @@ class RemoteNavigation(QObject):
                 f'border-radius: {radius}px; }}')
 
         else:
-            # The DateCard itself has 20px rounded corners. All other button
-            # outlines keep their established five-pixel corner radius.
-            self.outline.rounding = 20.0 if target.kind == 'date' else 5.0
-            self.outline.setGeometry(target.rect.adjusted(-1, -1, 1, 1))
+            # Current-hour native artwork clips at a 14px radius / 2px inset.
+            # Other buttons retain their existing five-pixel corner radius.
+            # MUI_CURRENT_FOCUS_CURVE_V9: align Qt to QML mask.
+            self.outline.rounding = 14.0 if target.kind == 'date' else 5.0
+            if target.kind == 'date':
+                self.outline.setGeometry(target.rect.adjusted(0, 0, 1, 1))
+            else:
+                self.outline.setGeometry(target.rect.adjusted(-1, -1, 1, 1))
             self.outline.raise_()
             self.outline.show()
             self.outline.update()

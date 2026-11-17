@@ -330,10 +330,11 @@ Window {
             autoPaddingEnabled: false
         }
         Rectangle {
+            // MUI_CURRENT_FOCUS_CURVE_V9: match currentMask.
             anchors.fill: parent
-            anchors.margins: 1
+            anchors.margins: 2
             color: "transparent"
-            radius: 20
+            radius: 14
             border.width: 2.3
             border.color: "#FFE12E"
             visible: root.currentSelected

@@ -538,6 +538,7 @@ class WeatherRadarDialog(QDialog):
         self.is_playing = True
         self.default_map_zoom = 11
         self.map_zoom = self.default_map_zoom
+        self._radar_last_display_zoom = self.map_zoom  # MUI_RADAR_LAST_GOOD_V12
 
         self.local_zone = ZoneInfo(
             getattr(location, "timezone", "America/New_York")
@@ -953,7 +954,31 @@ class WeatherRadarDialog(QDialog):
         except Exception as error:
             print(f"Radar cache lookup skipped: {error}")
 
-        if requested_zoom != self.default_map_zoom:
+        # MUI_RADAR_LAST_GOOD_V12: use the previous complete radar loop
+        # while the normal fetch proceeds. Never mark it as a fresh hit.
+        if not self.pixmaps:
+            try:
+                from services.weather_radar_fetcher import (
+                    load_previous_weathercom_radar_frames,
+                )
+                previous = load_previous_weathercom_radar_frames(
+                    latitude=self.location.latitude,
+                    longitude=self.location.longitude,
+                    selected_start_utc=self.selected_start_utc,
+                    selected_end_utc=self.selected_end_utc,
+                    zoom=requested_zoom,
+                )
+                if previous and self.apply_frames_for_zoom(previous, requested_zoom):
+                    self.status_label.setText(
+                        "Showing previous radar loop — updating in background"
+                    )
+                    print("MUI_RADAR_LAST_GOOD: restored",
+                          len(previous), "frames", flush=True)
+            except Exception as error:
+                print("MUI_RADAR_LAST_GOOD_LOOKUP_ERROR:",
+                      repr(error), flush=True)
+
+        if requested_zoom != self.default_map_zoom and not self.pixmaps:
             self.radar_view.start_spinner(
                 f"Loading radar at zoom {requested_zoom}…"
             )
@@ -1014,9 +1039,17 @@ class WeatherRadarDialog(QDialog):
         self.worker = None
         self.radar_fetch_in_progress = False
         self.radar_spinner_timer.stop()
-        self.radar_view.set_message(
-            "Radar zoom request timed out. Try again."
-        )
+        if self.pixmaps:
+            # Keep playing the last complete loop after a timeout.
+            self.map_zoom = self._radar_last_display_zoom
+            self.status_label.setText(
+                "Radar refresh timed out — showing previous loop"
+            )
+            print("MUI_RADAR_LAST_GOOD: timeout; old loop retained", flush=True)
+        else:
+            self.radar_view.set_message(
+                "Radar zoom request timed out. Try again."
+            )
         self.update_zoom_buttons()
 
     def on_radar_fetch_finished(self, worker):
@@ -1031,9 +1064,12 @@ class WeatherRadarDialog(QDialog):
 
     def apply_frames_for_zoom(self, frames, zoom):
         if int(zoom) != self.map_zoom:
-            return
+            return False
 
-        self.apply_frames(frames)
+        if self.apply_frames(frames):
+            self._radar_last_display_zoom = int(zoom)
+            return True
+        return False
 
     def change_map_zoom(self, delta):
         if self.radar_fetch_in_progress:
@@ -1052,28 +1088,37 @@ class WeatherRadarDialog(QDialog):
             return
 
         self.map_zoom = new_zoom
-        self.radar_view.set_message(
-            f"Refreshing radar map at zoom {self.map_zoom}…"
-        )
+        if self.pixmaps:
+            # Show previous zoom until the new loop is completely decoded.
+            self.status_label.setText(
+                f"Updating radar zoom to {self.map_zoom}…"
+            )
+        else:
+            self.radar_view.set_message(
+                f"Refreshing radar map at zoom {self.map_zoom}…"
+            )
 
         self.start_fetch()
 
     def apply_frames(self, frames):
+        # MUI_RADAR_LAST_GOOD_V12: validate and decode the entire new loop
+        # BEFORE swapping any frames, pixmaps, timeline, or native QML data.
         incoming_frames = list(frames or [])
-        self.frames = []
-        self.pixmaps = []
+        ready_frames = []
+        ready_pixmaps = []
 
         for frame in incoming_frames:
             pixmap = QPixmap()
-
             if pixmap.loadFromData(frame.get("image_bytes", b"")):
-                self.frames.append(frame)
-                self.pixmaps.append(pixmap)
+                ready_frames.append(frame)
+                ready_pixmaps.append(pixmap)
 
-        if len(self.pixmaps) < 4:
+        if len(ready_pixmaps) < 4:
             self.show_error("Weather.com did not return enough radar images.")
-            return
+            return False
 
+        self.frames = ready_frames
+        self.pixmaps = ready_pixmaps
         self.frame_index = 0
         self.radar_timeline.set_frames(
             self.frames,
@@ -1114,6 +1159,7 @@ class WeatherRadarDialog(QDialog):
         self.is_playing = True
         self.play_button.setText("PAUSE")
         self.animation_timer.start()
+        return True
 
     def show_frame(self):
         if not self.pixmaps or not self.frames:
@@ -1156,6 +1202,19 @@ class WeatherRadarDialog(QDialog):
             self.animation_timer.stop()
 
     def show_error(self, message):
+        # A failed refresh must never clear a previously playable loop.
+        if self.pixmaps:
+            self.radar_spinner_timer.stop()
+            self.radar_fetch_timeout_timer.stop()
+            self.map_zoom = self._radar_last_display_zoom
+            self.status_label.setText(
+                "Radar update unavailable — showing previous loop"
+            )
+            print("MUI_RADAR_LAST_GOOD: update failed; old loop retained:",
+                  str(message), flush=True)
+            self.update_zoom_buttons()
+            return
+
         self.animation_timer.stop()
         self.radar_spinner_timer.stop()
         self.radar_fetch_timeout_timer.stop()

@@ -244,6 +244,32 @@ class _CurrentWeatherGPU(QObject):
             self.disable()
 
 
+
+# MUI_NATIVE_CURRENT_ONLY_V16 — source data for native HQ card, NO legacy renderer.
+# Preserve _v27_current_gpu interface used by CurrentHourBridge, but never
+# instantiate QQuickWidget, paint the old weather, or run the old animation.
+class _NativeCurrentHourSource(QObject):
+    def __init__(self, card):
+        super().__init__(card)
+        from PySide6.QtWidgets import QWidget
+        self.card = card
+        self.row = card.background_weather_row
+        self.source_row = None
+        self.active = False
+        self._mui_native_current_suspended = True
+        self.view = QWidget(self.row)  # inert compatibility object; no QQuickWidget
+        self.view.hide()
+        self.poll = QTimer(self)       # not started / no timeout connection
+        self.row.timer.stop()
+        self.row.hide()                # never display the legacy painted sky
+        print("MUI_NATIVE_CURRENT_ONLY_V16_DATA_READY", flush=True)
+
+    def schedule(self, delay=200):
+        # update_current_weather continues to supply new forecast data.
+        self.row.timer.stop()
+        self.row.hide()
+
+
 def install(cls):
     if getattr(cls, "_v27_current_gpu_installed", False):
         return
@@ -253,7 +279,10 @@ def install(cls):
 
     def init(self, *args, **kwargs):
         original_init(self, *args, **kwargs)
-        self._v27_current_gpu = _CurrentWeatherGPU(self)
+        if (Path.home() / ".cache/morningui_native_hourly_v1/current_hour_enabled").is_file():
+            self._v27_current_gpu = _NativeCurrentHourSource(self)
+        else:
+            self._v27_current_gpu = _CurrentWeatherGPU(self)
 
     def update_current_weather(self, row):
         result = original_update(self, row)

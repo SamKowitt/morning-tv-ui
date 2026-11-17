@@ -488,10 +488,16 @@ Item {
                         );
                     }
 
+                    // MUI_CURRENT_MOON_CLOUD_SYNC_V16: map actual moon
+                    // position onto the enlarged V8.1 panorama's one-tile width.
+                    // Preserve original 9-hourly cloud fade mathematics.
                     property real sunOcclusion:
                         cloudAt(
-                            (0.72*card.width-sparseStrip.x)
-                            / Math.max(1,width)
+                            (((root.dateCardPresentation && root.nighttime)
+                               ? heavenlyBody.x + heavenlyBody.width / 2
+                               : 0.72 * card.width) - sparseStrip.x)
+                            / Math.max(1, root.dateCardPresentation
+                                ? sparseStrip.width / 2 : width)
                         )
 
                     property int muiV81Checks: 0
@@ -657,18 +663,31 @@ Item {
                 // MORNINGUI_V5Z_DATE_SUN_ALIGN_MOON_V1 — current-hour DAY only
                 transform: Translate { x: root.dateCardPresentation && root.phaseMode === "day" ? 40 : 0 }
                             objectName: "V5ZCelestialBody"
+                // MUI_CURRENT_MOON_GEOMETRY_V11
+                // Show the original-sized moon after native takeover.
+                // MUI_CURRENT_MOON_HOURLY_RULE_V16: match 9 hourly cards.
                 visible: root.nighttime
-                    ? (!root.dateCardPresentation && (entry.modelData.key === "clear_sky" || entry.modelData.key === "mostly_clear" || entry.modelData.key === "partly_cloudy"))
+                    ? (entry.modelData.key === "clear_sky"
+                       || entry.modelData.key === "mostly_clear"
+                       || entry.modelData.key === "partly_cloudy")
                     : (root.phaseMode === "day" && entry.modelData.sun)
                 source: root.nighttime
                     ? Qt.resolvedUrl("assets/moon_phase_current.png?rev=" + root.moonRevision)
                     : Qt.resolvedUrl("assets/sun_glow.png")
-                width: root.dateCardPresentation ? 88 : (root.nighttime ? 18 : 44)
+                width: root.dateCardPresentation
+                    ? (root.nighttime
+                       ? Math.round(Math.min(card.width, card.height) * 0.15)
+                       : 88)
+                    : (root.nighttime ? 18 : 44)
                             height: width
-                x: root.dateCardPresentation
-                                ? Math.round(card.width * 0.72 - width / 2 - 14)
-                                : Math.round(card.width - width - (root.nighttime ? 16 : 6))
-y: root.dateCardPresentation ? 1 : (root.nighttime ? 8 : -8)
+                x: root.dateCardPresentation && root.nighttime
+                    ? Math.round(card.width * 0.84 - width / 2)
+                    : root.dateCardPresentation
+                      ? Math.round(card.width * 0.72 - width / 2 - 14)
+                      : Math.round(card.width - width - (root.nighttime ? 16 : 6))
+y: root.dateCardPresentation && root.nighttime
+                    ? Math.round(card.height * 0.17 - height / 2)
+                    : (root.dateCardPresentation ? 1 : (root.nighttime ? 8 : -8))
                 smooth: true
                 opacity: entry.modelData.key === "partly_cloudy"
                     ? Math.max(0.12, 1.0 - entry.cloudCover * 0.88)

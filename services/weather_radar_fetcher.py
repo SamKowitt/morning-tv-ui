@@ -593,7 +593,7 @@ def _cache_key(
     )
 
 
-def _load_cached_loop(cache_key):
+def _load_cached_loop(cache_key, max_age_seconds=RADAR_CACHE_SECONDS):
     manifest_path = CACHE_DIR / f"{cache_key}.json"
 
     if not manifest_path.exists():
@@ -608,7 +608,7 @@ def _load_cached_loop(cache_key):
 
         if (
             datetime.now(timezone.utc).timestamp() - fetched_at
-            > RADAR_CACHE_SECONDS
+            > max_age_seconds
         ):
             return None
 
@@ -648,41 +648,39 @@ def _load_cached_loop(cache_key):
 
 
 def _save_cached_loop(cache_key, frames):
+    # MUI_RADAR_LAST_GOOD_V12: never overwrite files referenced by the
+    # previous published manifest while building a replacement loop.
+    generation = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
+    generation += f"_{os.getpid()}"
     manifest_frames = []
 
     for index, frame in enumerate(frames):
-        file_name = f"{cache_key}_{index:02d}.jpg"
-
-        (CACHE_DIR / file_name).write_bytes(
-            frame["image_bytes"]
-        )
-
+        file_name = f"{cache_key}_g{generation}_{index:02d}.jpg"
+        (CACHE_DIR / file_name).write_bytes(frame["image_bytes"])
         manifest_frames.append(
             {
                 "file_name": file_name,
-                "valid_timestamp": int(
-                    frame["valid_time"].timestamp()
-                ),
-                "base_timestamp": int(
-                    frame["base_time"].timestamp()
-                ),
+                "valid_timestamp": int(frame["valid_time"].timestamp()),
+                "base_timestamp": int(frame["base_time"].timestamp()),
                 "radar_type": frame["radar_type"],
                 "location_pixel": frame.get("location_pixel", {}),
             }
         )
 
-    (CACHE_DIR / f"{cache_key}.json").write_text(
-        json.dumps(
-            {
-                "fetched_at": datetime.now(
-                    timezone.utc
-                ).timestamp(),
-                "frames": manifest_frames,
-            },
-            indent=2,
-        ),
-        encoding="utf-8",
+    # Publish the manifest only after every new frame is on disk.
+    record = json.dumps(
+        {
+            "fetched_at": datetime.now(timezone.utc).timestamp(),
+            "frames": manifest_frames,
+        }, indent=2,
     )
+    target = CACHE_DIR / f"{cache_key}.json"
+    temporary = CACHE_DIR / f".{cache_key}.{generation}.tmp"
+    try:
+        temporary.write_text(record, encoding="utf-8")
+        os.replace(temporary, target)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _prune_cache():
@@ -856,6 +854,61 @@ def load_cached_weathercom_radar_frames(
             zoom=zoom,
         )
     )
+
+
+def load_previous_weathercom_radar_frames(
+    latitude,
+    longitude,
+    selected_start_utc,
+    selected_end_utc=None,
+    zoom=ZOOM,
+):
+    """Display-only fallback; never changes the normal 300-second cache TTL.
+
+    Match exactly the location and zoom and a nearby 90/105-minute window.
+    Reject unrelated forecast hours and loops older than one hour.
+    """
+    # MUI_RADAR_LAST_GOOD_V12
+    start, end = _normalize_radar_window(
+        selected_start_utc, selected_end_utc,
+    )
+    target_start = int(start.timestamp())
+    target_end = int(end.timestamp())
+    prefix = (
+        f"{float(latitude):.3f}_{float(longitude):.3f}_"
+        f"radar_cadence_v11_radar_overlay_alpha_"
+        f"z{int(zoom)}_start"
+    )
+    now = datetime.now(timezone.utc).timestamp()
+    matches = []
+    for path in CACHE_DIR.glob(prefix + "*_end*.json"):
+        suffix = path.stem[len(prefix):]
+        start_text, sep, end_text = suffix.partition("_end")
+        if not sep or not start_text.isdecimal() or not end_text.isdecimal():
+            continue
+        s, e = int(start_text), int(end_text)
+        if abs(s - target_start) > 1800 or abs(e - target_end) > 1800:
+            continue
+        # The full loop duration must also match to avoid showing the
+        # current-hour 105-minute window for a forecast-hour 90-minute card.
+        if (e - s) != (target_end - target_start):
+            continue
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+            fetched_at = float(record.get("fetched_at", 0))
+        except (OSError, ValueError, TypeError):
+            continue
+        if not 0 <= now - fetched_at <= 3600:
+            continue
+        distance = abs(s - target_start) + abs(e - target_end)
+        matches.append((fetched_at, -distance, path.stem))
+
+    # Prefer the latest successful fetch, breaking ties by time-window match.
+    for _, _, key in sorted(matches, reverse=True):
+        frames = _load_cached_loop(key, max_age_seconds=3600)
+        if frames:
+            return frames
+    return None
 
 
 def fetch_weathercom_radar_frames(
