@@ -5098,6 +5098,8 @@ class DashboardWindow(QMainWindow):
         return cancelled_request_ids
 
     def start_stock_fetch(self):
+        # MUI_MARKET_REFRESH_V28
+        self._mui_market_refresh_init_v28()
         self.stock_request_id += 1
         request_id = self.stock_request_id
 
@@ -5157,6 +5159,123 @@ class DashboardWindow(QMainWindow):
             return
 
         self.stocks_panel.update_market_data(market_data)
+
+
+    def _mui_market_refresh_init_v28(self):
+        # MUI_MARKET_REFRESH_V28
+        # Only one timer per dashboard instance.
+        if hasattr(self, "_mui_market_timer_v28"):
+            return
+
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.timeout.connect(
+            self._mui_market_refresh_tick_v28
+        )
+
+        self._mui_market_timer_v28 = timer
+        self._mui_market_schedule_next_v28()
+
+        print(
+            "Market Tape: automated 5-minute refresh "
+            "scheduled for 9:30 AM–4:00 PM ET, "
+            "Monday–Friday.",
+            flush=True,
+        )
+
+    def _mui_market_schedule_next_v28(self):
+        # Schedule precisely on ET five-minute marks.
+        # ZoneInfo automatically handles EST and EDT.
+        from datetime import datetime, timedelta, time
+        from zoneinfo import ZoneInfo
+
+        eastern = ZoneInfo("America/New_York")
+        now = datetime.now(eastern)
+
+        for offset in range(8):
+            day = now.date() + timedelta(days=offset)
+
+            if day.weekday() >= 5:
+                continue
+
+            first = datetime.combine(
+                day, time(9, 30), tzinfo=eastern
+            )
+
+            if offset == 0:
+                elapsed = now.timestamp() - first.timestamp()
+                slot_number = max(
+                    0, int(elapsed // 300) + 1
+                )
+            else:
+                slot_number = 0
+
+            # 9:30 through 16:00 inclusive.
+            # Never schedule a 16:05 fetch.
+            if slot_number > 78:
+                continue
+
+            target = first + timedelta(
+                minutes=5 * slot_number
+            )
+
+            delay_ms = max(
+                1000,
+                int(
+                    (target.timestamp() - now.timestamp())
+                    * 1000
+                ),
+            )
+
+            self._mui_market_timer_v28.start(delay_ms)
+            return
+
+        raise RuntimeError(
+            "Unable to schedule next market refresh"
+        )
+
+    def _mui_market_refresh_tick_v28(self):
+        # Arm the next slot before requesting data,
+        # so a network failure does not stop refreshes.
+        self._mui_market_schedule_next_v28()
+
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        now = datetime.now(
+            ZoneInfo("America/New_York")
+        )
+        minutes = now.hour * 60 + now.minute
+
+        if now.weekday() >= 5:
+            return
+
+        if not (570 <= minutes <= 960):
+            return
+
+        # Never cancel an existing active fetch just
+        # because a scheduled refresh becomes due.
+        for job in list(
+            getattr(self, "stock_fetch_jobs", [])
+        ):
+            try:
+                if job[0].isRunning():
+                    print(
+                        "Market Tape: refresh skipped; "
+                        "previous fetch still running.",
+                        flush=True,
+                    )
+                    return
+            except RuntimeError:
+                continue
+
+        print(
+            "Market Tape: scheduled refresh "
+            + now.isoformat(timespec="seconds"),
+            flush=True,
+        )
+
+        self.start_stock_fetch()
 
     def on_stock_data_failed(self, request_id, error_message):
         if request_id != self.stock_request_id:

@@ -497,6 +497,48 @@ def fetch_nasdaq_quote(symbol):
     raise RuntimeError(f"All Nasdaq quote attempts failed for {symbol}: {last_error}")
 
 
+
+# MUI_NASDAQ_CHRONOLOGICAL_HISTORY_V27
+# Sort parsed calendar dates, not formatted text.
+def _mui_nasdaq_date_key_v27(row):
+    raw = str(
+        row.get("Date") or row.get("date") or ""
+    ).strip()
+
+    if not raw:
+        raise ValueError(
+            "Nasdaq historical row has no trading date"
+        )
+
+    formats = (
+        "%Y-%m-%d",
+        "%m/%d/%Y",
+        "%m/%d/%y",
+        "%b %d, %Y",
+        "%B %d, %Y",
+        "%d %b %Y",
+        "%d %B %Y",
+        "%Y/%m/%d",
+        "%m-%d-%Y",
+    )
+
+    for fmt in formats:
+        try:
+            return datetime.strptime(raw, fmt).date()
+        except ValueError:
+            pass
+
+    try:
+        return datetime.fromisoformat(
+            raw.replace("Z", "+00:00")
+        ).date()
+    except ValueError:
+        raise ValueError(
+            "Unrecognized Nasdaq historical date: "
+            + raw[:60]
+        )
+
+
 def collect_numeric_close_values(obj):
     values = []
 
@@ -512,7 +554,7 @@ def collect_numeric_close_values(obj):
 
             rows = sorted(
                 rows,
-                key=lambda row: str(row.get("Date", "")),
+                key=_mui_nasdaq_date_key_v27,
             )
 
             for row in rows:
@@ -579,8 +621,8 @@ def fetch_nasdaq_history(symbol):
         if value is None:
             continue
 
-        if not clean_values or clean_values[-1] != value:
-            clean_values.append(value)
+        # Preserve legitimate equal daily closes.
+        clean_values.append(value)
 
     if len(clean_values) < 2:
         raise RuntimeError(
@@ -1276,3 +1318,16 @@ def fetch_market_data_for_symbols(
 
     raise_if_stock_fetch_cancelled(should_cancel)
     return MarketData(indexes=indexes, stocks=stocks)
+
+
+# MARKET_TAPE_V29_FETCHER_OVERRIDE
+# Keep all legacy fetch helpers untouched; only the public entry points
+# now assemble all seven selectable views from two cached resolutions.
+def fetch_market_data(should_cancel=None):
+    from services.market_tape_data_v29 import fetch_market_data_v29
+    return fetch_market_data_v29(should_cancel=should_cancel)
+
+
+def fetch_market_data_for_symbols(index_symbols=None, stock_symbols=None, should_cancel=None):
+    from services.market_tape_data_v29 import fetch_market_data_v29
+    return fetch_market_data_v29(index_symbols, stock_symbols, should_cancel)

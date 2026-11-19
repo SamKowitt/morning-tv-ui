@@ -969,6 +969,158 @@ class RemoteNavigation(QObject):
                 first = max(targets, key=lambda t: (t.center.x(), -t.center.y()))
             self._show(first)
             return
+
+        # MUI_SECONDARY_NEWS_NAV_V16
+        # Explicit routes for the two secondary-news columns.
+        # Intercept before edge locks and generic spatial navigation.
+        secondary_columns = (
+            ('secondary', 'more_news_card'),
+            ('secondary', 'market_news_card'),
+        )
+
+        if current.identity[:2] in secondary_columns:
+            column = current.identity[1]
+            y = current.center.y()
+
+            # UP from the highest clickable secondary article
+            # selects that column's restore/header button.
+            if direction == Qt.Key.Key_Up:
+                same_column = [
+                    t for t in targets
+                    if t.identity[:2] == ('secondary', column)
+                ]
+
+                if same_column:
+                    top = min(
+                        same_column,
+                        key=lambda t: (
+                            t.center.y(),
+                            t.center.x(),
+                        )
+                    )
+
+                    if current.identity == top.identity:
+                        if column == 'more_news_card':
+                            card = getattr(
+                                self.root, 'more_news_card', None
+                            )
+                            button = getattr(
+                                card, 'reminders_button', None
+                            )
+                        else:
+                            card = getattr(
+                                self.root, 'market_news_card', None
+                            )
+                            button = getattr(
+                                card, 'market_tape_button', None
+                            )
+
+                        destination = next(
+                            (
+                                t for t in targets
+                                if button is not None
+                                and t.owner is button
+                            ),
+                            None
+                        )
+
+                        if destination is not None:
+                            self._show(destination)
+
+                        return
+
+            # The right secondary-news column is the
+            # rightmost navigation boundary.
+            if (column == 'market_news_card'
+                    and direction == Qt.Key.Key_Right):
+                return
+
+            # LEFT COLUMN -> RIGHT COLUMN / MARKET TAPE
+            if (column == 'more_news_card'
+                    and direction == Qt.Key.Key_Right):
+
+                candidates = [
+                    t for t in targets
+                    if t.identity[:2] ==
+                    ('secondary', 'market_news_card')
+                ]
+
+                if not candidates:
+                    market = getattr(
+                        self.root, 'stocks_panel', None
+                    )
+                    hide = getattr(
+                        market, 'hide_button', None
+                    )
+                    candidates = [
+                        t for t in targets
+                        if hide is not None and t.owner is hide
+                    ]
+
+                if candidates:
+                    destination = min(
+                        candidates,
+                        key=lambda t: (
+                            abs(t.center.y() - y),
+                            abs(t.center.x() - current.center.x()),
+                        )
+                    )
+                    self._show(destination)
+
+                return
+
+            # RIGHT COLUMN -> LEFT COLUMN / REMINDERS
+            if (column == 'market_news_card'
+                    and direction == Qt.Key.Key_Left):
+
+                candidates = [
+                    t for t in targets
+                    if t.identity[:2] ==
+                    ('secondary', 'more_news_card')
+                ]
+
+                if not candidates:
+                    reminders = getattr(
+                        self.root, 'reminders', None
+                    )
+                    hide = getattr(
+                        reminders, 'hide_button', None
+                    )
+
+                    # Only the Hide and Set Reminder controls
+                    # are permitted as fallback destinations.
+                    reminder_names = (
+                        'ReminderSendButton',
+                        'UpcomingReminderSendButton',
+                    )
+
+                    candidates = [
+                        t for t in targets
+                        if (
+                            (
+                                hide is not None
+                                and t.owner is hide
+                            )
+                            or (
+                                self._in_panel(t, reminders)
+                                and t.owner.objectName()
+                                in reminder_names
+                            )
+                        )
+                    ]
+
+                if candidates:
+                    destination = min(
+                        candidates,
+                        key=lambda t: (
+                            abs(t.center.y() - y),
+                            abs(t.center.x() - current.center.x()),
+                        )
+                    )
+                    self._show(destination)
+
+                return
+
         # Do not move beyond the TOP of weather, Sports News or Game Times.
         # This runs before generic spatial navigation can escape the column.
         if self._top_edge_locked(current, direction, targets):
@@ -1681,3 +1833,225 @@ def _morningui_oled_nav_sync():
             widget.update()
         except (RuntimeError, TypeError):
             pass
+
+# MUI_MARKET_TAPE_NAV_V30
+# Isolated range-button focus and routing; wraps the active navigation
+# implementation (including any earlier navigation corrections).
+_mui_v30_previous_init = RemoteNavigation.__init__
+_mui_v30_previous_activate = RemoteNavigation.activate
+_mui_v30_previous_special = RemoteNavigation._special_dashboard_move
+
+
+def _mui_v30_market_button_target(self, targets, button):
+    return next((t for t in targets if t.owner is button), None)
+
+
+def _mui_v30_market_buttons(self):
+    panel = getattr(self.root, 'stocks_panel', None)
+    if panel is None:
+        return {}
+    buttons = getattr(panel, '_mui_range_buttons_v29', None)
+    return buttons if isinstance(buttons, dict) else {}
+
+
+def _mui_v30_reselect(self, button):
+    # Works for direct mouse clicks as well as remote OK activation.
+    if self._article_popup() is not None:
+        return
+    if button not in _mui_v30_market_buttons(self).values():
+        return
+    target = _mui_v30_market_button_target(
+        self, self._dashboard_targets(), button
+    )
+    if target is not None:
+        self._show(target)
+
+
+def _mui_v30_init(self, root):
+    _mui_v30_previous_init(self, root)
+    # Do not reset the current selection on range changes.
+    for button in _mui_v30_market_buttons(self).values():
+        button.clicked.connect(
+            lambda checked=False, b=button, nav=self:
+            QTimer.singleShot(0, lambda: _mui_v30_reselect(nav, b))
+        )
+
+
+def _mui_v30_activate(self):
+    # The original activate() clears focus before clicking any button.
+    # For the seven range controls only, click without clearing focus.
+    if self._article_popup() is None:
+        targets = self._dashboard_targets()
+        target = self._by_identity(targets, self.selected_identity)
+        if (target is not None and
+                target.owner in _mui_v30_market_buttons(self).values()):
+            target.owner.click()
+            _mui_v30_reselect(self, target.owner)
+            return
+    return _mui_v30_previous_activate(self)
+
+
+def _mui_v30_special(self, current, direction, targets):
+    if current is not None and targets and self._article_popup() is None:
+        buttons = _mui_v30_market_buttons(self)
+        if buttons:
+            if (direction == Qt.Key.Key_Down and
+                    current.owner in buttons.values()):
+                # DOWN from any range button stays put.
+                return current
+            if (direction == Qt.Key.Key_Down and
+                    current.identity == ('primary', 'cnbc_card')):
+                # Right primary headline DOWN enters YoY directly.
+                yoy = _mui_v30_market_button_target(
+                    self, targets, buttons.get('YoY')
+                )
+                if yoy is not None:
+                    return yoy
+    return _mui_v30_previous_special(self, current, direction, targets)
+
+
+RemoteNavigation.__init__ = _mui_v30_init
+RemoteNavigation.activate = _mui_v30_activate
+RemoteNavigation._special_dashboard_move = _mui_v30_special
+
+# MUI_MARKET_TAPE_NAV_V31
+# RIGHT from any left secondary headline or Reminders control -> YoY.
+# All other directions, including V30's focus retention and DOWN lock,
+# pass unchanged to the previously active navigation implementation.
+_mui_v31_previous_special = RemoteNavigation._special_dashboard_move
+
+
+def _mui_v31_special(self, current, direction, targets):
+    if (current is not None and targets
+            and direction == Qt.Key.Key_Right
+            and self._article_popup() is None):
+        market = getattr(self.root, 'stocks_panel', None)
+        buttons = getattr(market, '_mui_range_buttons_v29', None)
+        yoy_button = buttons.get('YoY') if isinstance(buttons, dict) else None
+        yoy = next((t for t in targets if t.owner is yoy_button), None) if yoy_button is not None else None
+
+        if yoy is not None:
+            reminders = getattr(self.root, 'reminders', None)
+            left_news = getattr(self.root, 'more_news_card', None)
+            owner = current.owner
+
+            left_secondary = current.identity[:2] == ('secondary', 'more_news_card')
+            reminders_hide = (reminders is not None and
+                              owner is getattr(reminders, 'hide_button', None))
+            reminders_restore = (left_news is not None and
+                                 owner is getattr(left_news, 'reminders_button', None))
+            within_reminders = (reminders is not None and
+                                self._in_panel(current, reminders))
+            owner_name = owner.objectName() if hasattr(owner, 'objectName') else ''
+            owner_text = owner.text().strip().lower() if callable(getattr(owner, 'text', None)) else ''
+            set_reminder = within_reminders and (
+                owner_name in ('ReminderSendButton', 'UpcomingReminderSendButton')
+                or owner_text.startswith('set reminder')
+            )
+
+            if left_secondary or reminders_hide or reminders_restore or set_reminder:
+                return yoy
+
+    return _mui_v31_previous_special(self, current, direction, targets)
+
+
+RemoteNavigation._special_dashboard_move = _mui_v31_special
+
+# MUI_MARKET_TAPE_NAV_V32_LEFT_NEWS_RIGHT
+# RIGHT from any of the five clickable left secondary
+# headlines goes to YoY before older routes execute.
+_mui_v32_previous_move = RemoteNavigation.move
+
+
+def _mui_v32_move(self, direction):
+    if (
+        direction == Qt.Key.Key_Right
+        and self._article_popup() is None
+    ):
+        targets = self._dashboard_targets()
+
+        current = self._by_identity(
+            targets, self.selected_identity
+        )
+
+        if current is not None and current.kind == "text":
+            owner = current.owner
+            identity = current.identity
+
+            headline_label = (
+                owner.objectName() == "Page2HeadlineText"
+            )
+
+            left_card = getattr(
+                self.root, "more_news_card", None
+            )
+            market = getattr(
+                self.root, "stocks_panel", None
+            )
+
+            left_secondary = (
+                identity[:2] ==
+                ("secondary", "more_news_card")
+                or (
+                    headline_label
+                    and left_card is not None
+                    and self._in_panel(current, left_card)
+                )
+            )
+
+            # Additional match for a secondary headline
+            # geometrically left of the Market Tape panel.
+            if (
+                not left_secondary
+                and headline_label
+                and identity[0] == "secondary"
+                and market is not None
+            ):
+                market_left = market.mapTo(
+                    self.root, QPoint(0, 0)
+                ).x()
+
+                left_secondary = (
+                    current.center.x() < market_left
+                )
+
+            if left_secondary:
+                buttons = getattr(
+                    market, "_mui_range_buttons_v29", None
+                )
+
+                yoy_button = (
+                    buttons.get("YoY")
+                    if isinstance(buttons, dict)
+                    else None
+                )
+
+                yoy = next(
+                    (
+                        target for target in targets
+                        if target.owner is yoy_button
+                    ),
+                    None
+                ) if yoy_button is not None else None
+
+                if yoy is not None:
+                    self._show(yoy)
+                    print(
+                        "MUI_V32 LEFT SECONDARY RIGHT -> YoY",
+                        flush=True,
+                    )
+                else:
+                    self._show(current)
+                    print(
+                        "MUI_V32 YoY unavailable; "
+                        "retained headline focus",
+                        flush=True,
+                    )
+                return
+
+    return _mui_v32_previous_move(
+        self, direction
+    )
+
+
+RemoteNavigation.move = _mui_v32_move
