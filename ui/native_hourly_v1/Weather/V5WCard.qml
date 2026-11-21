@@ -250,12 +250,20 @@ Item {
     function topSky(key) {
         var g = grayFamily(key);
         if (nighttime) return g ? "#52677d" : "#0b2149";
+        if (phaseMode === "dawn")
+            return g ? "#8e8da9" : "#7d83bc";
+        if (phaseMode === "dusk")
+            return g ? "#9488a0" : "#877eb0";
         if (g) return phaseMode === "dawn" || phaseMode === "dusk" ? "#788fa7" : "#7895ad";
         return "#5e8fc8";
     }
     function bottomSky(key) {
         var g = grayFamily(key);
         if (nighttime) return g ? "#70879b" : "#24487c";
+        if (phaseMode === "dawn")
+            return g ? "#c0a9b4" : "#e1b2a6";
+        if (phaseMode === "dusk")
+            return g ? "#c4a5b2" : "#e2aaa1";
         if (g) return phaseMode === "dawn" || phaseMode === "dusk" ? "#9eb4c6" : "#a0b9ca";
         if (phaseMode === "dawn" || phaseMode === "dusk") return "#c6b9b3";
         return "#9cc4ee";
