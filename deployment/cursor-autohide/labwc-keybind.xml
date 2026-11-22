@@ -1,0 +1,7 @@
+<!-- MUI_LABWC_CURSOR_HIDE_V1 -->
+<keyboard>
+  <default />
+  <keybind key="A-W-h">
+    <action name="HideCursor" />
+  </keybind>
+</keyboard>

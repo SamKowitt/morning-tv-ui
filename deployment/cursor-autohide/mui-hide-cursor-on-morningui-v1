@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# MUI_CURSOR_AUTOHIDE_V1
+# Wait until the MorningUI window is visible before invoking the
+# labwc HideCursor shortcut that has already worked on the HDMI TV.
+export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+export WAYLAND_DISPLAY="wayland-0"
+
+for ((attempt=0; attempt<200; attempt++)); do
+    if [ "$(systemctl --user is-active morningui-remote.service 2>/dev/null || :)" = active ] \
+       && wlrctl toplevel list 2>/dev/null | grep -Fq 'Morning TV UI'; then
+        wtype -M alt -M logo -P h -p h -m logo -m alt
+        echo 'MUI_CURSOR_AUTOHIDE_V1: HideCursor sent to labwc'
+        exit 0
+    fi
+    sleep 0.25
+done
+
+echo 'MUI_CURSOR_AUTOHIDE_V1: dashboard window not found; no synthetic keys sent' >&2
+exit 1
