@@ -1,12 +1,16 @@
 [Unit]
-Description=MorningUI auto-hide HDMI mouse cursor using existing labwc shortcut
+Description=MorningUI HDMI mouse cursor lifecycle (hide on launch, restore on close)
 After=morningui-remote.service
+BindsTo=morningui-remote.service
 PartOf=morningui-remote.service
 
 [Service]
-Type=oneshot
-ExecStart=%h/.local/bin/mui-hide-cursor-on-morningui-v1
-TimeoutStartSec=70
+Type=simple
+ExecStart=%h/.local/bin/mui-hide-cursor-on-morningui-v1 monitor
+ExecStopPost=-%h/.local/bin/mui-hide-cursor-on-morningui-v1 restore
+Restart=on-failure
+RestartSec=1
+TimeoutStopSec=8
 
 [Install]
 WantedBy=morningui-remote.service

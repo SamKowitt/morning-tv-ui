@@ -1,20 +1,70 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# MUI_CURSOR_AUTOHIDE_V1
-# Wait until the MorningUI window is visible before invoking the
-# labwc HideCursor shortcut that has already worked on the HDMI TV.
+# MUI_CURSOR_LIFECYCLE_V2
+# This helper is paired with systemd ExecStopPost=... restore.
+# Keep the live dashboard and its rendering code completely untouched.
 export XDG_RUNTIME_DIR="/run/user/$(id -u)"
 export WAYLAND_DISPLAY="wayland-0"
 
-for ((attempt=0; attempt<200; attempt++)); do
-    if [ "$(systemctl --user is-active morningui-remote.service 2>/dev/null || :)" = active ] \
-       && wlrctl toplevel list 2>/dev/null | grep -Fq 'Morning TV UI'; then
-        wtype -M alt -M logo -P h -p h -m logo -m alt
-        echo 'MUI_CURSOR_AUTOHIDE_V1: HideCursor sent to labwc'
+case "${1:-monitor}" in
+    restore)
+        # A real one-pixel pointer motion reveals labwc's HideCursor cursor.
+        # During session shutdown the Wayland socket may already be gone.
+        if wlrctl pointer move 1 0; then
+            echo 'MUI_CURSOR_LIFECYCLE_V2: CURSOR_RESTORED'
+        else
+            echo 'MUI_CURSOR_LIFECYCLE_V2: restore skipped (display unavailable)' >&2
+        fi
         exit 0
+        ;;
+    monitor) ;;
+    *) echo 'Usage: mui-hide-cursor-on-morningui-v1 {monitor|restore}' >&2; exit 2 ;;
+esac
+
+morningui_pid() {
+    systemctl --user show morningui-remote.service -p MainPID --value 2>/dev/null || :
+}
+ui_present() {
+    wlrctl toplevel list 2>/dev/null | grep -Fq 'Morning TV UI'
+}
+
+# Wait for MorningUI's actual window, as the proven V1 helper did.
+target_pid=''
+for ((attempt=0; attempt<200; attempt++)); do
+    pid="$(morningui_pid)"
+    if [[ "$(systemctl --user is-active morningui-remote.service 2>/dev/null || :)" == active ]] \
+       && [[ "$pid" =~ ^[1-9][0-9]*$ ]] \
+       && [[ -d "/proc/$pid" ]] && ui_present; then
+        target_pid="$pid"
+        wtype -M alt -M logo -P h -p h -m logo -m alt
+        echo "MUI_CURSOR_LIFECYCLE_V2: CURSOR_HIDDEN MorningUI_PID=$target_pid"
+        break
     fi
     sleep 0.25
 done
+if [[ -z "$target_pid" ]]; then
+    echo 'MUI_CURSOR_LIFECYCLE_V2: MorningUI never became visible' >&2
+    exit 1
+fi
 
-echo 'MUI_CURSOR_AUTOHIDE_V1: dashboard window not found; no synthetic keys sent' >&2
-exit 1
+# Detect both application exit and a manually closed dashboard window.
+# Exit triggers the service's ExecStopPost cursor-restoration handler.
+missing=0
+while :; do
+    pid="$(morningui_pid)"
+    if [[ "$(systemctl --user is-active morningui-remote.service 2>/dev/null || :)" != active ]] \
+       || [[ "$pid" != "$target_pid" ]] || [[ ! -d "/proc/$target_pid" ]]; then
+        echo 'MUI_CURSOR_LIFECYCLE_V2: MorningUI exited or restarted'
+        exit 0
+    fi
+    if ui_present; then
+        missing=0
+    else
+        ((missing+=1))
+        if (( missing >= 3 )); then
+            echo 'MUI_CURSOR_LIFECYCLE_V2: MorningUI window closed'
+            exit 0
+        fi
+    fi
+    sleep 0.25
+done

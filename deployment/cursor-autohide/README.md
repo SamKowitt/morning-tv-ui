@@ -1,43 +1,61 @@
-# MorningUI HDMI Cursor Auto-Hide V1
+# MorningUI HDMI Cursor Lifecycle V2
 
 ## Purpose
 
-Hide the Raspberry Pi computer cursor automatically when the
-MorningUI dashboard starts or restarts.
+Hide the Raspberry Pi computer cursor when MorningUI is displayed
+and restore the normal cursor when MorningUI closes or stops.
 
-This implementation uses labwc's native `HideCursor` action.
-It does not modify MorningUI's Python code, QML weather
-renderer, screen resolution, scaling, or LG remote navigation.
+The implementation uses the existing labwc HideCursor shortcut,
+wtype, wlrctl, and a systemd user service.
 
-## Components
+## Files
 
-- `labwc-keybind.xml`: labwc keyboard configuration fragment.
-- `mui-hide-cursor-on-morningui-v1`: executable helper.
-- `mui-cursor-autohide-v1.service`: systemd user service.
+- `mui-hide-cursor-on-morningui-v1` — V2 lifecycle helper
+- `mui-cursor-autohide-v1.service` — V2 systemd user service
+- `labwc-keybind.xml` — existing labwc HideCursor shortcut
 
-## Requirements
+The original V1 filenames remain unchanged for compatibility.
 
-- Raspberry Pi with labwc Wayland compositor
-- wtype
-- wlrctl
-- morningui-remote.service
-- A MorningUI window titled "Morning TV UI"
+## Cursor behavior
+
+| Event | Intended behavior |
+|---|---|
+| MorningUI window appears | Hide cursor |
+| MorningUI closes normally | Restore cursor |
+| MorningUI is manually terminated | Restore cursor |
+| MorningUI service stops | Restore cursor |
+| MorningUI starts again | Hide cursor |
+| Pi shuts down | Attempt restoration during shutdown |
+
+On a new desktop session the normal cursor is available until
+MorningUI starts and the helper hides it.
+
+The helper also monitors the MorningUI window.
+
+The systemd service includes `BindsTo=morningui-remote.service`
+and an `ExecStopPost` restoration handler.
+
+## Hiding and restoration
+
+The existing labwc configuration binds `Alt+Super+H`
+to the `HideCursor` action.
+
+The helper sends that shortcut using wtype.
+
+Restoration uses synthetic pointer movement via wlrctl,
+which was independently tested on the Pi's HDMI display.
+
+Physical mouse movement can reveal a hidden cursor.
+This version does not continuously suppress pointer movement.
 
 ## Installation
 
-Merge `labwc-keybind.xml` into the existing
-`~/.config/labwc/rc.xml`, preserving existing settings.
+Ensure the existing labwc HideCursor binding is installed.
+Merge `labwc-keybind.xml` into the labwc configuration if absent.
 
-Do not add a duplicate keyboard section or keybinding.
+Do not overwrite other labwc configuration or duplicate bindings.
 
-Reload labwc using its running process ID:
-
-```bash
-LABWC_PID="$(pgrep -u "$(id -u)" -x labwc)" \
-  labwc --reconfigure
-```
-
-Install the helper and service:
+Install the helper and unit in their established locations:
 
 ```bash
 install -m 755 mui-hide-cursor-on-morningui-v1 \
@@ -49,40 +67,48 @@ install -m 644 mui-cursor-autohide-v1.service \
   "$HOME/.config/systemd/user/mui-cursor-autohide-v1.service"
 
 systemctl --user daemon-reload
-
 systemctl --user enable mui-cursor-autohide-v1.service
-
-systemctl --user start mui-cursor-autohide-v1.service
 ```
+
+Service activation should follow MorningUI's lifecycle.
 
 ## Verification
 
 ```bash
-systemctl --user is-enabled mui-cursor-autohide-v1.service
+systemctl --user show mui-cursor-autohide-v1.service \
+  -p ActiveState -p SubState -p MainPID \
+  -p BindsTo -p ExecStopPost --no-pager
 
 journalctl --user \
   -u mui-cursor-autohide-v1.service \
-  -n 15 --no-pager -o cat
+  -n 20 --no-pager -o cat
 ```
 
-Expected success marker:
+The successful V2 startup marker is:
 
-`MUI_CURSOR_AUTOHIDE_V1: HideCursor sent to labwc`
+`MUI_CURSOR_LIFECYCLE_V2: CURSOR_HIDDEN`
 
-## Behavior
-
-The helper waits for the running MorningUI window and invokes
-the labwc Alt+Super+H shortcut.
-
-The systemd user service is enabled to run when MorningUI starts.
-
-Labwc can reveal the pointer again following physical mouse movement.
-This version hides the cursor on startup; it does not continuously
-suppress the pointer during mouse movement.
+Automatic restoration on an actual MorningUI close and
+system shutdown should be separately verified on the Pi.
 
 ## Rollback
 
-Disable the user service and remove its installed helper/unit.
-Restore the prior labwc rc.xml from its local backup if desired.
+Restore the previously backed-up V1 helper and unit,
+then reload the systemd user manager.
 
-The MorningUI application itself is unaffected.
+The previous GitHub version is available in commit:
+
+`394525ee2e53724de0907a0aa8fa9726d6966a9a`
+
+No MorningUI application source changes are required.
+
+## Scope
+
+This cursor automation does not change:
+
+- MorningUI Python application code
+- Native weather QML animations
+- LG remote navigation
+- TV lift behavior
+- Fonts or UI layout
+- Display resolution or scaling
