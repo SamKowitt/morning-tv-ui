@@ -2902,6 +2902,64 @@ def fetch_bloomberg_article_payload(url):
     }
 
 
+def _is_cnbc_live_update_url(url):
+    parsed = urlparse(str(url or ""))
+    hostname = (parsed.hostname or "").lower()
+    return (
+        (hostname == "cnbc.com" or hostname.endswith(".cnbc.com"))
+        and "-live-updates" in parsed.path.lower()
+    )
+
+
+def _extract_cnbc_liveblog_jsonld_payload(page_html):
+    """Extract the actual update bodies, not the CNBC live-page navigation."""
+    for root in extract_json_ld_objects(page_html):
+        for obj in flatten_json(root):
+            if not isinstance(obj, dict):
+                continue
+            types = obj.get("@type", "")
+            if isinstance(types, list):
+                types = " ".join(map(str, types))
+            if "liveblogposting" not in str(types).lower():
+                continue
+            entries = obj.get("liveBlogUpdate") or []
+            if isinstance(entries, dict):
+                entries = [entries]
+            if not isinstance(entries, list):
+                continue
+            updates, blocks, seen = [], [], set()
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                body = clean_text(entry.get("articleBody") or entry.get("text") or "")
+                if not is_valid_article_text(body):
+                    continue
+                title = clean_text(entry.get("headline") or "")
+                identity = body.casefold()
+                if identity in seen:
+                    continue
+                seen.add(identity)
+                display = body
+                if title and title.casefold() not in body[:len(title) + 50].casefold():
+                    display = title + "\n\n" + body
+                updates.append(display)
+                blocks.append({"type": "heading", "text": f"LIVE UPDATE {len(updates)}"})
+                if title:
+                    blocks.append({"type": "heading", "text": title})
+                blocks.append({"type": "paragraph", "text": body})
+            if updates:
+                return {
+                    "is_live": True,
+                    "method": "cnbc_live_jsonld_v1",
+                    "cnbc_format_version": 2,
+                    "cleanup_version": ARTICLE_END_CLEANUP_VERSION,
+                    "text": "\n\n".join(updates),
+                    "updates": updates,
+                    "blocks": blocks,
+                }
+    return None
+
+
 def _fetch_article_text_payload_uncached(url):
     parsed_url = urlparse(str(url or ""))
     hostname = parsed_url.netloc.lower()
@@ -2945,8 +3003,20 @@ def _fetch_article_text_payload_uncached(url):
     if hostname == "espn.com" or hostname.endswith(".espn.com"):
         return fetch_espn_article_payload(url)
 
-    # CNBC's direct HTML omits the rendered inline-image structure.
+    # Live CNBC updates are JSON-LD BlogPosting records, not ArticleBody DOM.
+    # Keep the existing Chrome extraction unchanged for ordinary CNBC articles.
     if hostname == "cnbc.com" or hostname.endswith(".cnbc.com"):
+        if _is_cnbc_live_update_url(url):
+            live = _extract_cnbc_liveblog_jsonld_payload(
+                fetch_url_text(url, timeout=20)
+            )
+            if live is not None:
+                print(
+                    f"CNBC LIVE JSONLD ARTICLE TEXT: {len(live['updates'])} "
+                    f"updates | {len(live['text'])} chars | {url}",
+                    flush=True,
+                )
+                return live
         return fetch_cnbc_article_payload(url)
 
     page_html = fetch_url_text(url, timeout=20)
@@ -3295,6 +3365,13 @@ def cached_article_payload_is_usable(url, payload):
         )
 
     if is_cnbc:
+        # Do not reuse a normal-article cache entry for a CNBC live blog.
+        if _is_cnbc_live_update_url(url) and (
+            payload.get("method") != "cnbc_live_jsonld_v1"
+            or not payload.get("is_live")
+            or not payload.get("updates")
+        ):
+            return False
         try:
             cnbc_format_version = int(
                 payload.get("cnbc_format_version", 0) or 0
@@ -3542,7 +3619,10 @@ def _mui_v2_worker():
                         else None
                     )
 
-                if old is not None:
+                if old is not None and (
+                    not _is_cnbc_live_update_url(url)
+                    or cached_article_payload_is_usable(url, old)
+                ):
                     try:
                         rendered, size = _mui_v2_prepare(url, old)
                         _mui_v2_publish(url, rendered, size)
