@@ -637,7 +637,7 @@ class DashboardWindow(QMainWindow):
         self.calendar_has_no_events = False
         self.apple_calendar_events = []
 
-        # Header Hide button states only. Never write either to QSettings.
+        # Header actions also save the preferred startup visibility.
         self.session_reminders_hidden = False
         self.session_market_tape_hidden = False
         self.session_market_tape_restored = False
@@ -4635,23 +4635,27 @@ class DashboardWindow(QMainWindow):
             self.bottom_right_stack.setCurrentWidget(self.market_news_card)
 
     def hide_reminders_for_current_session(self):
-        # Do not save this. The normal reminders panel returns next launch
-        # unless the separate Settings checkbox is enabled.
+        # Explicit Hide persists; empty-calendar fallback stays automatic.
         self.session_reminders_hidden = True
+        self.hide_reminders = True
+        self.saved_settings.setValue("hide_reminders", True)
+        self.saved_settings.sync()
         self.show_more_news_panel()
-        print("Reminders hidden for this session only.")
+        print("Reminders hidden; startup preference saved.")
 
     def show_reminders_for_current_session(self):
-        # Header button on the left mini-news card.
-        # This also stays session-only and does not change Settings.
+        # Restore Reminders for this and future launches.
         self.session_reminders_hidden = False
+        self.hide_reminders = False
+        self.saved_settings.setValue("hide_reminders", False)
+        self.saved_settings.sync()
         self.calendar_has_no_events = False
         self.more_news_card.read_label.setText("")
 
         if hasattr(self, "bottom_left_stack"):
             self.bottom_left_stack.setCurrentWidget(self.reminders)
 
-        print("Reminders restored for this session.")
+        print("Reminders restored; startup preference saved.")
 
     def start_mini_news_background_refresh(self):
         print("Refreshing both mini-news caches in the background.")
@@ -4958,19 +4962,25 @@ class DashboardWindow(QMainWindow):
             self.bottom_right_stack.setCurrentWidget(self.stocks_panel)
 
     def hide_market_tape_for_current_session(self):
-        # Header Hide button only affects the current run of the app.
+        # Remember this panel choice across launches.
         self.session_market_tape_hidden = True
         self.session_market_tape_restored = False
+        self.replace_market_tape_with_news = True
+        self.saved_settings.setValue("replace_market_tape_with_news", True)
+        self.saved_settings.sync()
         self.show_market_news_panel()
-        print("Market Tape hidden for this session only.")
+        print("Market Tape hidden; startup preference saved.")
 
     def show_market_tape_for_current_session(self):
-        # Right mini-news header button. Does not modify the saved checkbox.
+        # Restore Market Tape for this and future launches.
         self.session_market_tape_hidden = False
         self.session_market_tape_restored = True
+        self.replace_market_tape_with_news = False
+        self.saved_settings.setValue("replace_market_tape_with_news", False)
+        self.saved_settings.sync()
         self.show_market_tape_panel()
         self.start_stock_fetch()
-        print("Market Tape restored for this session.")
+        print("Market Tape restored; startup preference saved.")
 
     def clear_market_news_fetch_references(self, thread, worker):
         if self.market_news_thread is thread:

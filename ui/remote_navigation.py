@@ -597,7 +597,7 @@ class RemoteNavigation(QObject):
             self.outline.hide()
             self.highlighted_label = target.owner
             effect = QGraphicsColorizeEffect(target.owner)
-            effect.setColor(_morningui_oled_nav_color(QColor('#705C00')))
+            effect.setColor(_morningui_oled_nav_color(QColor('#1976D2')))
             effect.setStrength(1.0)
             target.owner.setGraphicsEffect(effect)
         elif target.identity[:2] == ('painted', 'sports_games'):
@@ -2055,3 +2055,102 @@ def _mui_v32_move(self, direction):
 
 
 RemoteNavigation.move = _mui_v32_move
+
+
+
+# MUI_SECONDARY_LEFT_RIGHT_CONTEXT_V34
+_mui_v34_previous_move = RemoteNavigation.move
+
+
+def _mui_v34_move(self, direction):
+    # Only intercept RIGHT from the left secondary headlines.
+    # All other navigation retains its existing behavior.
+    if direction == Qt.Key.Key_Right and self._article_popup() is None:
+        targets = self._dashboard_targets()
+
+        current = self._by_identity(
+            targets, self.selected_identity
+        )
+
+        if (
+            current is not None
+            and current.kind == 'text'
+            and current.identity[:2] ==
+            ('secondary', 'more_news_card')
+        ):
+            stack = getattr(
+                self.root, 'bottom_right_stack', None
+            )
+
+            visible = (
+                stack.currentWidget()
+                if stack is not None else None
+            )
+
+            news = getattr(
+                self.root, 'market_news_card', None
+            )
+
+            market = getattr(
+                self.root, 'stocks_panel', None
+            )
+
+            destination = None
+
+            # RIGHT COLUMN DISPLAYS SECONDARY NEWS
+            if news is not None and visible is news:
+                right_headlines = [
+                    target for target in targets
+                    if target.kind == 'text'
+                    and target.identity[:2] ==
+                    ('secondary', 'market_news_card')
+                ]
+
+                if right_headlines:
+                    destination = min(
+                        right_headlines,
+                        key=lambda target: (
+                            abs(
+                                target.center.y()
+                                - current.center.y()
+                            ),
+                            abs(
+                                target.center.x()
+                                - current.center.x()
+                            ),
+                        ),
+                    )
+
+            # RIGHT COLUMN DISPLAYS MARKET TAPE
+            elif market is not None and visible is market:
+                buttons = getattr(
+                    market, '_mui_range_buttons_v29', None
+                )
+
+                yoy_button = (
+                    buttons.get('YoY')
+                    if isinstance(buttons, dict)
+                    else None
+                )
+
+                if yoy_button is not None:
+                    destination = next(
+                        (
+                            target for target in targets
+                            if target.owner is yoy_button
+                        ),
+                        None,
+                    )
+
+            # No unrelated button/hidden-panel fallback.
+            self._show(
+                destination
+                if destination is not None
+                else current
+            )
+            return
+
+    return _mui_v34_previous_move(self, direction)
+
+
+RemoteNavigation.move = _mui_v34_move

@@ -170,12 +170,13 @@ class SparklineChart(QWidget):
         if bottom_y - top_y < 8:
             return
 
-        # MARKET_TAPE_RANGES_V29: include the day's opening-price
-        # reference in the visible axis scale.
+        # Include the previous trading close in the 1d scale.
         axis_values = list(values)
-        day_open = getattr(self, "_mui_intraday_open_v29", None)
-        if day_open is not None and day_open > 0:
-            axis_values.append(float(day_open))
+        previous_close = getattr(
+            self, "_mui_intraday_previous_close_v30", None
+        )
+        if previous_close is not None and previous_close > 0:
+            axis_values.append(float(previous_close))
         low = min(axis_values)
         high = max(axis_values)
         span = high - low
@@ -264,13 +265,12 @@ class SparklineChart(QWidget):
                 label
             )
 
-        # MARKET_TAPE_RANGES_V29: dotted opening-price line on 1D.
-        day_open = getattr(self, "_mui_intraday_open_v29", None)
-        if day_open is not None and low <= day_open <= high:
+        # Dotted 1d line: previous regular-session close.
+        if previous_close is not None and low <= previous_close <= high:
             reference_pen = QPen(QColor(220, 225, 230, 140), 0.85)
             reference_pen.setStyle(Qt.DashLine)
             painter.setPen(reference_pen)
-            baseline = value_y(day_open)
+            baseline = value_y(previous_close)
             painter.drawLine(
                 QPointF(left_x, baseline),
                 QPointF(right_x, baseline),
@@ -297,10 +297,29 @@ class SparklineChart(QWidget):
 
         points = []
 
+        # 1d uses the fixed 9:30 AM–4:00 PM ET time axis.
+        # Future trading hours remain blank.
+        intraday_minutes = getattr(
+            self, "_mui_intraday_minutes_v30", None
+        )
+        if (
+            intraday_minutes is not None
+            and len(intraday_minutes) != len(values)
+        ):
+            painter.end()
+            return
+
         for index, value in enumerate(values):
-            x = left_x + (
-                index / (len(values) - 1)
-            ) * (right_x - left_x)
+            if intraday_minutes is None:
+                fraction = index / (len(values) - 1)
+            else:
+                fraction = max(
+                    0.0, min(
+                        1.0,
+                        (intraday_minutes[index] - 570.0) / 390.0
+                    )
+                )
+            x = left_x + fraction * (right_x - left_x)
 
             points.append(
                 QPointF(x, value_y(value))

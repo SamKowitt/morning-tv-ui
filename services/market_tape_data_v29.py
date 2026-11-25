@@ -111,6 +111,7 @@ def fetch_market_data_v29(index_symbols=None, stock_symbols=None, should_cancel=
         quote._mui_daily_v29 = daily
         quote._mui_intraday_v29 = intraday
         quote._mui_live_v29 = price
+        quote._mui_live_time_v30 = meta.get("regularMarketTime")
         quote._mui_fetched_v29 = datetime.now(_ET).isoformat(timespec="seconds")
         print(f"Market Tape V29 {symbol} price={price_text} daily={len(daily)} intraday={len(intraday)}", flush=True)
         return quote

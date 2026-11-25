@@ -135,6 +135,9 @@ Window {
         delegate: Item {
             id: tile
             property var info: root.cards.length === 9 ? root.cards[index] : ({})
+            // MUI_WEATHER_ART_LIFECYCLE_V1
+            property string artworkKey: String(info.v5w_mode || "clear_sky")
+                                        + "|" + String(info.phase || "day")
             visible: info.w > 0
             opacity: root.showWeather && root.oledLevel < 3 ? 1.0 : 0.0
             x: (info.x || 0) + root.screenX - root.displayX
@@ -148,11 +151,30 @@ Window {
                 visible: false
                 layer.enabled: true
 
-                Weather.V5WCard {
+                Loader {
+                    id: hourlySkyLoader
                     anchors.fill: parent
-                    condition: tile.info.v5w_mode || "clear_sky"
-                    phase: tile.info.phase || "day"
-                    windMultiplier: tile.info.wind || 1.0
+                    sourceComponent: hourlySkyComponent
+                }
+                Component {
+                    id: hourlySkyComponent
+                    Weather.V5WCard {
+                        anchors.fill: parent
+                        condition: tile.info.v5w_mode || "clear_sky"
+                        phase: tile.info.phase || "day"
+                        windMultiplier: tile.info.wind || 1.0
+                    }
+                }
+                Connections {
+                    target: tile
+                    function onArtworkKeyChanged() {
+                        if (hourlySkyLoader.item) {
+                            hourlySkyLoader.active = false
+                            hourlySkyLoader.active = true
+                            console.log("MUI_ART_REBUILD hourly", index,
+                                        tile.artworkKey)
+                        }
+                    }
                 }
                 // OLED contrast: darken animated artwork behind tan text;
                 // original OLED text and section layout remain authoritative.
@@ -221,6 +243,9 @@ Window {
         id: nativeCurrent
         z: 10
         property var info: root.currentHour
+        // MUI_WEATHER_ART_LIFECYCLE_V1
+        property string artworkKey: String(info.condition || "clear_sky")
+                                    + "|" + String(info.phase || "day")
         property bool reported: false
         // MUI_NATIVE_CURRENT_MOTION_GATE_V7
         // Keep original V27 visible until native cloud motion starts.
@@ -249,7 +274,8 @@ Window {
                     return
 
                 // V5WCard's visual child exposes the cloud animation position.
-                var entry = nativeSky.children.length ? nativeSky.children[0] : null
+                var scene = nativeSky.item
+                var entry = scene && scene.children.length ? scene.children[0] : null
                 if (!entry || typeof entry.hasCloud !== "boolean") return
 
                 if (entry.hasCloud) {
@@ -288,13 +314,33 @@ Window {
             layer.enabled: true
             // Identical offscreen-layer technique used by the nine hourly
             // cards. Native V5W animations keep advancing behind popups.
-            Weather.V5WCurrentHQ {
+            Loader {
                 id: nativeSky
                 anchors.fill: parent
-                condition: nativeCurrent.info.condition || "clear_sky"
-                phase: nativeCurrent.info.phase || "day"
-                windMultiplier: Number(nativeCurrent.info.wind || 1.0)
-                dateCardPresentation: true
+                sourceComponent: nativeSkyComponent
+            }
+            Component {
+                id: nativeSkyComponent
+                Weather.V5WCurrentHQ {
+                    anchors.fill: parent
+                    condition: nativeCurrent.info.condition || "clear_sky"
+                    phase: nativeCurrent.info.phase || "day"
+                    windMultiplier: Number(nativeCurrent.info.wind || 1.0)
+                    dateCardPresentation: true
+                }
+            }
+            Connections {
+                target: nativeCurrent
+                function onArtworkKeyChanged() {
+                    if (nativeSky.item) {
+                        nativeSky.active = false
+                        nativeSky.active = true
+                        nativeCurrent.reported = false
+                        nativeCurrent.firstCloudPosition = -1
+                        console.log("MUI_ART_REBUILD current",
+                                    nativeCurrent.artworkKey)
+                    }
+                }
             }
             Rectangle {
                 anchors.fill: parent

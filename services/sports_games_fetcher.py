@@ -1173,3 +1173,8 @@ def fetch_current_sports_games(max_games_per_league=3, favorite_teams=None):
     print(f"Loaded active sports leagues: {[league.league for league in leagues]}")
 
     return leagues
+
+# MUI_GAME_TIMES_V33 -- preserve all original fetcher functions; update only
+# the resolved MLB/NFL/NBA game-selection functions after import.
+from services.mui_game_times_v33 import install as _mui_game_times_install_v33
+_mui_game_times_install_v33()

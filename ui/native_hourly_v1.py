@@ -787,7 +787,7 @@ class NativeHourly(QObject):
             proc.setProcessEnvironment(env)
             proc.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
             proc.readyReadStandardOutput.connect(self._read_output)
-            proc.finished.connect(lambda *_args: self._fallback())
+            proc.finished.connect(self._fallback)
             proc.start(binpath, ["--transparent", str(QML)])
             if not proc.waitForStarted(1800):
                 raise RuntimeError("Native Qt renderer failed to start")
@@ -813,9 +813,12 @@ class NativeHourly(QObject):
                 if self._current_native is not None and self._current_native_qml_ready:
                     QTimer.singleShot(200, self._current_native.suspend_gpu)
             elif "NATIVE_CURRENT_HOUR_READY" in line:
+                print("MUI_CURRENT_CLOUD_TRACE_V19", line[-300:], flush=True)
                 self._current_native_qml_ready = True
                 if self._current_native is not None and self.ready:
                     QTimer.singleShot(200, self._current_native.suspend_gpu)
+            elif "MUI_CURRENT_HQ_V81_CLOUD_X" in line:
+                print("MUI_CURRENT_CLOUD_TRACE_V19", line[-300:], flush=True)
             elif "NATIVE_CURRENT_HOUR_ANIMATING" in line:
                 # Proof the exact copied DateCard scene advanced its clock.
                 print("NATIVE_HOURLY_QML:", line[-500:], flush=True)

@@ -250,12 +250,20 @@ Item {
     function topSky(key) {
         var g = grayFamily(key);
         if (nighttime) return g ? "#52677d" : "#0b2149";
+        if (phaseMode === "dawn")
+            return g ? "#8e8da9" : "#7d83bc";
+        if (phaseMode === "dusk")
+            return g ? "#9488a0" : "#877eb0";
         if (g) return phaseMode === "dawn" || phaseMode === "dusk" ? "#788fa7" : "#7895ad";
         return "#5e8fc8";
     }
     function bottomSky(key) {
         var g = grayFamily(key);
         if (nighttime) return g ? "#70879b" : "#24487c";
+        if (phaseMode === "dawn")
+            return g ? "#c0a9b4" : "#e1b2a6";
+        if (phaseMode === "dusk")
+            return g ? "#c4a5b2" : "#e2aaa1";
         if (g) return phaseMode === "dawn" || phaseMode === "dusk" ? "#9eb4c6" : "#a0b9ca";
         if (phaseMode === "dawn" || phaseMode === "dusk") return "#c6b9b3";
         return "#9cc4ee";
@@ -316,35 +324,6 @@ Item {
                 }
             }
 
-            // Subtle stars only on clear/mostly-clear nighttime.
-            Item {
-                anchors.fill: parent
-                visible: root.nighttime &&
-                    (entry.modelData.key === "clear_sky" || entry.modelData.key === "mostly_clear")
-                Repeater {
-                    model: entry.modelData.key === "clear_sky" ? 22 : 12
-                    delegate: Rectangle {
-                        id: star
-                        property int starIndex: index
-                        // MORNINGUI_HOURLY_RIGHT_STAR_CLEANUP_V1
-                        // Keep DateCard stars; clear hourly Moon corner.
-                        visible: root.dateCardPresentation || root.v5xStarPositions[index][0] < 0.83
-                        property real b: 0.9 + (index % 4) * 0.17
-                        x: 7 + root.v5xStarPositions[index][0] * (card.width - 15)
-                        y: 5 + root.v5xStarPositions[index][1] * (card.height * 0.51)
-                        width: b; height: b; radius: b/2
-                        color: index % 7 === 0 ? "#fff7e4" : "#f7f9ff"
-                        opacity: 0.45
-                        SequentialAnimation on opacity {
-                            running: root.nighttime
-                            loops: Animation.Infinite
-                            NumberAnimation { from: 0.32; to: 0.69; duration: 13000 + (star.starIndex % 7)*1100 }
-                            NumberAnimation { from: 0.69; to: 0.32; duration: 13000 + (star.starIndex % 7)*1100 }
-                        }
-                    }
-                }
-            }
-
             // Exactly the same approved reference frames for PARTLY CLOUDY;
             // its two variants are processed from the same 200s source video.
             // Clouds never appear in the lower 35% of an hourly card.
@@ -383,6 +362,58 @@ Item {
                         GradientStop { position: 0.60; color: root.fadeSkyAt(entry.modelData.key, 0.499, 0.61) }
                         GradientStop { position: 0.80; color: root.fadeSkyAt(entry.modelData.key, 0.575, 0.90) }
                         GradientStop { position: 1.00; color: root.fadeSkyAt(entry.modelData.key, 0.650, 1.00) }
+                    }
+                }
+            }
+
+            // Shared nighttime star field with local cloud fading.
+            Item {
+                anchors.fill: parent
+                visible: root.nighttime &&
+                    (entry.modelData.key === "clear_sky" ||
+                     entry.modelData.key === "mostly_clear" ||
+                     entry.modelData.key === "partly_cloudy")
+                Repeater {
+                    model: 22  // MUI_NIGHT_STAR_OCCLUSION_V32
+                    delegate: Rectangle {
+                        id: star
+                        property int starIndex: index
+                        // MORNINGUI_HOURLY_RIGHT_STAR_CLEANUP_V1
+                        // Keep DateCard stars; clear hourly Moon corner.
+                        visible: root.dateCardPresentation || root.v5xStarPositions[index][0] < 0.83
+                        property real b: 0.9 + (index % 4) * 0.17
+                        x: 7 + root.v5xStarPositions[index][0] * (card.width - 15)
+                        y: 5 + root.v5xStarPositions[index][1] * (card.height * 0.51)
+                        width: b; height: b; radius: b/2
+                        color: index % 7 === 0 ? "#fff7e4" : "#f7f9ff"
+                        // V32: preserve twinkling while fading each star
+                        // according to clouds passing over its own position.
+                        property real twinkleOpacity: 0.45
+                        property real cloudFade: {
+                            if (entry.modelData.key === "clear_sky")
+                                return 1.0
+
+                            var clouds = cloudMovie.item
+                            if (!clouds || !clouds.starOcclusionAtX)
+                                return 1.0
+
+                            var cover = Math.max(0.0, Math.min(1.0,
+                                clouds.starOcclusionAtX(
+                                    star.x + star.width / 2)))
+
+                            return entry.modelData.key === "mostly_clear"
+                                ? Math.max(0.65, 1.0 - cover * 0.30)
+                                : Math.max(0.12, 1.0 - cover * 0.88)
+                        }
+
+                        opacity: twinkleOpacity * cloudFade
+
+                        SequentialAnimation on twinkleOpacity {
+                            running: root.nighttime
+                            loops: Animation.Infinite
+                            NumberAnimation { from: 0.32; to: 0.69; duration: 13000 + (star.starIndex % 7)*1100 }
+                            NumberAnimation { from: 0.69; to: 0.32; duration: 13000 + (star.starIndex % 7)*1100 }
+                        }
                     }
                 }
             }
@@ -467,6 +498,14 @@ Item {
                             (-sparseStrip.x / Math.max(1,width))
                             * 40000
                         )
+
+                    // V32: sample cloud density at each star's X.
+                    // Uses the existing moon-cloud density function.
+                    function starOcclusionAtX(pixelX) {
+                        return cloudAt(
+                            (pixelX - sparseStrip.x) / Math.max(1, width)
+                        )
+                    }
 
                     function cloudAt(f) {
                         var u = ((f % 1) + 1) % 1;
@@ -646,12 +685,12 @@ Item {
                                 : Math.round(14 - height / 2)
 
                 source: Qt.resolvedUrl(
-                    "assets/sun_halo_v5l.png"
+                    "sun_halo_warm_v33.png"
                 )
 
                 smooth: true
 
-                opacity: 0.94 * (
+                opacity: 0.82 * (  // MUI_WARM_SUN_V33
                     1.0 -
                     Math.min(1.0, entry.cloudCover) * 0.91
                 )
@@ -673,7 +712,7 @@ Item {
                     : (root.phaseMode === "day" && entry.modelData.sun)
                 source: root.nighttime
                     ? Qt.resolvedUrl("assets/moon_phase_current.png?rev=" + root.moonRevision)
-                    : Qt.resolvedUrl("assets/sun_glow.png")
+                    : Qt.resolvedUrl("sun_disc_orange_v34.png")
                 width: root.dateCardPresentation
                     ? (root.nighttime
                        ? Math.round(Math.min(card.width, card.height) * 0.15)

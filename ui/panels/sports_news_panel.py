@@ -241,7 +241,7 @@ class SportsNewsPanel(QWidget):
         painter.setFont(headline_font)
         # MORNINGUI_CEC_SPORTS_TEXT_V6: tint only selected headline glyphs.
         painter.setPen(_morningui_oled_nav_color(QColor(
-            "#705C00" if getattr(self, "_morningui_remote_sports_index", -1) == 0
+            "#1976D2" if getattr(self, "_morningui_remote_sports_index", -1) == 0
             else "#15100b"
         )))
 
@@ -379,7 +379,7 @@ class SportsNewsPanel(QWidget):
             # entering the divider or the four smaller article columns.
             painter.setClipRect(rect)
             painter.setPen(_morningui_oled_nav_color(QColor(
-                "#705C00" if getattr(self, "_morningui_remote_sports_index", -1) == 0
+                "#1976D2" if getattr(self, "_morningui_remote_sports_index", -1) == 0
                 else "#15100b"
             )))
 
@@ -1306,7 +1306,7 @@ class SportsNewsPanel(QWidget):
             painter.save()
             painter.setClipRect(headline_rect)
             painter.setPen(_morningui_oled_nav_color(QColor(
-                "#705C00" if getattr(self, "_morningui_remote_sports_index", -1) == index + 1
+                "#1976D2" if getattr(self, "_morningui_remote_sports_index", -1) == index + 1
                 else "#21180f"
             )))
 

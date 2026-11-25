@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, date
 from calendar import monthrange
 from zoneinfo import ZoneInfo
 from math import isfinite
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QSettings
 from PySide6.QtWidgets import QHBoxLayout, QPushButton
 
 _ET = ZoneInfo("America/New_York")
@@ -35,7 +35,7 @@ def _window_for_quote(quote, period):
     intraday = list(getattr(quote, "_mui_intraday_v29", []) or [])
     current = getattr(quote, "_mui_live_v29", None)
     if period == "1d":
-        # The most recent regular session, including today's partial session.
+        # Preserve each candle's exchange-local timestamp.
         buckets = {}
         for ts, close, opening in intraday:
             clock = datetime.fromtimestamp(ts, _ET)
@@ -43,22 +43,71 @@ def _window_for_quote(quote, period):
             if 570 <= minutes <= 960 and clock.weekday() < 5:
                 buckets.setdefault(clock.date(), []).append((ts, close, opening))
         if not buckets:
-            return None, None, None
+            return None, None, None, None
+
         day = max(buckets)
         records = sorted(buckets[day])
-        opening = records[0][2]
-        if opening is None or opening <= 0:
-            opening = records[0][1]
-        values = [opening] + [point[1] for point in records]
-        # The current quote can be fresher than the last 5-min candle.
-        if day == now.date() and 570 <= now.hour * 60 + now.minute <= 960:
-            if current and current > 0:
-                values.append(current)
-        pct = 100.0 * (values[-1] - opening) / opening if opening > 0 else None
-        return values, pct, opening
+
+        # Only a completed PRIOR session can supply the baseline.
+        prior = [
+            (ts, close) for ts, close, unused_open in daily
+            if datetime.fromtimestamp(ts, _ET).date() < day
+            and close is not None and isfinite(close) and close > 0
+        ]
+        previous_close = max(
+            prior, key=lambda row: row[0]
+        )[1] if prior else None
+
+        def minute_of(ts):
+            t = datetime.fromtimestamp(ts, _ET)
+            return t.hour * 60 + t.minute + t.second / 60.0
+
+        values = [point[1] for point in records]
+        minutes = [minute_of(point[0]) for point in records]
+
+        first_open = records[0][2]
+        if (
+            minutes[0] <= 575
+            and first_open is not None
+            and isfinite(first_open)
+            and first_open > 0
+        ):
+            values.insert(0, first_open)
+            minutes.insert(0, 570.0)
+
+        # Use the provider's actual trade time for a fresher quote.
+        try:
+            live_ts = int(
+                getattr(quote, "_mui_live_time_v30", 0) or 0
+            )
+        except (TypeError, ValueError, OverflowError):
+            live_ts = 0
+
+        if (
+            current is not None
+            and isfinite(current)
+            and current > 0
+            and live_ts > records[-1][0]
+        ):
+            trade = datetime.fromtimestamp(live_ts, _ET)
+            minute = minute_of(live_ts)
+            if (
+                trade.date() == day
+                and 570 <= minute <= 960
+                and live_ts <= now.timestamp() + 120
+            ):
+                if minute > minutes[-1]:
+                    values.append(current)
+                    minutes.append(minute)
+
+        pct = (
+            100.0 * (values[-1] - previous_close) / previous_close
+            if previous_close is not None else None
+        )
+        return values, pct, previous_close, minutes
 
     if not daily:
-        return None, None, None
+        return None, None, None, None
 
     today = now.date()
     if period == "YoY":
@@ -74,23 +123,26 @@ def _window_for_quote(quote, period):
     elif period == "7d":
         start = today - timedelta(days=7)
     else:
-        return None, None, None
+        return None, None, None, None
 
     values = [
         value for ts, value, unused_open in daily
         if datetime.fromtimestamp(ts, _ET).date() >= start
     ]
     if len(values) < 2:
-        return None, None, None
+        return None, None, None, None
     if current is not None and current > 0:
         if abs(values[-1] - current) > 1e-6:
             values.append(current)
     pct = 100.0 * (values[-1] - values[0]) / values[0]
-    return values, pct, None
+    return values, pct, None, None
 
 
 def _select(panel, period):
     panel._mui_range_v29 = period
+    settings = QSettings("MorningTVUI", "MorningTVUI")
+    settings.setValue("market_tape_observation_window", period)
+    settings.sync()
     panel.subtitle.setText(_CAPTIONS[period])
     for key, button in panel._mui_range_buttons_v29.items():
         button.setChecked(key == period)
@@ -99,17 +151,21 @@ def _select(panel, period):
 
 
 def add_range_buttons_v29(panel, header):
-    panel._mui_range_v29 = "3 Mo"
+    settings = QSettings("MorningTVUI", "MorningTVUI")
+    selected = str(settings.value("market_tape_observation_window", "3 Mo"))
+    if selected not in _CAPTIONS:
+        selected = "3 Mo"
+    panel._mui_range_v29 = selected
     panel._mui_range_data_v29 = None
     panel._mui_range_buttons_v29 = {}
-    panel.subtitle.setText("3 Month Trend")
+    panel.subtitle.setText(_CAPTIONS[selected])
     buttons = QHBoxLayout()
     buttons.setContentsMargins(0, 0, 0, 0)
     buttons.setSpacing(5)
     for key, caption, n in _WINDOWS:
         button = QPushButton(key, panel)
         button.setCheckable(True)
-        button.setChecked(key == "3 Mo")
+        button.setChecked(key == selected)
         button.setFixedHeight(17)
         button.setFixedWidth(31 if len(key) >= 3 else 24)
         button.setCursor(Qt.PointingHandCursor)
@@ -166,11 +222,12 @@ def _apply(panel):
         for widget, quote in zip(panel.stock_widgets, data.stocks)
     ]
     for widget, quote, badge in entries:
-        values, percentage, opening = _window_for_quote(quote, period)
+        values, percentage, previous_close, intraday_minutes = _window_for_quote(quote, period)
         chart = widget.sparkline
         valid = values is not None and len(values) >= 2
         chart._mui_tick_count_v29 = marks
-        chart._mui_intraday_open_v29 = opening if valid and period == "1d" else None
+        chart._mui_intraday_previous_close_v30 = previous_close if valid and period == "1d" else None
+        chart._mui_intraday_minutes_v30 = intraday_minutes if valid and period == "1d" else None
         chart._market_percent = percentage if valid else None
         chart._mui_market_no_history_v27 = not valid
         if valid:
